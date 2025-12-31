@@ -62,6 +62,21 @@ WantedBy=multi-user.target
 4. In Shell type `systemctl status telemt` - there you can reach info about current MTProxy status
 5. In Shell type `systemctl enable telemt` - then telemt will start with system startup, after the network is up
 
+## FAQ
+### Telegram Calls via MTProxy
+- Telegram architecture does **NOT allow calls via MTProxy**, but only via SOCKS5, which cannot be obfuscated
+### How does DPI see MTProxy TLS?
+- DPI sees MTProxy in Fake TLS mode as TLS
+- the SNI you specify sends both the client and the server;
+- ALPN is similar to HTTP 1.1/2;
+- high entropy, which is normal for AES-encrypted traffic;
+### Whitelist on IP
+- MTProxy cannot work when there is: 
+  - no IP connectivity to the target host
+  - OR all TCP traffic is blocked
+  - OR all TLS traffic is blocked,
+- like most protocols on the Internet; this situation is observed in China behind the Great Chinese Firewall and in Russia on mobile networks
+
 ## Why Rust?
 - Long-running reliability and idempotent behavior
 - Rust’s deterministic resource management - RAII 
