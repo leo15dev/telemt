@@ -47,6 +47,7 @@ telemt config.toml
 ## How to use?
 ### Telemt via Systemd
 0. Check port and generate secrets
+
 The port you have selected for use should be MISSING from the list, when:
 ```bash
 netstat -lnp
