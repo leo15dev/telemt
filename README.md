@@ -146,7 +146,7 @@ To specify listening address and/or address in links, add to the end of config.t
 ```toml
 [[listeners]]
 ip = "0.0.0.0"          # 0.0.0.0 = all IPs; your IP = specific listening
-announce_ip = "1.2.3.4" # IP in links
+announce_ip = "1.2.3.4" # IP in links; comment with # if not used
 ```
 #### Upstream Manager
 To specify upstream, add to the end of config.toml:
