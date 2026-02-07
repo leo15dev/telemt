@@ -8,6 +8,7 @@ use tokio::signal;
 use tracing::{info, error, warn, debug};
 use tracing_subscriber::{fmt, EnvFilter};
 
+mod cli;
 mod config;
 mod crypto;
 mod error;
@@ -32,6 +33,16 @@ fn parse_cli() -> (String, bool, Option<String>) {
     let mut log_level: Option<String> = None;
     
     let args: Vec<String> = std::env::args().skip(1).collect();
+    
+    // Check for --init first (handled before tokio)
+    if let Some(init_opts) = cli::parse_init_args(&args) {
+        if let Err(e) = cli::run_init(init_opts) {
+            eprintln!("[telemt] Init failed: {}", e);
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
+    
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -45,9 +56,20 @@ fn parse_cli() -> (String, bool, Option<String>) {
             }
             "--help" | "-h" => {
                 eprintln!("Usage: telemt [config.toml] [OPTIONS]");
+                eprintln!();
+                eprintln!("Options:");
                 eprintln!("  --silent, -s            Suppress info logs");
                 eprintln!("  --log-level <LEVEL>     debug|verbose|normal|silent");
                 eprintln!("  --help, -h              Show this help");
+                eprintln!();
+                eprintln!("Setup (fire-and-forget):");
+                eprintln!("  --init                  Generate config, install systemd service, start");
+                eprintln!("    --port <PORT>          Listen port (default: 443)");
+                eprintln!("    --domain <DOMAIN>      TLS domain for masking (default: www.google.com)");
+                eprintln!("    --secret <HEX>         32-char hex secret (auto-generated if omitted)");
+                eprintln!("    --user <NAME>          Username (default: user)");
+                eprintln!("    --config-dir <DIR>     Config directory (default: /etc/telemt)");
+                eprintln!("    --no-start             Don't start the service after install");
                 std::process::exit(0);
             }
             s if !s.starts_with('-') => { config_path = s.to_string(); }
@@ -112,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.censorship.mask_port);
     
     if config.censorship.tls_domain == "www.google.com" {
-        warn!("Using default tls_domain (www.google.com). Consider setting a custom domain.");
+        warn!("Using default tls_domain. Consider setting a custom domain.");
     }
     
     let prefer_ipv6 = config.general.prefer_ipv6;
@@ -128,7 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let upstream_manager = Arc::new(UpstreamManager::new(config.upstreams.clone()));
     let buffer_pool = Arc::new(BufferPool::with_config(16 * 1024, 4096));
     
-    // === Startup DC Ping ===
+    // Startup DC ping
     println!("=== Telegram DC Connectivity ===");
     let ping_results = upstream_manager.ping_all_dcs(prefer_ipv6).await;
     for upstream_result in &ping_results {
@@ -141,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (None, Some(err)) => {
                     println!("    DC{} ({:>21}):  FAIL ({})", dc.dc_idx, dc.dc_addr, err);
                 }
-                (None, None) => {
+                _ => {
                     println!("    DC{} ({:>21}):  FAIL", dc.dc_idx, dc.dc_addr);
                 }
             }
@@ -149,16 +171,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("================================");
     
-    // Start background tasks
+    // Background tasks
     let um_clone = upstream_manager.clone();
-    tokio::spawn(async move {
-        um_clone.run_health_checks(prefer_ipv6).await;
-    });
+    tokio::spawn(async move { um_clone.run_health_checks(prefer_ipv6).await; });
     
     let rc_clone = replay_checker.clone();
-    tokio::spawn(async move {
-        rc_clone.run_periodic_cleanup().await;
-    });
+    tokio::spawn(async move { rc_clone.run_periodic_cleanup().await; });
 
     let detected_ip = detect_ip().await;
     debug!("Detected IPs: v4={:?} v6={:?}", detected_ip.ipv4, detected_ip.ipv6);
