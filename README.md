@@ -2,18 +2,24 @@
 
 **Telemt** is a fast, secure, and feature-rich server written in Rust: it fully implements the official Telegram proxy algo and adds many production-ready improvements such as connection pooling, replay protection, detailed statistics, masking from "prying" eyes
 
+### EMERGENCY
 **Важное сообщение для пользователей из России**
 
 Мы работаем над проектом с Нового года и сейчас готовим новый релиз - 1.2
-В нём имплементируется поддержка Middle Proxy Protocol - основного терминатора для Ad Tag
-Работа над ним идёт с 6 ферваля, а уже 10 февраля произошли "громкие события"...
+
+В нём имплементируется поддержка Middle Proxy Protocol - основного терминатора для Ad Tag:
+работа над ним идёт с 6 ферваля, а уже 10 февраля произошли "громкие события"...
+
 Если у вас есть компетенции в асинхронных сетевых приложениях - мы открыты к предложениям и pull requests
 
 **Important message for users from Russia**
-We've been working on the project since December 30 and are currently preparing a new release – 1.2.
+We've been working on the project since December 30 and are currently preparing a new release – 1.2
+
 It implements support for the Middle Proxy Protocol – the primary point for the Ad Tag:
 development on it started on February 6th, and by February 10th, "big activity" in Russia had already "taken place"...
+
 If you have expertise in asynchronous network applications – we are open to ideas and pull requests!
+
 
 💥 The configuration structure has changed since version 1.1.0.0, change it in your environment!
 
