@@ -9,6 +9,9 @@ use tracing::debug;
 use crate::config::ProxyConfig;
 
 const MASK_TIMEOUT: Duration = Duration::from_secs(5);
+    /// Maximum duration for the entire masking relay.
+    /// Limits resource consumption from slow-loris attacks and port scanners.
+    const MASK_RELAY_TIMEOUT: Duration = Duration::from_secs(60);
 const MASK_BUFFER_SIZE: usize = 8192;
 
 /// Detect client type based on initial data

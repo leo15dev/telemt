@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tokio::sync::Semaphore;
 use tracing::{info, error, warn, debug};
 use tracing_subscriber::{fmt, EnvFilter, reload, prelude::*};
 
@@ -150,6 +151,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let upstream_manager = Arc::new(UpstreamManager::new(config.upstreams.clone()));
     let buffer_pool = Arc::new(BufferPool::with_config(16 * 1024, 4096));
+    
+        // Connection concurrency limit — prevents OOM under SYN flood / connection storm.
+        // 10000 is generous; each connection uses ~64KB (2x 16KB relay buffers + overhead).
+        // 10000 connections ≈ 640MB peak memory.
+        let max_connections = Arc::new(Semaphore::new(10_000));
     
     // Startup DC ping
     info!("=== Telegram DC Connectivity ===");
