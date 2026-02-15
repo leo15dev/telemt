@@ -87,16 +87,24 @@ fn get_dc_addr_static(dc_idx: i16, config: &ProxyConfig) -> Result<SocketAddr> {
     let num_dcs = datacenters.len();
 
     let dc_key = dc_idx.to_string();
-    if let Some(addr_str) = config.dc_overrides.get(&dc_key) {
-        match addr_str.parse::<SocketAddr>() {
-            Ok(addr) => {
-                debug!(dc_idx = dc_idx, addr = %addr, "Using DC override from config");
-                return Ok(addr);
+    if let Some(addrs) = config.dc_overrides.get(&dc_key) {
+        let prefer_v6 = config.general.prefer_ipv6;
+        let mut parsed = Vec::new();
+        for addr_str in addrs {
+            match addr_str.parse::<SocketAddr>() {
+                Ok(addr) => parsed.push(addr),
+                Err(_) => warn!(dc_idx = dc_idx, addr_str = %addr_str, "Invalid DC override address in config, ignoring"),
             }
-            Err(_) => {
-                warn!(dc_idx = dc_idx, addr_str = %addr_str,
-                        "Invalid DC override address in config, ignoring");
-            }
+        }
+
+        if let Some(addr) = parsed
+            .iter()
+            .find(|a| a.is_ipv6() == prefer_v6)
+            .or_else(|| parsed.first())
+            .copied()
+        {
+            debug!(dc_idx = dc_idx, addr = %addr, count = parsed.len(), "Using DC override from config");
+            return Ok(addr);
         }
     }
 

@@ -8,7 +8,6 @@ use tokio::signal;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*, reload};
-use tokio::net::UnixListener;
 
 mod cli;
 mod config;
@@ -28,7 +27,7 @@ use crate::ip_tracker::UserIpTracker;
 use crate::proxy::ClientHandler;
 use crate::stats::{ReplayChecker, Stats};
 use crate::stream::BufferPool;
-use crate::transport::middle_proxy::{MePool, fetch_proxy_config};
+use crate::transport::middle_proxy::{MePool, fetch_proxy_config, stun_probe};
 use crate::transport::{ListenOptions, UpstreamManager, create_listener};
 use crate::util::ip::detect_ip;
 use crate::protocol::constants::{TG_MIDDLE_PROXIES_V4, TG_MIDDLE_PROXIES_V6};
@@ -184,7 +183,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
 
     let prefer_ipv6 = config.general.prefer_ipv6;
-    let use_middle_proxy = config.general.use_middle_proxy;
+    let mut use_middle_proxy = config.general.use_middle_proxy;
     let config = Arc::new(config);
     let stats = Arc::new(Stats::new());
     let rng = Arc::new(SecureRandom::new());
@@ -207,6 +206,31 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // Connection concurrency limit
     let _max_connections = Arc::new(Semaphore::new(10_000));
+
+    // STUN check before choosing transport
+    if use_middle_proxy {
+        match stun_probe(config.general.middle_proxy_nat_stun.clone()).await {
+            Ok(Some(probe)) => {
+                info!(
+                    local_ip = %probe.local_addr.ip(),
+                    reflected_ip = %probe.reflected_addr.ip(),
+                    "STUN detected public address"
+                );
+                if probe.local_addr.ip() != probe.reflected_addr.ip()
+                    && !config.general.stun_iface_mismatch_ignore
+                {
+                    warn!(
+                        local_ip = %probe.local_addr.ip(),
+                        reflected_ip = %probe.reflected_addr.ip(),
+                        "STUN/interface IP mismatch; falling back to direct DC (set stun_iface_mismatch_ignore=true to force Middle Proxy)"
+                    );
+                    use_middle_proxy = false;
+                }
+            }
+            Ok(None) => warn!("STUN probe returned no address; continuing"),
+            Err(e) => warn!(error = %e, "STUN probe failed; continuing"),
+        }
+    }
 
     // =====================================================================
     // Middle Proxy initialization (if enabled)
@@ -331,84 +355,81 @@ match crate::transport::middle_proxy::fetch_proxy_secret(proxy_secret_path).awai
         info!("Transport: Direct TCP (standard DCs only)");
     }
 
-    // Startup DC ping (only meaningful in direct mode)
-    if me_pool.is_none() {
-        info!("================= Telegram DC Connectivity =================");
+    info!("================= Telegram DC Connectivity =================");
 
-        let ping_results = upstream_manager.ping_all_dcs(prefer_ipv6).await;
+    let ping_results = upstream_manager.ping_all_dcs(prefer_ipv6).await;
 
-		for upstream_result in &ping_results {
-			let v6_works = upstream_result
-				.v6_results
-				.iter()
-				.any(|r| r.rtt_ms.is_some());
-			let v4_works = upstream_result
-				.v4_results
-				.iter()
-				.any(|r| r.rtt_ms.is_some());
-			
-			if upstream_result.both_available {
-				if prefer_ipv6 {
-					info!("  IPv6 in use and IPv4 is fallback");
-				} else {
-					info!("  IPv4 in use and IPv6 is fallback");
-				}
+	for upstream_result in &ping_results {
+		let v6_works = upstream_result
+			.v6_results
+			.iter()
+			.any(|r| r.rtt_ms.is_some());
+		let v4_works = upstream_result
+			.v4_results
+			.iter()
+			.any(|r| r.rtt_ms.is_some());
+		
+		if upstream_result.both_available {
+			if prefer_ipv6 {
+				info!("  IPv6 in use and IPv4 is fallback");
 			} else {
-				if v6_works && !v4_works {
-					info!("  IPv6 only (IPv4 unavailable)");
-				} else if v4_works && !v6_works {
-					info!("  IPv4 only (IPv6 unavailable)");
-				} else if !v6_works && !v4_works {
-					info!("  No connectivity!");
-				}
+				info!("  IPv4 in use and IPv6 is fallback");
 			}
-
-			info!("  via {}", upstream_result.upstream_name);
-			info!("============================================================");
-
-			// Print IPv6 results first (only if IPv6 is available)
-			if v6_works {
-				for dc in &upstream_result.v6_results {
-					let addr_str = format!("{}:{}", dc.dc_addr.ip(), dc.dc_addr.port());
-					match &dc.rtt_ms {
-						Some(rtt) => {
-							info!("    DC{} [IPv6] {}:\t\t{:.0} ms", dc.dc_idx, addr_str, rtt);
-						}
-						None => {
-							let err = dc.error.as_deref().unwrap_or("fail");
-							info!("    DC{} [IPv6] {}:\t\tFAIL ({})", dc.dc_idx, addr_str, err);
-						}
-					}
-				}
-
-				info!("============================================================");
-			}
-
-			// Print IPv4 results (only if IPv4 is available)
-			if v4_works {
-				for dc in &upstream_result.v4_results {
-					let addr_str = format!("{}:{}", dc.dc_addr.ip(), dc.dc_addr.port());
-					match &dc.rtt_ms {
-						Some(rtt) => {
-							info!(
-								"    DC{} [IPv4] {}:\t\t\t\t{:.0} ms",
-								dc.dc_idx, addr_str, rtt
-							);
-						}
-						None => {
-							let err = dc.error.as_deref().unwrap_or("fail");
-							info!(
-								"    DC{} [IPv4] {}:\t\t\t\tFAIL ({})",
-								dc.dc_idx, addr_str, err
-							);
-						}
-					}
-				}
-
-				info!("============================================================");
+		} else {
+			if v6_works && !v4_works {
+				info!("  IPv6 only (IPv4 unavailable)");
+			} else if v4_works && !v6_works {
+				info!("  IPv4 only (IPv6 unavailable)");
+			} else if !v6_works && !v4_works {
+				info!("  No connectivity!");
 			}
 		}
-    }
+
+		info!("  via {}", upstream_result.upstream_name);
+		info!("============================================================");
+
+		// Print IPv6 results first (only if IPv6 is available)
+		if v6_works {
+			for dc in &upstream_result.v6_results {
+				let addr_str = format!("{}:{}", dc.dc_addr.ip(), dc.dc_addr.port());
+				match &dc.rtt_ms {
+					Some(rtt) => {
+						info!("    DC{} [IPv6] {}:\t\t{:.0} ms", dc.dc_idx, addr_str, rtt);
+					}
+					None => {
+						let err = dc.error.as_deref().unwrap_or("fail");
+						info!("    DC{} [IPv6] {}:\t\tFAIL ({})", dc.dc_idx, addr_str, err);
+					}
+				}
+			}
+
+			info!("============================================================");
+		}
+
+		// Print IPv4 results (only if IPv4 is available)
+		if v4_works {
+			for dc in &upstream_result.v4_results {
+				let addr_str = format!("{}:{}", dc.dc_addr.ip(), dc.dc_addr.port());
+				match &dc.rtt_ms {
+					Some(rtt) => {
+						info!(
+							"    DC{} [IPv4] {}:\t\t\t\t{:.0} ms",
+							dc.dc_idx, addr_str, rtt
+						);
+					}
+					None => {
+						let err = dc.error.as_deref().unwrap_or("fail");
+						info!(
+							"    DC{} [IPv4] {}:\t\t\t\tFAIL ({})",
+							dc.dc_idx, addr_str, err
+						);
+					}
+				}
+			}
+
+			info!("============================================================");
+		}
+	}
 
     // Background tasks
     let um_clone = upstream_manager.clone();
