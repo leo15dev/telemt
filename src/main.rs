@@ -563,22 +563,28 @@ match crate::transport::middle_proxy::fetch_proxy_secret(proxy_secret_path).awai
                 let listener = TcpListener::from_std(socket.into())?;
                 info!("Listening on {}", addr);
 
-                let public_ip = if let Some(ip) = listener_conf.announce_ip {
-                    ip
+                // Resolve the public host for link generation
+                let public_host = if let Some(ref announce) = listener_conf.announce {
+                    announce.clone()  // Use announce (IP or hostname) if explicitly set
                 } else if listener_conf.ip.is_unspecified() {
+                    // Auto-detect for unspecified addresses
                     if listener_conf.ip.is_ipv4() {
-                        detected_ip.ipv4.unwrap_or(listener_conf.ip)
+                        detected_ip.ipv4
+                            .map(|ip| ip.to_string())
+                            .unwrap_or_else(|| listener_conf.ip.to_string())
                     } else {
-                        detected_ip.ipv6.unwrap_or(listener_conf.ip)
+                        detected_ip.ipv6
+                            .map(|ip| ip.to_string())
+                            .unwrap_or_else(|| listener_conf.ip.to_string())
                     }
                 } else {
-                    listener_conf.ip
+                    listener_conf.ip.to_string()
                 };
 
                 // Show per-listener proxy links only when public_host is not set
                 if config.general.links.public_host.is_none() && !config.general.links.show.is_empty() {
                     let link_port = config.general.links.public_port.unwrap_or(config.server.port);
-                    print_proxy_links(&public_ip.to_string(), link_port, &config);
+                    print_proxy_links(&public_host, link_port, &config);
                 }
 
                 listeners.push(listener);

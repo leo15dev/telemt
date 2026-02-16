@@ -497,6 +497,12 @@ pub struct UpstreamConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListenerConfig {
     pub ip: IpAddr,
+    /// IP address or hostname to announce in proxy links.
+    /// Takes precedence over `announce_ip` if both are set.
+    #[serde(default)]
+    pub announce: Option<String>,
+    /// Deprecated: Use `announce` instead. IP address to announce in proxy links.
+    /// Migrated to `announce` automatically if `announce` is not set.
     #[serde(default)]
     pub announce_ip: Option<IpAddr>,
 }
@@ -716,6 +722,7 @@ impl ProxyConfig {
             if let Ok(ipv4) = ipv4_str.parse::<IpAddr>() {
                 config.server.listeners.push(ListenerConfig {
                     ip: ipv4,
+                    announce: None,
                     announce_ip: None,
                 });
             }
@@ -723,9 +730,17 @@ impl ProxyConfig {
                 if let Ok(ipv6) = ipv6_str.parse::<IpAddr>() {
                     config.server.listeners.push(ListenerConfig {
                         ip: ipv6,
+                        announce: None,
                         announce_ip: None,
                     });
                 }
+            }
+        }
+
+        // Migration: announce_ip → announce for each listener
+        for listener in &mut config.server.listeners {
+            if listener.announce.is_none() && listener.announce_ip.is_some() {
+                listener.announce = Some(listener.announce_ip.unwrap().to_string());
             }
         }
 
