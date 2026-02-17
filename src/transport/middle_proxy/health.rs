@@ -19,7 +19,7 @@ pub async fn me_health_monitor(pool: Arc<MePool>, rng: Arc<SecureRandom>, _min_c
             .read()
             .await
             .iter()
-            .map(|(a, _)| *a)
+            .map(|w| w.addr)
             .collect();
 
         for (dc, addrs) in map.iter() {

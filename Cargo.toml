@@ -9,7 +9,7 @@ libc = "0.2"
 
 # Async runtime
 tokio = { version = "1.42", features = ["full", "tracing"] }
-tokio-util = { version = "0.7", features = ["codec"] }
+tokio-util = { version = "0.7", features = ["full"] }
 
 # Crypto
 aes = "0.8"
