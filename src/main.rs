@@ -140,7 +140,7 @@ fn print_proxy_links(host: &str, port: u16, config: &ProxyConfig) {
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let (config_path, cli_silent, cli_log_level) = parse_cli();
 
-    let config = match ProxyConfig::load(&config_path) {
+    let mut config = match ProxyConfig::load(&config_path) {
         Ok(c) => c,
         Err(e) => {
             if std::path::Path::new(&config_path).exists() {
@@ -229,17 +229,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let prefer_ipv6 = decision.prefer_ipv6();
     let mut use_middle_proxy = config.general.use_middle_proxy && (decision.ipv4_me || decision.ipv6_me);
-    let config = Arc::new(config);
     let stats = Arc::new(Stats::new());
     let rng = Arc::new(SecureRandom::new());
-
-    let replay_checker = Arc::new(ReplayChecker::new(
-        config.access.replay_check_len,
-        Duration::from_secs(config.access.replay_window_secs),
-    ));
-
-    let upstream_manager = Arc::new(UpstreamManager::new(config.upstreams.clone()));
-    let buffer_pool = Arc::new(BufferPool::with_config(16 * 1024, 4096));
 
     // IP Tracker initialization
     let ip_tracker = Arc::new(UserIpTracker::new());
@@ -389,11 +380,26 @@ match crate::transport::middle_proxy::fetch_proxy_secret(proxy_secret_path).awai
         None
     };
 
+    // If ME failed to initialize, force direct-only mode.
     if me_pool.is_some() {
         info!("Transport: Middle-End Proxy - all DC-over-RPC");
     } else {
+        use_middle_proxy = false;
+        // Make runtime config reflect direct-only mode for handlers.
+        config.general.use_middle_proxy = false;
         info!("Transport: Direct DC - TCP - standard DC-over-TCP");
     }
+
+    // Freeze config after possible fallback decision
+    let config = Arc::new(config);
+
+    let replay_checker = Arc::new(ReplayChecker::new(
+        config.access.replay_check_len,
+        Duration::from_secs(config.access.replay_window_secs),
+    ));
+
+    let upstream_manager = Arc::new(UpstreamManager::new(config.upstreams.clone()));
+    let buffer_pool = Arc::new(BufferPool::with_config(16 * 1024, 4096));
 
     // Middle-End ping before DC connectivity
     if let Some(ref pool) = me_pool {
