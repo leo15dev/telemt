@@ -326,6 +326,7 @@ match crate::transport::middle_proxy::fetch_proxy_secret(proxy_secret_path).awai
                     config.general.middle_proxy_nat_ip,
                     config.general.middle_proxy_nat_probe,
                     config.general.middle_proxy_nat_stun.clone(),
+                    probe.detected_ipv6,
                     cfg_v4.map.clone(),
                     cfg_v6.map.clone(),
                     cfg_v4.default_dc.or(cfg_v6.default_dc),
