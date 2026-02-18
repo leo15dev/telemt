@@ -31,3 +31,4 @@
 - Only WARN and Links in Normal log
 - Consistent IP-family detection
 - Includes for config
+- `nonce_frame_hex` in log only with `DEBUG`
