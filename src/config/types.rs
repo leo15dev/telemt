@@ -143,6 +143,18 @@ pub struct GeneralConfig {
     #[serde(default)]
     pub middle_proxy_nat_stun: Option<String>,
 
+    /// Optional list of STUN servers for NAT probing fallback.
+    #[serde(default)]
+    pub middle_proxy_nat_stun_servers: Vec<String>,
+
+    /// Desired size of active Middle-Proxy writer pool.
+    #[serde(default = "default_pool_size")]
+    pub middle_proxy_pool_size: usize,
+
+    /// Number of warm standby ME connections kept pre-initialized.
+    #[serde(default)]
+    pub middle_proxy_warm_standby: usize,
+
     /// Ignore STUN/interface IP mismatch (keep using Middle Proxy even if NAT detected).
     #[serde(default)]
     pub stun_iface_mismatch_ignore: bool,
@@ -175,6 +187,9 @@ impl Default for GeneralConfig {
             middle_proxy_nat_ip: None,
             middle_proxy_nat_probe: false,
             middle_proxy_nat_stun: None,
+            middle_proxy_nat_stun_servers: Vec::new(),
+            middle_proxy_pool_size: default_pool_size(),
+            middle_proxy_warm_standby: 0,
             stun_iface_mismatch_ignore: false,
             unknown_dc_log_path: default_unknown_dc_log_path(),
             log_level: LogLevel::Normal,

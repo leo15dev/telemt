@@ -74,6 +74,10 @@ pub(crate) fn default_unknown_dc_log_path() -> Option<String> {
     Some("unknown-dc.txt".to_string())
 }
 
+pub(crate) fn default_pool_size() -> usize {
+    2
+}
+
 // Custom deserializer helpers
 
 #[derive(Deserialize)]
