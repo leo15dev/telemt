@@ -11,7 +11,7 @@
 ### License Types
 - **NO LICENSE** = ***ALL RIGHT RESERVED***
 - **TELEMT UL1** - work in progress license for source code of `telemt`, which encourages:
- - fair use, 
- - contributions, 
- - distribution, 
- - but prohibits NOT mentioning the authors
+  - fair use, 
+  - contributions, 
+  - distribution, 
+  - but prohibits NOT mentioning the authors
