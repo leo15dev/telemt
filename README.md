@@ -183,6 +183,7 @@ prefer_ipv6 = false
 fast_mode = true
 use_middle_proxy = false
 # ad_tag = "..."
+# disable_colors = false  # Disable colored output in logs (useful for files/systemd)
 
 [network]
 ipv4 = true
@@ -215,7 +216,9 @@ ip = "::"
 
 # Users to show in the startup log (tg:// links)
 [general.links]
-show = ["hello"] # Users to show in the startup log (tg:// links)
+show = ["hello"]          # Only show links for user "hello"
+# show = ["alice", "bob"] # Only show links for alice and bob
+# show = "*"              # Show links for all users
 # public_host = "proxy.example.com"  # Host (IP or domain) for tg:// links
 # public_port = 443                  # Port for tg:// links (default: server.port)
 
