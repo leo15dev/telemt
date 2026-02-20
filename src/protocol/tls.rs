@@ -484,6 +484,85 @@ pub fn extract_sni_from_client_hello(handshake: &[u8]) -> Option<String> {
     None
 }
 
+/// Extract ALPN protocol list from TLS ClientHello.
+pub fn extract_alpn_from_client_hello(handshake: &[u8]) -> Option<Vec<String>> {
+    if handshake.len() < 43 || handshake[0] != TLS_RECORD_HANDSHAKE {
+        return None;
+    }
+
+    let mut pos = 5; // after record header
+    if handshake.get(pos).copied()? != 0x01 {
+        return None; // not ClientHello
+    }
+
+    // Handshake length bytes
+    pos += 4; // type + len (3)
+
+    // version (2) + random (32)
+    pos += 2 + 32;
+    if pos + 1 > handshake.len() {
+        return None;
+    }
+
+    let session_id_len = *handshake.get(pos)? as usize;
+    pos += 1 + session_id_len;
+    if pos + 2 > handshake.len() {
+        return None;
+    }
+
+    let cipher_suites_len = u16::from_be_bytes([handshake[pos], handshake[pos + 1]]) as usize;
+    pos += 2 + cipher_suites_len;
+    if pos + 1 > handshake.len() {
+        return None;
+    }
+
+    let comp_len = *handshake.get(pos)? as usize;
+    pos += 1 + comp_len;
+    if pos + 2 > handshake.len() {
+        return None;
+    }
+
+    let ext_len = u16::from_be_bytes([handshake[pos], handshake[pos + 1]]) as usize;
+    pos += 2;
+    let ext_end = pos + ext_len;
+    if ext_end > handshake.len() {
+        return None;
+    }
+
+    while pos + 4 <= ext_end {
+        let etype = u16::from_be_bytes([handshake[pos], handshake[pos + 1]]);
+        let elen = u16::from_be_bytes([handshake[pos + 2], handshake[pos + 3]]) as usize;
+        pos += 4;
+        if pos + elen > ext_end {
+            break;
+        }
+
+        if etype == 0x0010 && elen >= 3 {
+            // ALPN
+            let list_len = u16::from_be_bytes([handshake[pos], handshake[pos + 1]]) as usize;
+            let mut alpn_pos = pos + 2;
+            let list_end = std::cmp::min(alpn_pos + list_len, pos + elen);
+            let mut protocols = Vec::new();
+            while alpn_pos < list_end {
+                let proto_len = *handshake.get(alpn_pos)? as usize;
+                alpn_pos += 1;
+                if alpn_pos + proto_len > list_end {
+                    break;
+                }
+                if let Ok(p) = std::str::from_utf8(&handshake[alpn_pos..alpn_pos + proto_len]) {
+                    protocols.push(p.to_string());
+                }
+                alpn_pos += proto_len;
+            }
+            return Some(protocols);
+        }
+
+        pos += elen;
+    }
+
+    None
+}
+
 /// Check if bytes look like a TLS ClientHello
 pub fn is_tls_handshake(first_bytes: &[u8]) -> bool {
     if first_bytes.len() < 3 {
