@@ -95,6 +95,7 @@ where
     let user_clone = user.clone();
     let me_writer = tokio::spawn(async move {
         let mut writer = crypto_writer;
+        let mut frame_buf = Vec::with_capacity(16 * 1024);
         loop {
             tokio::select! {
                 msg = me_rx_task.recv() => {
@@ -102,7 +103,15 @@ where
                         Some(MeResponse::Data { flags, data }) => {
                             trace!(conn_id, bytes = data.len(), flags, "ME->C data");
                             stats_clone.add_user_octets_to(&user_clone, data.len() as u64);
-                            write_client_payload(&mut writer, proto_tag, flags, &data, rng_clone.as_ref()).await?;
+                            write_client_payload(
+                                &mut writer,
+                                proto_tag,
+                                flags,
+                                &data,
+                                rng_clone.as_ref(),
+                                &mut frame_buf,
+                            )
+                            .await?;
 
                             // Drain all immediately queued ME responses and flush once.
                             while let Ok(next) = me_rx_task.try_recv() {
@@ -116,6 +125,7 @@ where
                                             flags,
                                             &data,
                                             rng_clone.as_ref(),
+                                            &mut frame_buf,
                                         ).await?;
                                     }
                                     MeResponse::Ack(confirm) => {
@@ -363,6 +373,7 @@ async fn write_client_payload<W>(
     flags: u32,
     data: &[u8],
     rng: &SecureRandom,
+    frame_buf: &mut Vec<u8>,
 ) -> Result<()>
 where
     W: AsyncWrite + Unpin + Send + 'static,
@@ -384,7 +395,8 @@ where
                 if quickack {
                     first |= 0x80;
                 }
-                let mut frame_buf = Vec::with_capacity(1 + data.len());
+                frame_buf.clear();
+                frame_buf.reserve(1 + data.len());
                 frame_buf.push(first);
                 frame_buf.extend_from_slice(data);
                 client_writer
@@ -397,7 +409,8 @@ where
                     first |= 0x80;
                 }
                 let lw = (len_words as u32).to_le_bytes();
-                let mut frame_buf = Vec::with_capacity(4 + data.len());
+                frame_buf.clear();
+                frame_buf.reserve(4 + data.len());
                 frame_buf.extend_from_slice(&[first, lw[0], lw[1], lw[2]]);
                 frame_buf.extend_from_slice(data);
                 client_writer
@@ -428,11 +441,14 @@ where
                 len_val |= 0x8000_0000;
             }
             let total = 4 + data.len() + padding_len;
-            let mut frame_buf = Vec::with_capacity(total);
+            frame_buf.clear();
+            frame_buf.reserve(total);
             frame_buf.extend_from_slice(&len_val.to_le_bytes());
             frame_buf.extend_from_slice(data);
             if padding_len > 0 {
-                frame_buf.extend_from_slice(&rng.bytes(padding_len));
+                let start = frame_buf.len();
+                frame_buf.resize(start + padding_len, 0);
+                rng.fill(&mut frame_buf[start..]);
             }
             client_writer
                 .write_all(&frame_buf)

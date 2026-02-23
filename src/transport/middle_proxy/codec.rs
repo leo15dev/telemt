@@ -223,7 +223,7 @@ pub(crate) struct RpcWriter {
 impl RpcWriter {
     pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
         let frame = build_rpc_frame(self.seq_no, payload, self.crc_mode);
-        self.seq_no += 1;
+        self.seq_no = self.seq_no.wrapping_add(1);
 
         let pad = (16 - (frame.len() % 16)) % 16;
         let mut buf = frame;
