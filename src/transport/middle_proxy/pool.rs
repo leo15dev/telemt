@@ -240,6 +240,7 @@ impl MePool {
         rng: &SecureRandom,
         drain_timeout: Option<Duration>,
     ) {
+        // Stage 1: prewarm writers for new endpoint maps before draining old ones.
         self.reconcile_connections(rng).await;
 
         let desired_by_dc = self.desired_dc_endpoints().await;
@@ -269,6 +270,7 @@ impl MePool {
             missing_dc.sort_unstable();
             warn!(
                 missing_dc = ?missing_dc,
+                // Keep stale writers alive when fresh coverage is incomplete.
                 "ME reinit coverage incomplete after map update; keeping stale writers"
             );
             return;

@@ -375,4 +375,68 @@ mod tests {
             .unwrap_or(false));
         let _ = std::fs::remove_file(path);
     }
+
+    #[test]
+    fn update_every_overrides_legacy_fields() {
+        let toml = r#"
+            [general]
+            update_every = 123
+            proxy_secret_auto_reload_secs = 700
+            proxy_config_auto_reload_secs = 800
+
+            [censorship]
+            tls_domain = "example.com"
+
+            [access.users]
+            user = "00000000000000000000000000000000"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("telemt_update_every_override_test.toml");
+        std::fs::write(&path, toml).unwrap();
+        let cfg = ProxyConfig::load(&path).unwrap();
+        assert_eq!(cfg.general.effective_update_every_secs(), 123);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn update_every_fallback_to_legacy_min() {
+        let toml = r#"
+            [general]
+            proxy_secret_auto_reload_secs = 600
+            proxy_config_auto_reload_secs = 120
+
+            [censorship]
+            tls_domain = "example.com"
+
+            [access.users]
+            user = "00000000000000000000000000000000"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("telemt_update_every_legacy_min_test.toml");
+        std::fs::write(&path, toml).unwrap();
+        let cfg = ProxyConfig::load(&path).unwrap();
+        assert_eq!(cfg.general.update_every, None);
+        assert_eq!(cfg.general.effective_update_every_secs(), 120);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn update_every_zero_is_rejected() {
+        let toml = r#"
+            [general]
+            update_every = 0
+
+            [censorship]
+            tls_domain = "example.com"
+
+            [access.users]
+            user = "00000000000000000000000000000000"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("telemt_update_every_zero_test.toml");
+        std::fs::write(&path, toml).unwrap();
+        let err = ProxyConfig::load(&path).unwrap_err().to_string();
+        assert!(err.contains("general.update_every must be > 0"));
+        let _ = std::fs::remove_file(path);
+    }
 }

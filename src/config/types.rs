@@ -342,6 +342,8 @@ impl Default for GeneralConfig {
 }
 
 impl GeneralConfig {
+    /// Resolve the active updater interval for ME infrastructure refresh tasks.
+    /// `update_every` has priority, otherwise legacy proxy_*_auto_reload_secs are used.
     pub fn effective_update_every_secs(&self) -> u64 {
         self.update_every
             .unwrap_or_else(|| self.proxy_secret_auto_reload_secs.min(self.proxy_config_auto_reload_secs))
