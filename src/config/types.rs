@@ -206,6 +206,22 @@ pub struct GeneralConfig {
     #[serde(default = "default_desync_all_full")]
     pub desync_all_full: bool,
 
+    /// Enable per-IP forensic observation buckets for scanners and handshake failures.
+    #[serde(default)]
+    pub beobachten: bool,
+
+    /// Observation retention window in minutes for per-IP forensic buckets.
+    #[serde(default = "default_beobachten_minutes")]
+    pub beobachten_minutes: u64,
+
+    /// Snapshot flush interval in seconds for beob output file.
+    #[serde(default = "default_beobachten_flush_secs")]
+    pub beobachten_flush_secs: u64,
+
+    /// Snapshot file path for beob output.
+    #[serde(default = "default_beobachten_file")]
+    pub beobachten_file: String,
+
     /// Enable C-like hard-swap for ME pool generations.
     /// When true, Telemt prewarms a new generation and switches once full coverage is reached.
     #[serde(default = "default_hardswap")]
@@ -383,6 +399,10 @@ impl Default for GeneralConfig {
             crypto_pending_buffer: default_crypto_pending_buffer(),
             max_client_frame: default_max_client_frame(),
             desync_all_full: default_desync_all_full(),
+            beobachten: false,
+            beobachten_minutes: default_beobachten_minutes(),
+            beobachten_flush_secs: default_beobachten_flush_secs(),
+            beobachten_file: default_beobachten_file(),
             hardswap: default_hardswap(),
             fast_mode_min_tls_record: default_fast_mode_min_tls_record(),
             update_every: Some(default_update_every_secs()),

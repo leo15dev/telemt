@@ -121,6 +121,18 @@ pub(crate) fn default_desync_all_full() -> bool {
     false
 }
 
+pub(crate) fn default_beobachten_minutes() -> u64 {
+    10
+}
+
+pub(crate) fn default_beobachten_flush_secs() -> u64 {
+    15
+}
+
+pub(crate) fn default_beobachten_file() -> String {
+    "cache/beobachten.txt".to_string()
+}
+
 pub(crate) fn default_tls_new_session_tickets() -> u8 {
     0
 }

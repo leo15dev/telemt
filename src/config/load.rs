@@ -153,6 +153,24 @@ impl ProxyConfig {
             ));
         }
 
+        if config.general.beobachten_minutes == 0 {
+            return Err(ProxyError::Config(
+                "general.beobachten_minutes must be > 0".to_string(),
+            ));
+        }
+
+        if config.general.beobachten_flush_secs == 0 {
+            return Err(ProxyError::Config(
+                "general.beobachten_flush_secs must be > 0".to_string(),
+            ));
+        }
+
+        if config.general.beobachten_file.trim().is_empty() {
+            return Err(ProxyError::Config(
+                "general.beobachten_file cannot be empty".to_string(),
+            ));
+        }
+
         if config.general.me_hardswap_warmup_delay_max_ms == 0 {
             return Err(ProxyError::Config(
                 "general.me_hardswap_warmup_delay_max_ms must be > 0".to_string(),
