@@ -373,6 +373,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     config.general.me_pool_drain_ttl_secs,
                     config.general.effective_me_pool_force_close_secs(),
                     config.general.me_pool_min_fresh_ratio,
+                    config.general.me_hardswap_warmup_delay_min_ms,
+                    config.general.me_hardswap_warmup_delay_max_ms,
+                    config.general.me_hardswap_warmup_extra_passes,
+                    config.general.me_hardswap_warmup_pass_backoff_base_ms,
                 );
 
                 let pool_size = config.general.middle_proxy_pool_size.max(1);
@@ -387,18 +391,6 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                         tokio::spawn(async move {
                             crate::transport::middle_proxy::me_health_monitor(
                                 pool_clone, rng_clone, min_conns,
-                            )
-                            .await;
-                        });
-
-                        // Periodic ME connection rotation
-                        let pool_clone_rot = pool.clone();
-                        let rng_clone_rot = rng.clone();
-                        tokio::spawn(async move {
-                            crate::transport::middle_proxy::me_rotation_task(
-                                pool_clone_rot,
-                                rng_clone_rot,
-                                std::time::Duration::from_secs(1800),
                             )
                             .await;
                         });
@@ -709,6 +701,18 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 pool_clone,
                 rng_clone,
                 config_rx_clone,
+            )
+            .await;
+        });
+
+        let pool_clone_rot = pool.clone();
+        let rng_clone_rot = rng.clone();
+        let config_rx_clone_rot = config_rx.clone();
+        tokio::spawn(async move {
+            crate::transport::middle_proxy::me_rotation_task(
+                pool_clone_rot,
+                rng_clone_rot,
+                config_rx_clone_rot,
             )
             .await;
         });

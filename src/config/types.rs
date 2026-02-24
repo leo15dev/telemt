@@ -267,6 +267,26 @@ pub struct GeneralConfig {
     #[serde(default)]
     pub update_every: Option<u64>,
 
+    /// Periodic ME pool reinitialization interval in seconds.
+    #[serde(default = "default_me_reinit_every_secs")]
+    pub me_reinit_every_secs: u64,
+
+    /// Minimum delay in ms between hardswap warmup connect attempts.
+    #[serde(default = "default_me_hardswap_warmup_delay_min_ms")]
+    pub me_hardswap_warmup_delay_min_ms: u64,
+
+    /// Maximum delay in ms between hardswap warmup connect attempts.
+    #[serde(default = "default_me_hardswap_warmup_delay_max_ms")]
+    pub me_hardswap_warmup_delay_max_ms: u64,
+
+    /// Additional warmup passes in the same hardswap cycle after the base pass.
+    #[serde(default = "default_me_hardswap_warmup_extra_passes")]
+    pub me_hardswap_warmup_extra_passes: u8,
+
+    /// Base backoff in ms between hardswap warmup passes when floor is still incomplete.
+    #[serde(default = "default_me_hardswap_warmup_pass_backoff_base_ms")]
+    pub me_hardswap_warmup_pass_backoff_base_ms: u64,
+
     /// Number of identical getProxyConfig snapshots required before applying ME map updates.
     #[serde(default = "default_me_config_stable_snapshots")]
     pub me_config_stable_snapshots: u8,
@@ -366,6 +386,11 @@ impl Default for GeneralConfig {
             hardswap: default_hardswap(),
             fast_mode_min_tls_record: default_fast_mode_min_tls_record(),
             update_every: Some(default_update_every_secs()),
+            me_reinit_every_secs: default_me_reinit_every_secs(),
+            me_hardswap_warmup_delay_min_ms: default_me_hardswap_warmup_delay_min_ms(),
+            me_hardswap_warmup_delay_max_ms: default_me_hardswap_warmup_delay_max_ms(),
+            me_hardswap_warmup_extra_passes: default_me_hardswap_warmup_extra_passes(),
+            me_hardswap_warmup_pass_backoff_base_ms: default_me_hardswap_warmup_pass_backoff_base_ms(),
             me_config_stable_snapshots: default_me_config_stable_snapshots(),
             me_config_apply_cooldown_secs: default_me_config_apply_cooldown_secs(),
             proxy_secret_stable_snapshots: default_proxy_secret_stable_snapshots(),
@@ -390,6 +415,11 @@ impl GeneralConfig {
     pub fn effective_update_every_secs(&self) -> u64 {
         self.update_every
             .unwrap_or_else(|| self.proxy_secret_auto_reload_secs.min(self.proxy_config_auto_reload_secs))
+    }
+
+    /// Resolve periodic zero-downtime reinit interval for ME writers.
+    pub fn effective_me_reinit_every_secs(&self) -> u64 {
+        self.me_reinit_every_secs
     }
 
     /// Resolve force-close timeout for stale writers.

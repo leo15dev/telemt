@@ -182,6 +182,26 @@ pub(crate) fn default_update_every_secs() -> u64 {
     30 * 60
 }
 
+pub(crate) fn default_me_reinit_every_secs() -> u64 {
+    15 * 60
+}
+
+pub(crate) fn default_me_hardswap_warmup_delay_min_ms() -> u64 {
+    1000
+}
+
+pub(crate) fn default_me_hardswap_warmup_delay_max_ms() -> u64 {
+    2000
+}
+
+pub(crate) fn default_me_hardswap_warmup_extra_passes() -> u8 {
+    3
+}
+
+pub(crate) fn default_me_hardswap_warmup_pass_backoff_base_ms() -> u64 {
+    500
+}
+
 pub(crate) fn default_me_config_stable_snapshots() -> u8 {
     2
 }
