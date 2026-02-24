@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 use crate::crypto::{sha256_hmac, SecureRandom};
+#[cfg(test)]
 use crate::error::ProxyError;
 use super::constants::*;
 use std::time::{SystemTime, UNIX_EPOCH};
