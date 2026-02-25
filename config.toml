@@ -1,3 +1,7 @@
+### Telemt Based Config.toml
+# We believe that these settings are sufficient for most scenarios 
+# where cutting-egde methods and parameters or special solutions are not needed
+
 # === General Settings ===
 [general]
 use_middle_proxy = true
