@@ -132,6 +132,10 @@ pub(crate) fn default_middle_proxy_nat_stun_servers() -> Vec<String> {
     ]
 }
 
+pub(crate) fn default_stun_nat_probe_concurrency() -> usize {
+    8
+}
+
 pub(crate) fn default_middle_proxy_warm_standby() -> usize {
     DEFAULT_MIDDLE_PROXY_WARM_STANDBY
 }

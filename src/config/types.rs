@@ -168,6 +168,10 @@ pub struct GeneralConfig {
     #[serde(default = "default_middle_proxy_nat_stun_servers")]
     pub middle_proxy_nat_stun_servers: Vec<String>,
 
+    /// Maximum number of concurrent STUN probes during NAT detection.
+    #[serde(default = "default_stun_nat_probe_concurrency")]
+    pub stun_nat_probe_concurrency: usize,
+
     /// Desired size of active Middle-Proxy writer pool.
     #[serde(default = "default_pool_size")]
     pub middle_proxy_pool_size: usize,
@@ -378,6 +382,7 @@ impl Default for GeneralConfig {
             middle_proxy_nat_probe: default_true(),
             middle_proxy_nat_stun: default_middle_proxy_nat_stun(),
             middle_proxy_nat_stun_servers: default_middle_proxy_nat_stun_servers(),
+            stun_nat_probe_concurrency: default_stun_nat_probe_concurrency(),
             middle_proxy_pool_size: default_pool_size(),
             middle_proxy_warm_standby: default_middle_proxy_warm_standby(),
             me_keepalive_enabled: default_true(),

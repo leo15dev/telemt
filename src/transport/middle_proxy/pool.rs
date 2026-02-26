@@ -50,6 +50,8 @@ pub struct MePool {
     pub(super) nat_probe: bool,
     pub(super) nat_stun: Option<String>,
     pub(super) nat_stun_servers: Vec<String>,
+    pub(super) nat_stun_live_servers: Arc<RwLock<Vec<String>>>,
+    pub(super) nat_probe_concurrency: usize,
     pub(super) detected_ipv6: Option<Ipv6Addr>,
     pub(super) nat_probe_attempts: std::sync::atomic::AtomicU8,
     pub(super) nat_probe_disabled: std::sync::atomic::AtomicBool,
@@ -120,6 +122,7 @@ impl MePool {
         nat_probe: bool,
         nat_stun: Option<String>,
         nat_stun_servers: Vec<String>,
+        nat_probe_concurrency: usize,
         detected_ipv6: Option<Ipv6Addr>,
         me_one_retry: u8,
         me_one_timeout_ms: u64,
@@ -162,6 +165,8 @@ impl MePool {
             nat_probe,
             nat_stun,
             nat_stun_servers,
+            nat_stun_live_servers: Arc::new(RwLock::new(Vec::new())),
+            nat_probe_concurrency: nat_probe_concurrency.max(1),
             detected_ipv6,
             nat_probe_attempts: std::sync::atomic::AtomicU8::new(0),
             nat_probe_disabled: std::sync::atomic::AtomicBool::new(false),
@@ -241,6 +246,9 @@ impl MePool {
     pub fn reset_stun_state(&self) {
         self.nat_probe_attempts.store(0, Ordering::Relaxed);
         self.nat_probe_disabled.store(false, Ordering::Relaxed);
+        if let Ok(mut live) = self.nat_stun_live_servers.try_write() {
+            live.clear();
+        }
     }
 
     pub fn translate_our_addr(&self, addr: SocketAddr) -> SocketAddr {
@@ -896,10 +904,25 @@ impl MePool {
 
         for family in family_order {
             let map = self.proxy_map_for_family(family).await;
-            let dc_addrs: Vec<(i32, Vec<(IpAddr, u16)>)> = map
-                .iter()
-                .map(|(dc, addrs)| (*dc, addrs.clone()))
+            let mut grouped_dc_addrs: HashMap<i32, Vec<(IpAddr, u16)>> = HashMap::new();
+            for (dc, addrs) in map {
+                if addrs.is_empty() {
+                    continue;
+                }
+                grouped_dc_addrs
+                    .entry(dc.abs())
+                    .or_default()
+                    .extend(addrs);
+            }
+            let mut dc_addrs: Vec<(i32, Vec<(IpAddr, u16)>)> = grouped_dc_addrs
+                .into_iter()
+                .map(|(dc, mut addrs)| {
+                    addrs.sort_unstable();
+                    addrs.dedup();
+                    (dc, addrs)
+                })
                 .collect();
+            dc_addrs.sort_unstable_by_key(|(dc, _)| *dc);
 
             // Ensure at least one connection per DC; run DCs in parallel.
             let mut join = tokio::task::JoinSet::new();
@@ -923,38 +946,49 @@ impl MePool {
                 return Err(ProxyError::Proxy("Too many ME DC init failures, falling back to direct".into()));
             }
 
-        // Additional connections up to pool_size total (round-robin across DCs), staggered to de-phase lifecycles.
-        if self.me_warmup_stagger_enabled {
-            for (dc, addrs) in dc_addrs.iter() {
-                for (ip, port) in addrs {
-                    if self.connection_count() >= pool_size {
-                        break;
+            // Warm reserve writers asynchronously so startup does not block after first working pool is ready.
+            let pool = Arc::clone(self);
+            let rng_clone = Arc::clone(rng);
+            let dc_addrs_bg = dc_addrs.clone();
+            tokio::spawn(async move {
+                if pool.me_warmup_stagger_enabled {
+                    for (dc, addrs) in dc_addrs_bg.iter() {
+                        for (ip, port) in addrs {
+                            if pool.connection_count() >= pool_size {
+                                break;
+                            }
+                            let addr = SocketAddr::new(*ip, *port);
+                            let jitter = rand::rng()
+                                .random_range(0..=pool.me_warmup_step_jitter.as_millis() as u64);
+                            let delay_ms = pool.me_warmup_step_delay.as_millis() as u64 + jitter;
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                            if let Err(e) = pool.connect_one(addr, rng_clone.as_ref()).await {
+                                debug!(%addr, dc = %dc, error = %e, "Extra ME connect failed (staggered)");
+                            }
+                        }
                     }
-                    let addr = SocketAddr::new(*ip, *port);
-                    let jitter = rand::rng().random_range(0..=self.me_warmup_step_jitter.as_millis() as u64);
-                    let delay_ms = self.me_warmup_step_delay.as_millis() as u64 + jitter;
-                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                    if let Err(e) = self.connect_one(addr, rng.as_ref()).await {
-                        debug!(%addr, dc = %dc, error = %e, "Extra ME connect failed (staggered)");
+                } else {
+                    for (dc, addrs) in dc_addrs_bg.iter() {
+                        for (ip, port) in addrs {
+                            if pool.connection_count() >= pool_size {
+                                break;
+                            }
+                            let addr = SocketAddr::new(*ip, *port);
+                            if let Err(e) = pool.connect_one(addr, rng_clone.as_ref()).await {
+                                debug!(%addr, dc = %dc, error = %e, "Extra ME connect failed");
+                            }
+                        }
+                        if pool.connection_count() >= pool_size {
+                            break;
+                        }
                     }
                 }
-            }
-        } else {
-            for (dc, addrs) in dc_addrs.iter() {
-                for (ip, port) in addrs {
-                    if self.connection_count() >= pool_size {
-                        break;
-                    }
-                    let addr = SocketAddr::new(*ip, *port);
-                    if let Err(e) = self.connect_one(addr, rng.as_ref()).await {
-                        debug!(%addr, dc = %dc, error = %e, "Extra ME connect failed");
-                    }
-                }
-                if self.connection_count() >= pool_size {
-                    break;
-                }
-            }
-        }
+                debug!(
+                    target_pool_size = pool_size,
+                    current_pool_size = pool.connection_count(),
+                    "Background ME reserve warmup finished"
+                );
+            });
 
             if !self.decision.effective_multipath && self.connection_count() > 0 {
                 break;
@@ -964,6 +998,10 @@ impl MePool {
         if self.writers.read().await.is_empty() {
             return Err(ProxyError::Proxy("No ME connections".into()));
         }
+        info!(
+            active_writers = self.connection_count(),
+            "ME primary pool ready; reserve warmup continues in background"
+        );
         Ok(())
     }
 

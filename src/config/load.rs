@@ -166,6 +166,12 @@ impl ProxyConfig {
             }
         }
 
+        if config.general.stun_nat_probe_concurrency == 0 {
+            return Err(ProxyError::Config(
+                "general.stun_nat_probe_concurrency must be > 0".to_string(),
+            ));
+        }
+
         if config.general.me_reinit_every_secs == 0 {
             return Err(ProxyError::Config(
                 "general.me_reinit_every_secs must be > 0".to_string(),
@@ -604,6 +610,26 @@ mod tests {
         std::fs::write(&path, toml).unwrap();
         let err = ProxyConfig::load(&path).unwrap_err().to_string();
         assert!(err.contains("general.update_every must be > 0"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn stun_nat_probe_concurrency_zero_is_rejected() {
+        let toml = r#"
+            [general]
+            stun_nat_probe_concurrency = 0
+
+            [censorship]
+            tls_domain = "example.com"
+
+            [access.users]
+            user = "00000000000000000000000000000000"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("telemt_stun_nat_probe_concurrency_zero_test.toml");
+        std::fs::write(&path, toml).unwrap();
+        let err = ProxyConfig::load(&path).unwrap_err().to_string();
+        assert!(err.contains("general.stun_nat_probe_concurrency must be > 0"));
         let _ = std::fs::remove_file(path);
     }
 
