@@ -18,6 +18,13 @@ classic = false
 secure = false
 tls = true
 
+[general.links]
+show = "*"
+# show = ["alice", "bob"] # Only show links for alice and bob
+# show = "*"              # Show links for all users
+# public_host = "proxy.example.com"  # Host (IP or domain) for tg:// links
+# public_port = 443                  # Port for tg:// links (default: server.port)
+
 # === Server Binding ===
 [server]
 port = 443
