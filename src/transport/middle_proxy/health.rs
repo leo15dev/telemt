@@ -112,7 +112,18 @@ async fn check_family(
 
         let max_concurrent = pool.me_reconnect_max_concurrent_per_dc.max(1) as usize;
         if *inflight.get(&key).unwrap_or(&0) >= max_concurrent {
-            return;
+            continue;
+        }
+        if pool.has_refill_inflight_for_endpoints(&endpoints).await {
+            debug!(
+                dc = %dc,
+                ?family,
+                alive,
+                required,
+                endpoint_count = endpoints.len(),
+                "Skipping health reconnect: immediate refill is already in flight for this DC group"
+            );
+            continue;
         }
         *inflight.entry(key).or_insert(0) += 1;
 

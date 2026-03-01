@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
@@ -45,7 +46,10 @@ pub(crate) async fn reader_loop(
             _ = cancel.cancelled() => return Ok(()),
         };
         if n == 0 {
-            return Ok(());
+            return Err(ProxyError::Io(std::io::Error::new(
+                ErrorKind::UnexpectedEof,
+                "ME socket closed by peer",
+            )));
         }
         raw.extend_from_slice(&tmp[..n]);
 
