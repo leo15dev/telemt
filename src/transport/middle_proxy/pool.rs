@@ -257,10 +257,6 @@ impl MePool {
         })
     }
 
-    pub fn has_proxy_tag(&self) -> bool {
-        self.proxy_tag.is_some()
-    }
-
     pub fn current_generation(&self) -> u64 {
         self.generation.load(Ordering::Relaxed)
     }
