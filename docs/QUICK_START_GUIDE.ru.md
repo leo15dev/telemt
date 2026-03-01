@@ -114,7 +114,7 @@ WantedBy=multi-user.target
 
 **5.** Для автоматического запуска при запуске системы в введите `systemctl enable telemt`
 
-**6.** Для получите ссылки введите `journalctl -u telemt -n -g "links" --no-pager -o cat | tac`
+**6.** Для получения ссылки введите `journalctl -u telemt -n -g "links" --no-pager -o cat | tac`
 
 ---
 
