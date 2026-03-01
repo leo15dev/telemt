@@ -21,6 +21,7 @@ pub struct MeWriter {
     pub id: u64,
     pub addr: SocketAddr,
     pub generation: u64,
+    pub created_at: Instant,
     pub tx: mpsc::Sender<WriterCommand>,
     pub cancel: CancellationToken,
     pub degraded: Arc<AtomicBool>,
@@ -82,7 +83,9 @@ pub struct MePool {
     pub(super) conn_count: AtomicUsize,
     pub(super) stats: Arc<crate::stats::Stats>,
     pub(super) generation: AtomicU64,
+    pub(super) pending_hardswap_generation: AtomicU64,
     pub(super) hardswap: AtomicBool,
+    pub(super) endpoint_quarantine: Arc<Mutex<HashMap<SocketAddr, Instant>>>,
     pub(super) me_pool_drain_ttl_secs: AtomicU64,
     pub(super) me_pool_force_close_secs: AtomicU64,
     pub(super) me_pool_min_fresh_ratio_permille: AtomicU32,
@@ -232,7 +235,9 @@ impl MePool {
             refill_inflight: Arc::new(Mutex::new(HashSet::new())),
             conn_count: AtomicUsize::new(0),
             generation: AtomicU64::new(1),
+            pending_hardswap_generation: AtomicU64::new(0),
             hardswap: AtomicBool::new(hardswap),
+            endpoint_quarantine: Arc::new(Mutex::new(HashMap::new())),
             me_pool_drain_ttl_secs: AtomicU64::new(me_pool_drain_ttl_secs),
             me_pool_force_close_secs: AtomicU64::new(me_pool_force_close_secs),
             me_pool_min_fresh_ratio_permille: AtomicU32::new(Self::ratio_to_permille(
@@ -250,10 +255,6 @@ impl MePool {
             me_deterministic_writer_sort: AtomicBool::new(me_deterministic_writer_sort),
             me_socks_kdf_policy: AtomicU8::new(me_socks_kdf_policy.as_u8()),
         })
-    }
-
-    pub fn has_proxy_tag(&self) -> bool {
-        self.proxy_tag.is_some()
     }
 
     pub fn current_generation(&self) -> u64 {

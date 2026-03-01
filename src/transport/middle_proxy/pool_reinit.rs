@@ -266,8 +266,26 @@ impl MePool {
         }
 
         let previous_generation = self.current_generation();
-        let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
         let hardswap = self.hardswap.load(Ordering::Relaxed);
+        let generation = if hardswap {
+            let pending_generation = self.pending_hardswap_generation.load(Ordering::Relaxed);
+            if pending_generation != 0 && pending_generation >= previous_generation {
+                debug!(
+                    previous_generation,
+                    generation = pending_generation,
+                    "ME hardswap continues with pending generation"
+                );
+                pending_generation
+            } else {
+                let next_generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+                self.pending_hardswap_generation
+                    .store(next_generation, Ordering::Relaxed);
+                next_generation
+            }
+        } else {
+            self.pending_hardswap_generation.store(0, Ordering::Relaxed);
+            self.generation.fetch_add(1, Ordering::Relaxed) + 1
+        };
 
         if hardswap {
             self.warmup_generation_for_all_dcs(rng, generation, &desired_by_dc)
@@ -354,6 +372,9 @@ impl MePool {
         drop(writers);
 
         if stale_writer_ids.is_empty() {
+            if hardswap {
+                self.pending_hardswap_generation.store(0, Ordering::Relaxed);
+            }
             debug!("ME reinit cycle completed with no stale writers");
             return;
         }
@@ -374,6 +395,9 @@ impl MePool {
         for writer_id in stale_writer_ids {
             self.mark_writer_draining_with_timeout(writer_id, drain_timeout, !hardswap)
                 .await;
+        }
+        if hardswap {
+            self.pending_hardswap_generation.store(0, Ordering::Relaxed);
         }
     }
 

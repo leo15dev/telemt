@@ -89,6 +89,7 @@ impl MePool {
             id: writer_id,
             addr,
             generation,
+            created_at: Instant::now(),
             tx: tx.clone(),
             cancel: cancel.clone(),
             degraded: degraded.clone(),
@@ -249,6 +250,7 @@ impl MePool {
     async fn remove_writer_only(self: &Arc<Self>, writer_id: u64) -> Vec<BoundConn> {
         let mut close_tx: Option<mpsc::Sender<WriterCommand>> = None;
         let mut removed_addr: Option<SocketAddr> = None;
+        let mut removed_uptime: Option<Duration> = None;
         let mut trigger_refill = false;
         {
             let mut ws = self.writers.write().await;
@@ -261,6 +263,7 @@ impl MePool {
                 self.stats.increment_me_writer_removed_total();
                 w.cancel.cancel();
                 removed_addr = Some(w.addr);
+                removed_uptime = Some(w.created_at.elapsed());
                 trigger_refill = !was_draining;
                 if trigger_refill {
                     self.stats.increment_me_writer_removed_unexpected_total();
@@ -275,6 +278,9 @@ impl MePool {
         if trigger_refill
             && let Some(addr) = removed_addr
         {
+            if let Some(uptime) = removed_uptime {
+                self.maybe_quarantine_flapping_endpoint(addr, uptime).await;
+            }
             self.trigger_immediate_refill(addr);
         }
         self.rtt_stats.lock().await.remove(&writer_id);
