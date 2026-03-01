@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, Notify, RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use crate::config::MeSocksKdfPolicy;
+use crate::config::{MeBindStaleMode, MeSocksKdfPolicy};
 use crate::crypto::SecureRandom;
 use crate::network::IpFamily;
 use crate::network::probe::NetworkDecision;
@@ -29,6 +29,13 @@ pub struct MeWriter {
     pub allow_drain_fallback: Arc<AtomicBool>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SecretSnapshot {
+    pub epoch: u64,
+    pub key_selector: u32,
+    pub secret: Vec<u8>,
+}
+
 #[allow(dead_code)]
 pub struct MePool {
     pub(super) registry: Arc<ConnRegistry>,
@@ -38,7 +45,7 @@ pub struct MePool {
     pub(super) upstream: Option<Arc<UpstreamManager>>,
     pub(super) rng: Arc<SecureRandom>,
     pub(super) proxy_tag: Option<Vec<u8>>,
-    pub(super) proxy_secret: Arc<RwLock<Vec<u8>>>,
+    pub(super) proxy_secret: Arc<RwLock<SecretSnapshot>>,
     pub(super) nat_ip_cfg: Option<IpAddr>,
     pub(super) nat_ip_detected: Arc<RwLock<Option<IpAddr>>>,
     pub(super) nat_probe: bool,
@@ -83,6 +90,10 @@ pub struct MePool {
     pub(super) me_hardswap_warmup_delay_max_ms: AtomicU64,
     pub(super) me_hardswap_warmup_extra_passes: AtomicU32,
     pub(super) me_hardswap_warmup_pass_backoff_base_ms: AtomicU64,
+    pub(super) me_bind_stale_mode: AtomicU8,
+    pub(super) me_bind_stale_ttl_secs: AtomicU64,
+    pub(super) secret_atomic_snapshot: AtomicBool,
+    pub(super) me_deterministic_writer_sort: AtomicBool,
     pub(super) me_socks_kdf_policy: AtomicU8,
     pool_size: usize,
 }
@@ -147,6 +158,10 @@ impl MePool {
         me_hardswap_warmup_delay_max_ms: u64,
         me_hardswap_warmup_extra_passes: u8,
         me_hardswap_warmup_pass_backoff_base_ms: u64,
+        me_bind_stale_mode: MeBindStaleMode,
+        me_bind_stale_ttl_secs: u64,
+        me_secret_atomic_snapshot: bool,
+        me_deterministic_writer_sort: bool,
         me_socks_kdf_policy: MeSocksKdfPolicy,
         me_route_backpressure_base_timeout_ms: u64,
         me_route_backpressure_high_timeout_ms: u64,
@@ -166,7 +181,20 @@ impl MePool {
             upstream,
             rng,
             proxy_tag,
-            proxy_secret: Arc::new(RwLock::new(proxy_secret)),
+            proxy_secret: Arc::new(RwLock::new(SecretSnapshot {
+                epoch: 1,
+                key_selector: if proxy_secret.len() >= 4 {
+                    u32::from_le_bytes([
+                        proxy_secret[0],
+                        proxy_secret[1],
+                        proxy_secret[2],
+                        proxy_secret[3],
+                    ])
+                } else {
+                    0
+                },
+                secret: proxy_secret,
+            })),
             nat_ip_cfg: nat_ip,
             nat_ip_detected: Arc::new(RwLock::new(None)),
             nat_probe,
@@ -216,6 +244,10 @@ impl MePool {
             me_hardswap_warmup_pass_backoff_base_ms: AtomicU64::new(
                 me_hardswap_warmup_pass_backoff_base_ms,
             ),
+            me_bind_stale_mode: AtomicU8::new(me_bind_stale_mode.as_u8()),
+            me_bind_stale_ttl_secs: AtomicU64::new(me_bind_stale_ttl_secs),
+            secret_atomic_snapshot: AtomicBool::new(me_secret_atomic_snapshot),
+            me_deterministic_writer_sort: AtomicBool::new(me_deterministic_writer_sort),
             me_socks_kdf_policy: AtomicU8::new(me_socks_kdf_policy.as_u8()),
         })
     }
@@ -238,6 +270,10 @@ impl MePool {
         hardswap_warmup_delay_max_ms: u64,
         hardswap_warmup_extra_passes: u8,
         hardswap_warmup_pass_backoff_base_ms: u64,
+        bind_stale_mode: MeBindStaleMode,
+        bind_stale_ttl_secs: u64,
+        secret_atomic_snapshot: bool,
+        deterministic_writer_sort: bool,
     ) {
         self.hardswap.store(hardswap, Ordering::Relaxed);
         self.me_pool_drain_ttl_secs
@@ -254,6 +290,14 @@ impl MePool {
             .store(hardswap_warmup_extra_passes as u32, Ordering::Relaxed);
         self.me_hardswap_warmup_pass_backoff_base_ms
             .store(hardswap_warmup_pass_backoff_base_ms, Ordering::Relaxed);
+        self.me_bind_stale_mode
+            .store(bind_stale_mode.as_u8(), Ordering::Relaxed);
+        self.me_bind_stale_ttl_secs
+            .store(bind_stale_ttl_secs, Ordering::Relaxed);
+        self.secret_atomic_snapshot
+            .store(secret_atomic_snapshot, Ordering::Relaxed);
+        self.me_deterministic_writer_sort
+            .store(deterministic_writer_sort, Ordering::Relaxed);
     }
 
     pub fn reset_stun_state(&self) {
@@ -307,12 +351,15 @@ impl MePool {
     }
 
     pub(super) async fn key_selector(&self) -> u32 {
-        let secret = self.proxy_secret.read().await;
-        if secret.len() >= 4 {
-            u32::from_le_bytes([secret[0], secret[1], secret[2], secret[3]])
-        } else {
-            0
-        }
+        self.proxy_secret.read().await.key_selector
+    }
+
+    pub(super) async fn secret_snapshot(&self) -> SecretSnapshot {
+        self.proxy_secret.read().await.clone()
+    }
+
+    pub(super) fn bind_stale_mode(&self) -> MeBindStaleMode {
+        MeBindStaleMode::from_u8(self.me_bind_stale_mode.load(Ordering::Relaxed))
     }
 
     pub(super) fn family_order(&self) -> Vec<IpFamily> {

@@ -18,6 +18,7 @@ use rand::seq::SliceRandom;
 use super::registry::ConnMeta;
 
 impl MePool {
+    /// Send RPC_PROXY_REQ. `tag_override`: per-user ad_tag (from access.user_ad_tags); if None, uses pool default.
     pub async fn send_proxy_req(
         self: &Arc<Self>,
         conn_id: u64,
@@ -26,13 +27,15 @@ impl MePool {
         our_addr: SocketAddr,
         data: &[u8],
         proto_flags: u32,
+        tag_override: Option<&[u8]>,
     ) -> Result<()> {
+        let tag = tag_override.or(self.proxy_tag.as_deref());
         let payload = build_proxy_req_payload(
             conn_id,
             client_addr,
             our_addr,
             data,
-            self.proxy_tag.as_deref(),
+            tag,
             proto_flags,
         );
         let meta = ConnMeta {
@@ -135,12 +138,34 @@ impl MePool {
                 }
             }
 
-            candidate_indices.sort_by_key(|idx| {
-                let w = &writers_snapshot[*idx];
-                let degraded = w.degraded.load(Ordering::Relaxed);
-                let stale = (w.generation < self.current_generation()) as usize;
-                (stale, degraded as usize, Reverse(w.tx.capacity()))
-            });
+            if self.me_deterministic_writer_sort.load(Ordering::Relaxed) {
+                candidate_indices.sort_by(|lhs, rhs| {
+                    let left = &writers_snapshot[*lhs];
+                    let right = &writers_snapshot[*rhs];
+                    let left_key = (
+                        (left.generation < self.current_generation()) as usize,
+                        left.degraded.load(Ordering::Relaxed) as usize,
+                        Reverse(left.tx.capacity()),
+                        left.addr,
+                        left.id,
+                    );
+                    let right_key = (
+                        (right.generation < self.current_generation()) as usize,
+                        right.degraded.load(Ordering::Relaxed) as usize,
+                        Reverse(right.tx.capacity()),
+                        right.addr,
+                        right.id,
+                    );
+                    left_key.cmp(&right_key)
+                });
+            } else {
+                candidate_indices.sort_by_key(|idx| {
+                    let w = &writers_snapshot[*idx];
+                    let degraded = w.degraded.load(Ordering::Relaxed);
+                    let stale = (w.generation < self.current_generation()) as usize;
+                    (stale, degraded as usize, Reverse(w.tx.capacity()))
+                });
+            }
 
             let start = self.rr.fetch_add(1, Ordering::Relaxed) as usize % candidate_indices.len();
             let mut fallback_blocking_idx: Option<usize> = None;

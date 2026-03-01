@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use crate::config::MeBindStaleMode;
 use crate::crypto::SecureRandom;
 use crate::error::{ProxyError, Result};
 use crate::protocol::constants::RPC_PING_U32;
@@ -42,7 +43,7 @@ impl MePool {
     }
 
     pub(crate) async fn connect_one(self: &Arc<Self>, addr: SocketAddr, rng: &SecureRandom) -> Result<()> {
-        let secret_len = self.proxy_secret.read().await.len();
+        let secret_len = self.proxy_secret.read().await.secret.len();
         if secret_len < 32 {
             return Err(ProxyError::Proxy("proxy-secret too short for ME auth".into()));
         }
@@ -351,16 +352,22 @@ impl MePool {
             return false;
         }
 
-        let ttl_secs = self.me_pool_drain_ttl_secs.load(Ordering::Relaxed);
-        if ttl_secs == 0 {
-            return true;
-        }
+        match self.bind_stale_mode() {
+            MeBindStaleMode::Never => false,
+            MeBindStaleMode::Always => true,
+            MeBindStaleMode::Ttl => {
+                let ttl_secs = self.me_bind_stale_ttl_secs.load(Ordering::Relaxed);
+                if ttl_secs == 0 {
+                    return true;
+                }
 
-        let started = writer.draining_started_at_epoch_secs.load(Ordering::Relaxed);
-        if started == 0 {
-            return false;
-        }
+                let started = writer.draining_started_at_epoch_secs.load(Ordering::Relaxed);
+                if started == 0 {
+                    return false;
+                }
 
-        Self::now_epoch_secs().saturating_sub(started) <= ttl_secs
+                Self::now_epoch_secs().saturating_sub(started) <= ttl_secs
+            }
+        }
     }
 }
