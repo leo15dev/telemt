@@ -8,7 +8,7 @@ use std::time::Duration;
 use rand::Rng;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, mpsc};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*, reload};
 #[cfg(unix)]
@@ -40,7 +40,7 @@ use crate::stats::telemetry::TelemetryPolicy;
 use crate::stats::{ReplayChecker, Stats};
 use crate::stream::BufferPool;
 use crate::transport::middle_proxy::{
-    MePool, fetch_proxy_config, run_me_ping, MePingFamily, MePingSample, format_sample_line,
+    MePool, fetch_proxy_config, run_me_ping, MePingFamily, MePingSample, MeReinitTrigger, format_sample_line,
     format_me_route,
 };
 use crate::transport::{ListenOptions, UpstreamManager, create_listener, find_listener_processes};
@@ -546,6 +546,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     config.general.me_hardswap_warmup_delay_max_ms,
                     config.general.me_hardswap_warmup_extra_passes,
                     config.general.me_hardswap_warmup_pass_backoff_base_ms,
+                    config.general.me_bind_stale_mode,
+                    config.general.me_bind_stale_ttl_secs,
+                    config.general.me_secret_atomic_snapshot,
+                    config.general.me_deterministic_writer_sort,
                     config.general.me_socks_kdf_policy,
                     config.general.me_route_backpressure_base_timeout_ms,
                     config.general.me_route_backpressure_high_timeout_ms,
@@ -849,26 +853,43 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     });
 
     if let Some(ref pool) = me_pool {
-        let pool_clone = pool.clone();
-        let rng_clone = rng.clone();
-        let config_rx_clone = config_rx.clone();
+        let reinit_trigger_capacity = config
+            .general
+            .me_reinit_trigger_channel
+            .max(1);
+        let (reinit_tx, reinit_rx) = mpsc::channel::<MeReinitTrigger>(reinit_trigger_capacity);
+
+        let pool_clone_sched = pool.clone();
+        let rng_clone_sched = rng.clone();
+        let config_rx_clone_sched = config_rx.clone();
         tokio::spawn(async move {
-            crate::transport::middle_proxy::me_config_updater(
-                pool_clone,
-                rng_clone,
-                config_rx_clone,
+            crate::transport::middle_proxy::me_reinit_scheduler(
+                pool_clone_sched,
+                rng_clone_sched,
+                config_rx_clone_sched,
+                reinit_rx,
             )
             .await;
         });
 
-        let pool_clone_rot = pool.clone();
-        let rng_clone_rot = rng.clone();
+        let pool_clone = pool.clone();
+        let config_rx_clone = config_rx.clone();
+        let reinit_tx_updater = reinit_tx.clone();
+        tokio::spawn(async move {
+            crate::transport::middle_proxy::me_config_updater(
+                pool_clone,
+                config_rx_clone,
+                reinit_tx_updater,
+            )
+            .await;
+        });
+
         let config_rx_clone_rot = config_rx.clone();
+        let reinit_tx_rotation = reinit_tx.clone();
         tokio::spawn(async move {
             crate::transport::middle_proxy::me_rotation_task(
-                pool_clone_rot,
-                rng_clone_rot,
                 config_rx_clone_rot,
+                reinit_tx_rotation,
             )
             .await;
         });

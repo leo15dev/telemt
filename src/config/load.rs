@@ -305,9 +305,21 @@ impl ProxyConfig {
             ));
         }
 
+        if config.general.me_snapshot_min_proxy_for_lines == 0 {
+            return Err(ProxyError::Config(
+                "general.me_snapshot_min_proxy_for_lines must be > 0".to_string(),
+            ));
+        }
+
         if config.general.proxy_secret_stable_snapshots == 0 {
             return Err(ProxyError::Config(
                 "general.proxy_secret_stable_snapshots must be > 0".to_string(),
+            ));
+        }
+
+        if config.general.me_reinit_trigger_channel == 0 {
+            return Err(ProxyError::Config(
+                "general.me_reinit_trigger_channel must be > 0".to_string(),
             ));
         }
 
@@ -535,9 +547,10 @@ impl ProxyConfig {
         for (user, tag) in &self.access.user_ad_tags {
             let zeros = "00000000000000000000000000000000";
             if !is_valid_ad_tag(tag) {
-                return Err(ProxyError::Config(
-                    "general.ad_tag must be exactly 32 hex characters".to_string(),
-                ));
+                return Err(ProxyError::Config(format!(
+                    "access.user_ad_tags['{}'] must be exactly 32 hex characters",
+                    user
+                )));
             }
             if tag == zeros {
                 warn!(user = %user, "user ad_tag is all zeros; register a valid proxy tag via @MTProxybot to enable sponsored channel");
@@ -1097,6 +1110,27 @@ mod tests {
             cfg.general.ad_tag.as_deref(),
             Some("00112233445566778899aabbccddeeff")
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn invalid_user_ad_tag_reports_access_user_ad_tags_key() {
+        let toml = r#"
+            [censorship]
+            tls_domain = "example.com"
+
+            [access.users]
+            alice = "00000000000000000000000000000000"
+
+            [access.user_ad_tags]
+            alice = "not_hex"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("telemt_invalid_user_ad_tag_message_test.toml");
+        std::fs::write(&path, toml).unwrap();
+        let cfg = ProxyConfig::load(&path).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("access.user_ad_tags['alice'] must be exactly 32 hex characters"));
         let _ = std::fs::remove_file(path);
     }
 

@@ -277,6 +277,18 @@ pub(crate) fn default_me_reinit_every_secs() -> u64 {
     15 * 60
 }
 
+pub(crate) fn default_me_reinit_singleflight() -> bool {
+    true
+}
+
+pub(crate) fn default_me_reinit_trigger_channel() -> usize {
+    64
+}
+
+pub(crate) fn default_me_reinit_coalesce_window_ms() -> u64 {
+    200
+}
+
 pub(crate) fn default_me_hardswap_warmup_delay_min_ms() -> u64 {
     1000
 }
@@ -301,11 +313,27 @@ pub(crate) fn default_me_config_apply_cooldown_secs() -> u64 {
     300
 }
 
+pub(crate) fn default_me_snapshot_require_http_2xx() -> bool {
+    true
+}
+
+pub(crate) fn default_me_snapshot_reject_empty_map() -> bool {
+    true
+}
+
+pub(crate) fn default_me_snapshot_min_proxy_for_lines() -> u32 {
+    1
+}
+
 pub(crate) fn default_proxy_secret_stable_snapshots() -> u8 {
     2
 }
 
 pub(crate) fn default_proxy_secret_rotate_runtime() -> bool {
+    true
+}
+
+pub(crate) fn default_me_secret_atomic_snapshot() -> bool {
     true
 }
 
@@ -321,8 +349,16 @@ pub(crate) fn default_me_pool_drain_ttl_secs() -> u64 {
     90
 }
 
+pub(crate) fn default_me_bind_stale_ttl_secs() -> u64 {
+    default_me_pool_drain_ttl_secs()
+}
+
 pub(crate) fn default_me_pool_min_fresh_ratio() -> f32 {
     0.8
+}
+
+pub(crate) fn default_me_deterministic_writer_sort() -> bool {
+    true
 }
 
 pub(crate) fn default_hardswap() -> bool {

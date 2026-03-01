@@ -1,4 +1,5 @@
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use socket2::{SockRef, TcpKeepalive};
 #[cfg(target_os = "linux")]
@@ -267,7 +268,16 @@ impl MePool {
             .unwrap_or_default()
             .as_secs() as u32;
 
-        let ks = self.key_selector().await;
+        let secret_atomic_snapshot = self.secret_atomic_snapshot.load(Ordering::Relaxed);
+        let (ks, secret) = if secret_atomic_snapshot {
+            let snapshot = self.secret_snapshot().await;
+            (snapshot.key_selector, snapshot.secret)
+        } else {
+            // Backward-compatible mode: key selector and secret may come from different updates.
+            let key_selector = self.key_selector().await;
+            let secret = self.secret_snapshot().await.secret;
+            (key_selector, secret)
+        };
         let nonce_payload = build_nonce_payload(ks, crypto_ts, &my_nonce);
         let nonce_frame = build_rpc_frame(-2, &nonce_payload, RpcChecksumMode::Crc32);
         let dump = hex_dump(&nonce_frame[..nonce_frame.len().min(44)]);
@@ -356,8 +366,6 @@ impl MePool {
         };
 
         let diag_level: u8 = std::env::var("ME_DIAG").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-
-        let secret: Vec<u8> = self.proxy_secret.read().await.clone();
 
         let prekey_client = build_middleproxy_prekey(
             &srv_nonce,

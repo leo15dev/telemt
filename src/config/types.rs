@@ -130,6 +130,34 @@ impl MeSocksKdfPolicy {
     }
 }
 
+/// Stale ME writer bind policy during drain window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MeBindStaleMode {
+    Never,
+    #[default]
+    Ttl,
+    Always,
+}
+
+impl MeBindStaleMode {
+    pub fn as_u8(self) -> u8 {
+        match self {
+            MeBindStaleMode::Never => 0,
+            MeBindStaleMode::Ttl => 1,
+            MeBindStaleMode::Always => 2,
+        }
+    }
+
+    pub fn from_u8(raw: u8) -> Self {
+        match raw {
+            0 => MeBindStaleMode::Never,
+            2 => MeBindStaleMode::Always,
+            _ => MeBindStaleMode::Ttl,
+        }
+    }
+}
+
 /// Telemetry controls for hot-path counters and ME diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TelemetryConfig {
@@ -454,6 +482,18 @@ pub struct GeneralConfig {
     #[serde(default = "default_me_config_apply_cooldown_secs")]
     pub me_config_apply_cooldown_secs: u64,
 
+    /// Ensure getProxyConfig snapshots are applied only for 2xx HTTP responses.
+    #[serde(default = "default_me_snapshot_require_http_2xx")]
+    pub me_snapshot_require_http_2xx: bool,
+
+    /// Reject empty getProxyConfig snapshots instead of marking them applied.
+    #[serde(default = "default_me_snapshot_reject_empty_map")]
+    pub me_snapshot_reject_empty_map: bool,
+
+    /// Minimum parsed `proxy_for` rows required to accept a snapshot.
+    #[serde(default = "default_me_snapshot_min_proxy_for_lines")]
+    pub me_snapshot_min_proxy_for_lines: u32,
+
     /// Number of identical getProxySecret snapshots required before runtime secret rotation.
     #[serde(default = "default_proxy_secret_stable_snapshots")]
     pub proxy_secret_stable_snapshots: u8,
@@ -461,6 +501,10 @@ pub struct GeneralConfig {
     /// Enable runtime proxy-secret rotation from getProxySecret.
     #[serde(default = "default_proxy_secret_rotate_runtime")]
     pub proxy_secret_rotate_runtime: bool,
+
+    /// Keep key-selector and secret bytes from one snapshot during ME handshake.
+    #[serde(default = "default_me_secret_atomic_snapshot")]
+    pub me_secret_atomic_snapshot: bool,
 
     /// Maximum allowed proxy-secret length in bytes for startup and runtime refresh.
     #[serde(default = "default_proxy_secret_len_max")]
@@ -470,6 +514,14 @@ pub struct GeneralConfig {
     /// During TTL, stale writers may be used only as fallback for new bindings.
     #[serde(default = "default_me_pool_drain_ttl_secs")]
     pub me_pool_drain_ttl_secs: u64,
+
+    /// Policy for new binds on stale draining writers.
+    #[serde(default)]
+    pub me_bind_stale_mode: MeBindStaleMode,
+
+    /// TTL for stale bind allowance when `me_bind_stale_mode = \"ttl\"`.
+    #[serde(default = "default_me_bind_stale_ttl_secs")]
+    pub me_bind_stale_ttl_secs: u64,
 
     /// Minimum desired-DC coverage ratio required before draining stale writers.
     /// Range: 0.0..=1.0.
@@ -490,6 +542,22 @@ pub struct GeneralConfig {
     /// Use `update_every` instead.
     #[serde(default = "default_proxy_config_reload_secs")]
     pub proxy_config_auto_reload_secs: u64,
+
+    /// Serialize ME reinit cycles across all trigger sources.
+    #[serde(default = "default_me_reinit_singleflight")]
+    pub me_reinit_singleflight: bool,
+
+    /// Trigger queue capacity for reinit scheduler.
+    #[serde(default = "default_me_reinit_trigger_channel")]
+    pub me_reinit_trigger_channel: usize,
+
+    /// Trigger coalescing window before starting a reinit cycle.
+    #[serde(default = "default_me_reinit_coalesce_window_ms")]
+    pub me_reinit_coalesce_window_ms: u64,
+
+    /// Deterministic candidate sort for ME writer binding path.
+    #[serde(default = "default_me_deterministic_writer_sort")]
+    pub me_deterministic_writer_sort: bool,
 
     /// Enable NTP drift check at startup.
     #[serde(default = "default_ntp_check")]
@@ -565,14 +633,24 @@ impl Default for GeneralConfig {
             me_hardswap_warmup_pass_backoff_base_ms: default_me_hardswap_warmup_pass_backoff_base_ms(),
             me_config_stable_snapshots: default_me_config_stable_snapshots(),
             me_config_apply_cooldown_secs: default_me_config_apply_cooldown_secs(),
+            me_snapshot_require_http_2xx: default_me_snapshot_require_http_2xx(),
+            me_snapshot_reject_empty_map: default_me_snapshot_reject_empty_map(),
+            me_snapshot_min_proxy_for_lines: default_me_snapshot_min_proxy_for_lines(),
             proxy_secret_stable_snapshots: default_proxy_secret_stable_snapshots(),
             proxy_secret_rotate_runtime: default_proxy_secret_rotate_runtime(),
+            me_secret_atomic_snapshot: default_me_secret_atomic_snapshot(),
             proxy_secret_len_max: default_proxy_secret_len_max(),
             me_pool_drain_ttl_secs: default_me_pool_drain_ttl_secs(),
+            me_bind_stale_mode: MeBindStaleMode::default(),
+            me_bind_stale_ttl_secs: default_me_bind_stale_ttl_secs(),
             me_pool_min_fresh_ratio: default_me_pool_min_fresh_ratio(),
             me_reinit_drain_timeout_secs: default_me_reinit_drain_timeout_secs(),
             proxy_secret_auto_reload_secs: default_proxy_secret_reload_secs(),
             proxy_config_auto_reload_secs: default_proxy_config_reload_secs(),
+            me_reinit_singleflight: default_me_reinit_singleflight(),
+            me_reinit_trigger_channel: default_me_reinit_trigger_channel(),
+            me_reinit_coalesce_window_ms: default_me_reinit_coalesce_window_ms(),
+            me_deterministic_writer_sort: default_me_deterministic_writer_sort(),
             ntp_check: default_ntp_check(),
             ntp_servers: default_ntp_servers(),
             auto_degradation_enabled: default_true(),
