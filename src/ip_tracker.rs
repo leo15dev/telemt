@@ -134,20 +134,20 @@ impl UserIpTracker {
     pub async fn get_recent_counts_for_users(&self, users: &[String]) -> HashMap<String, usize> {
         let window = *self.limit_window.read().await;
         let now = Instant::now();
-        let mut recent_ips = self.recent_ips.write().await;
+        let recent_ips = self.recent_ips.read().await;
 
         let mut counts = HashMap::with_capacity(users.len());
         for user in users {
-            let count = if let Some(user_recent) = recent_ips.get_mut(user) {
-                Self::prune_recent(user_recent, now, window);
-                user_recent.len()
+            let count = if let Some(user_recent) = recent_ips.get(user) {
+                user_recent
+                    .values()
+                    .filter(|seen_at| now.duration_since(**seen_at) <= window)
+                    .count()
             } else {
                 0
             };
             counts.insert(user.clone(), count);
         }
-
-        recent_ips.retain(|_, user_recent| !user_recent.is_empty());
         counts
     }
 
@@ -168,21 +168,22 @@ impl UserIpTracker {
     pub async fn get_recent_ips_for_users(&self, users: &[String]) -> HashMap<String, Vec<IpAddr>> {
         let window = *self.limit_window.read().await;
         let now = Instant::now();
-        let mut recent_ips = self.recent_ips.write().await;
+        let recent_ips = self.recent_ips.read().await;
 
         let mut out = HashMap::with_capacity(users.len());
         for user in users {
-            let mut ips = if let Some(user_recent) = recent_ips.get_mut(user) {
-                Self::prune_recent(user_recent, now, window);
-                user_recent.keys().copied().collect::<Vec<_>>()
+            let mut ips = if let Some(user_recent) = recent_ips.get(user) {
+                user_recent
+                    .iter()
+                    .filter(|(_, seen_at)| now.duration_since(**seen_at) <= window)
+                    .map(|(ip, _)| *ip)
+                    .collect::<Vec<_>>()
             } else {
                 Vec::new()
             };
             ips.sort();
             out.insert(user.clone(), ips);
         }
-
-        recent_ips.retain(|_, user_recent| !user_recent.is_empty());
         out
     }
 
