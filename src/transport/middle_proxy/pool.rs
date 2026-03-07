@@ -22,10 +22,17 @@ pub(super) struct RefillDcKey {
     pub family: IpFamily,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct RefillEndpointKey {
+    pub dc: i32,
+    pub addr: SocketAddr,
+}
+
 #[derive(Clone)]
 pub struct MeWriter {
     pub id: u64,
     pub addr: SocketAddr,
+    pub writer_dc: i32,
     pub generation: u64,
     pub contour: Arc<AtomicU8>,
     pub created_at: Instant,
@@ -34,6 +41,7 @@ pub struct MeWriter {
     pub degraded: Arc<AtomicBool>,
     pub draining: Arc<AtomicBool>,
     pub draining_started_at_epoch_secs: Arc<AtomicU64>,
+    pub drain_deadline_epoch_secs: Arc<AtomicU64>,
     pub allow_drain_fallback: Arc<AtomicBool>,
 }
 
@@ -128,12 +136,13 @@ pub struct MePool {
     pub(super) default_dc: AtomicI32,
     pub(super) next_writer_id: AtomicU64,
     pub(super) ping_tracker: Arc<Mutex<HashMap<i64, (std::time::Instant, u64)>>>,
+    pub(super) ping_tracker_last_cleanup_epoch_ms: AtomicU64,
     pub(super) rtt_stats: Arc<Mutex<HashMap<u64, (f64, f64)>>>,
     pub(super) nat_reflection_cache: Arc<Mutex<NatReflectionCache>>,
     pub(super) nat_reflection_singleflight_v4: Arc<Mutex<()>>,
     pub(super) nat_reflection_singleflight_v6: Arc<Mutex<()>>,
     pub(super) writer_available: Arc<Notify>,
-    pub(super) refill_inflight: Arc<Mutex<HashSet<SocketAddr>>>,
+    pub(super) refill_inflight: Arc<Mutex<HashSet<RefillEndpointKey>>>,
     pub(super) refill_inflight_dc: Arc<Mutex<HashSet<RefillDcKey>>>,
     pub(super) conn_count: AtomicUsize,
     pub(super) stats: Arc<crate::stats::Stats>,
@@ -361,6 +370,7 @@ impl MePool {
             default_dc: AtomicI32::new(default_dc.unwrap_or(2)),
             next_writer_id: AtomicU64::new(1),
             ping_tracker: Arc::new(Mutex::new(HashMap::new())),
+            ping_tracker_last_cleanup_epoch_ms: AtomicU64::new(0),
             rtt_stats: Arc::new(Mutex::new(HashMap::new())),
             nat_reflection_cache: Arc::new(Mutex::new(NatReflectionCache::default())),
             nat_reflection_singleflight_v4: Arc::new(Mutex::new(())),
@@ -779,16 +789,34 @@ impl MePool {
         if dc == 0 { 2 } else { dc }
     }
 
-    pub(super) fn dc_lookup_chain_for_target(&self, target_dc: i32) -> Vec<i32> {
-        let mut out = Vec::with_capacity(1);
-        if target_dc != 0 {
-            out.push(target_dc);
-        } else {
-            // Use default DC only when target DC is unknown and pinning is not established.
-            let fallback_dc = self.default_dc_for_routing();
-            out.push(fallback_dc);
+    pub(super) async fn has_configured_endpoints_for_dc(&self, dc: i32) -> bool {
+        if self.decision.ipv4_me {
+            let map = self.proxy_map_v4.read().await;
+            if map.get(&dc).is_some_and(|endpoints| !endpoints.is_empty()) {
+                return true;
+            }
         }
-        out
+
+        if self.decision.ipv6_me {
+            let map = self.proxy_map_v6.read().await;
+            if map.get(&dc).is_some_and(|endpoints| !endpoints.is_empty()) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub(super) async fn resolve_target_dc_for_routing(&self, target_dc: i32) -> (i32, bool) {
+        if target_dc == 0 {
+            return (self.default_dc_for_routing(), true);
+        }
+
+        if self.has_configured_endpoints_for_dc(target_dc).await {
+            return (target_dc, false);
+        }
+
+        (self.default_dc_for_routing(), true)
     }
 
     pub(super) async fn resolve_dc_for_endpoint(&self, addr: SocketAddr) -> i32 {

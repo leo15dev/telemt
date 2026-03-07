@@ -264,6 +264,20 @@ impl ConnRegistry {
         inner.writer_idle_since_epoch_secs.clone()
     }
 
+    pub async fn writer_idle_since_for_writer_ids(
+        &self,
+        writer_ids: &[u64],
+    ) -> HashMap<u64, u64> {
+        let inner = self.inner.read().await;
+        let mut out = HashMap::<u64, u64>::with_capacity(writer_ids.len());
+        for writer_id in writer_ids {
+            if let Some(idle_since) = inner.writer_idle_since_epoch_secs.get(writer_id).copied() {
+                out.insert(*writer_id, idle_since);
+            }
+        }
+        out
+    }
+
     pub(super) async fn writer_activity_snapshot(&self) -> WriterActivitySnapshot {
         let inner = self.inner.read().await;
         let mut bound_clients_by_writer = HashMap::<u64, usize>::new();

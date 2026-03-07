@@ -6,7 +6,7 @@ pub mod beobachten;
 pub mod telemetry;
 
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use lru::LruCache;
@@ -119,6 +119,7 @@ pub struct Stats {
     telemetry_user_enabled: AtomicBool,
     telemetry_me_level: AtomicU8,
     user_stats: DashMap<String, UserStats>,
+    user_stats_last_cleanup_epoch_secs: AtomicU64,
     start_time: parking_lot::RwLock<Option<Instant>>,
 }
 
@@ -130,6 +131,7 @@ pub struct UserStats {
     pub octets_to_client: AtomicU64,
     pub msgs_from_client: AtomicU64,
     pub msgs_to_client: AtomicU64,
+    pub last_seen_epoch_secs: AtomicU64,
 }
 
 impl Stats {
@@ -176,6 +178,54 @@ impl Stats {
                 Err(actual) => current = actual,
             }
         }
+    }
+
+    fn now_epoch_secs() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+
+    fn touch_user_stats(stats: &UserStats) {
+        stats
+            .last_seen_epoch_secs
+            .store(Self::now_epoch_secs(), Ordering::Relaxed);
+    }
+
+    fn maybe_cleanup_user_stats(&self) {
+        const USER_STATS_CLEANUP_INTERVAL_SECS: u64 = 60;
+        const USER_STATS_IDLE_TTL_SECS: u64 = 24 * 60 * 60;
+
+        let now_epoch_secs = Self::now_epoch_secs();
+        let last_cleanup_epoch_secs = self
+            .user_stats_last_cleanup_epoch_secs
+            .load(Ordering::Relaxed);
+        if now_epoch_secs.saturating_sub(last_cleanup_epoch_secs)
+            < USER_STATS_CLEANUP_INTERVAL_SECS
+        {
+            return;
+        }
+        if self
+            .user_stats_last_cleanup_epoch_secs
+            .compare_exchange(
+                last_cleanup_epoch_secs,
+                now_epoch_secs,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            return;
+        }
+
+        self.user_stats.retain(|_, stats| {
+            if stats.curr_connects.load(Ordering::Relaxed) > 0 {
+                return true;
+            }
+            let last_seen_epoch_secs = stats.last_seen_epoch_secs.load(Ordering::Relaxed);
+            now_epoch_secs.saturating_sub(last_seen_epoch_secs) <= USER_STATS_IDLE_TTL_SECS
+        });
     }
 
     pub fn apply_telemetry_policy(&self, policy: TelemetryPolicy) {
@@ -970,34 +1020,36 @@ impl Stats {
         if !self.telemetry_user_enabled() {
             return;
         }
+        self.maybe_cleanup_user_stats();
         if let Some(stats) = self.user_stats.get(user) {
+            Self::touch_user_stats(stats.value());
             stats.connects.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        self.user_stats
-            .entry(user.to_string())
-            .or_default()
-            .connects
-            .fetch_add(1, Ordering::Relaxed);
+        let stats = self.user_stats.entry(user.to_string()).or_default();
+        Self::touch_user_stats(stats.value());
+        stats.connects.fetch_add(1, Ordering::Relaxed);
     }
     
     pub fn increment_user_curr_connects(&self, user: &str) {
         if !self.telemetry_user_enabled() {
             return;
         }
+        self.maybe_cleanup_user_stats();
         if let Some(stats) = self.user_stats.get(user) {
+            Self::touch_user_stats(stats.value());
             stats.curr_connects.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        self.user_stats
-            .entry(user.to_string())
-            .or_default()
-            .curr_connects
-            .fetch_add(1, Ordering::Relaxed);
+        let stats = self.user_stats.entry(user.to_string()).or_default();
+        Self::touch_user_stats(stats.value());
+        stats.curr_connects.fetch_add(1, Ordering::Relaxed);
     }
     
     pub fn decrement_user_curr_connects(&self, user: &str) {
+        self.maybe_cleanup_user_stats();
         if let Some(stats) = self.user_stats.get(user) {
+            Self::touch_user_stats(stats.value());
             let counter = &stats.curr_connects;
             let mut current = counter.load(Ordering::Relaxed);
             loop {
@@ -1027,60 +1079,60 @@ impl Stats {
         if !self.telemetry_user_enabled() {
             return;
         }
+        self.maybe_cleanup_user_stats();
         if let Some(stats) = self.user_stats.get(user) {
+            Self::touch_user_stats(stats.value());
             stats.octets_from_client.fetch_add(bytes, Ordering::Relaxed);
             return;
         }
-        self.user_stats
-            .entry(user.to_string())
-            .or_default()
-            .octets_from_client
-            .fetch_add(bytes, Ordering::Relaxed);
+        let stats = self.user_stats.entry(user.to_string()).or_default();
+        Self::touch_user_stats(stats.value());
+        stats.octets_from_client.fetch_add(bytes, Ordering::Relaxed);
     }
     
     pub fn add_user_octets_to(&self, user: &str, bytes: u64) {
         if !self.telemetry_user_enabled() {
             return;
         }
+        self.maybe_cleanup_user_stats();
         if let Some(stats) = self.user_stats.get(user) {
+            Self::touch_user_stats(stats.value());
             stats.octets_to_client.fetch_add(bytes, Ordering::Relaxed);
             return;
         }
-        self.user_stats
-            .entry(user.to_string())
-            .or_default()
-            .octets_to_client
-            .fetch_add(bytes, Ordering::Relaxed);
+        let stats = self.user_stats.entry(user.to_string()).or_default();
+        Self::touch_user_stats(stats.value());
+        stats.octets_to_client.fetch_add(bytes, Ordering::Relaxed);
     }
     
     pub fn increment_user_msgs_from(&self, user: &str) {
         if !self.telemetry_user_enabled() {
             return;
         }
+        self.maybe_cleanup_user_stats();
         if let Some(stats) = self.user_stats.get(user) {
+            Self::touch_user_stats(stats.value());
             stats.msgs_from_client.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        self.user_stats
-            .entry(user.to_string())
-            .or_default()
-            .msgs_from_client
-            .fetch_add(1, Ordering::Relaxed);
+        let stats = self.user_stats.entry(user.to_string()).or_default();
+        Self::touch_user_stats(stats.value());
+        stats.msgs_from_client.fetch_add(1, Ordering::Relaxed);
     }
     
     pub fn increment_user_msgs_to(&self, user: &str) {
         if !self.telemetry_user_enabled() {
             return;
         }
+        self.maybe_cleanup_user_stats();
         if let Some(stats) = self.user_stats.get(user) {
+            Self::touch_user_stats(stats.value());
             stats.msgs_to_client.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        self.user_stats
-            .entry(user.to_string())
-            .or_default()
-            .msgs_to_client
-            .fetch_add(1, Ordering::Relaxed);
+        let stats = self.user_stats.entry(user.to_string()).or_default();
+        Self::touch_user_stats(stats.value());
+        stats.msgs_to_client.fetch_add(1, Ordering::Relaxed);
     }
     
     pub fn get_user_total_octets(&self, user: &str) -> u64 {

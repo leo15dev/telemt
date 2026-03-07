@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, trace, warn};
@@ -20,7 +21,7 @@ use crate::stream::{BufferPool, CryptoReader, CryptoWriter};
 use crate::transport::middle_proxy::{MePool, MeResponse, proto_flags_for_tag};
 
 enum C2MeCommand {
-    Data { payload: Vec<u8>, flags: u32 },
+    Data { payload: Bytes, flags: u32 },
     Close,
 }
 
@@ -283,7 +284,7 @@ where
                         success.dc_idx,
                         peer,
                         translated_local_addr,
-                        &payload,
+                        payload.as_ref(),
                         flags,
                         effective_tag.as_deref(),
                     ).await?;
@@ -479,7 +480,7 @@ async fn read_client_payload<R>(
     forensics: &RelayForensicsState,
     frame_counter: &mut u64,
     stats: &Stats,
-) -> Result<Option<(Vec<u8>, bool)>>
+) -> Result<Option<(Bytes, bool)>>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
@@ -578,7 +579,7 @@ where
             payload.truncate(secure_payload_len);
         }
         *frame_counter += 1;
-        return Ok(Some((payload, quickack)));
+        return Ok(Some((Bytes::from(payload), quickack)));
     }
 }
 
@@ -715,7 +716,7 @@ mod tests {
         enqueue_c2me_command(
             &tx,
             C2MeCommand::Data {
-                payload: vec![1, 2, 3],
+                payload: Bytes::from_static(&[1, 2, 3]),
                 flags: 0,
             },
         )
@@ -728,7 +729,7 @@ mod tests {
             .unwrap();
         match recv {
             C2MeCommand::Data { payload, flags } => {
-                assert_eq!(payload, vec![1, 2, 3]);
+                assert_eq!(payload.as_ref(), &[1, 2, 3]);
                 assert_eq!(flags, 0);
             }
             C2MeCommand::Close => panic!("unexpected close command"),
@@ -739,7 +740,7 @@ mod tests {
     async fn enqueue_c2me_command_falls_back_to_send_when_queue_is_full() {
         let (tx, mut rx) = mpsc::channel::<C2MeCommand>(1);
         tx.send(C2MeCommand::Data {
-            payload: vec![9],
+            payload: Bytes::from_static(&[9]),
             flags: 9,
         })
         .await
@@ -750,7 +751,7 @@ mod tests {
             enqueue_c2me_command(
                 &tx2,
                 C2MeCommand::Data {
-                    payload: vec![7, 7],
+                    payload: Bytes::from_static(&[7, 7]),
                     flags: 7,
                 },
             )
@@ -769,7 +770,7 @@ mod tests {
             .unwrap();
         match recv {
             C2MeCommand::Data { payload, flags } => {
-                assert_eq!(payload, vec![7, 7]);
+                assert_eq!(payload.as_ref(), &[7, 7]);
                 assert_eq!(flags, 7);
             }
             C2MeCommand::Close => panic!("unexpected close command"),

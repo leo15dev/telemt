@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, warn};
 
@@ -53,12 +54,16 @@ impl MePool {
         };
         let no_writer_mode =
             MeRouteNoWriterMode::from_u8(self.me_route_no_writer_mode.load(Ordering::Relaxed));
+        let (routed_dc, unknown_target_dc) = self
+            .resolve_target_dc_for_routing(target_dc as i32)
+            .await;
         let mut no_writer_deadline: Option<Instant> = None;
         let mut emergency_attempts = 0u32;
         let mut async_recovery_triggered = false;
         let mut hybrid_recovery_round = 0u32;
         let mut hybrid_last_recovery_at: Option<Instant> = None;
         let hybrid_wait_step = self.me_route_no_writer_wait.max(Duration::from_millis(50));
+        let mut hybrid_wait_current = hybrid_wait_step;
 
         loop {
             if let Some(current) = self.registry.get_writer(conn_id).await {
@@ -89,9 +94,9 @@ impl MePool {
                             let deadline = *no_writer_deadline.get_or_insert_with(|| {
                                 Instant::now() + self.me_route_no_writer_wait
                             });
-                            if !async_recovery_triggered {
+                            if !async_recovery_triggered && !unknown_target_dc {
                                 let triggered =
-                                    self.trigger_async_recovery_for_target_dc(target_dc).await;
+                                    self.trigger_async_recovery_for_target_dc(routed_dc).await;
                                 if !triggered {
                                     self.trigger_async_recovery_global().await;
                                 }
@@ -107,31 +112,34 @@ impl MePool {
                         }
                         MeRouteNoWriterMode::InlineRecoveryLegacy => {
                             self.stats.increment_me_inline_recovery_total();
-                            for _ in 0..self.me_route_inline_recovery_attempts.max(1) {
-                                for family in self.family_order() {
-                                    let map = match family {
-                                        IpFamily::V4 => self.proxy_map_v4.read().await.clone(),
-                                        IpFamily::V6 => self.proxy_map_v6.read().await.clone(),
-                                    };
-                                    for (_dc, addrs) in &map {
-                                        for (ip, port) in addrs {
-                                            let addr = SocketAddr::new(*ip, *port);
-                                            let _ = self.connect_one(addr, self.rng.as_ref()).await;
+                            if !unknown_target_dc {
+                                for _ in 0..self.me_route_inline_recovery_attempts.max(1) {
+                                    for family in self.family_order() {
+                                        let map = match family {
+                                            IpFamily::V4 => self.proxy_map_v4.read().await.clone(),
+                                            IpFamily::V6 => self.proxy_map_v6.read().await.clone(),
+                                        };
+                                        for (dc, addrs) in &map {
+                                            for (ip, port) in addrs {
+                                                let addr = SocketAddr::new(*ip, *port);
+                                                let _ = self
+                                                    .connect_one_for_dc(addr, *dc, self.rng.as_ref())
+                                                    .await;
+                                            }
                                         }
                                     }
-                                }
-                                if !self.writers.read().await.is_empty() {
-                                    break;
+                                    if !self.writers.read().await.is_empty() {
+                                        break;
+                                    }
                                 }
                             }
+
                             if !self.writers.read().await.is_empty() {
                                 continue;
                             }
-                            let waiter = self.writer_available.notified();
-                            if tokio::time::timeout(self.me_route_inline_recovery_wait, waiter)
-                                .await
-                                .is_err()
-                            {
+                            let deadline = *no_writer_deadline
+                                .get_or_insert_with(|| Instant::now() + self.me_route_inline_recovery_wait);
+                            if !self.wait_for_writer_until(deadline).await {
                                 if !self.writers.read().await.is_empty() {
                                     continue;
                                 }
@@ -143,15 +151,20 @@ impl MePool {
                             continue;
                         }
                         MeRouteNoWriterMode::HybridAsyncPersistent => {
-                            self.maybe_trigger_hybrid_recovery(
-                                target_dc,
-                                &mut hybrid_recovery_round,
-                                &mut hybrid_last_recovery_at,
-                                hybrid_wait_step,
-                            )
-                            .await;
-                            let deadline = Instant::now() + hybrid_wait_step;
+                            if !unknown_target_dc {
+                                self.maybe_trigger_hybrid_recovery(
+                                    routed_dc,
+                                    &mut hybrid_recovery_round,
+                                    &mut hybrid_last_recovery_at,
+                                    hybrid_wait_current,
+                                )
+                                .await;
+                            }
+                            let deadline = Instant::now() + hybrid_wait_current;
                             let _ = self.wait_for_writer_until(deadline).await;
+                            hybrid_wait_current =
+                                (hybrid_wait_current.saturating_mul(2))
+                                    .min(Duration::from_millis(400));
                             continue;
                         }
                     }
@@ -160,11 +173,11 @@ impl MePool {
             };
 
             let mut candidate_indices = self
-                .candidate_indices_for_dc(&writers_snapshot, target_dc, false)
+                .candidate_indices_for_dc(&writers_snapshot, routed_dc, false)
                 .await;
             if candidate_indices.is_empty() {
                 candidate_indices = self
-                    .candidate_indices_for_dc(&writers_snapshot, target_dc, true)
+                    .candidate_indices_for_dc(&writers_snapshot, routed_dc, true)
                     .await;
             }
             if candidate_indices.is_empty() {
@@ -173,14 +186,14 @@ impl MePool {
                         let deadline = *no_writer_deadline.get_or_insert_with(|| {
                             Instant::now() + self.me_route_no_writer_wait
                         });
-                        if !async_recovery_triggered {
-                            let triggered = self.trigger_async_recovery_for_target_dc(target_dc).await;
+                        if !async_recovery_triggered && !unknown_target_dc {
+                            let triggered = self.trigger_async_recovery_for_target_dc(routed_dc).await;
                             if !triggered {
                                 self.trigger_async_recovery_global().await;
                             }
                             async_recovery_triggered = true;
                         }
-                        if self.wait_for_candidate_until(target_dc, deadline).await {
+                        if self.wait_for_candidate_until(routed_dc, deadline).await {
                             continue;
                         }
                         self.stats.increment_me_no_writer_failfast_total();
@@ -190,15 +203,24 @@ impl MePool {
                     }
                     MeRouteNoWriterMode::InlineRecoveryLegacy => {
                         self.stats.increment_me_inline_recovery_total();
+                        if unknown_target_dc {
+                            let deadline = *no_writer_deadline
+                                .get_or_insert_with(|| Instant::now() + self.me_route_inline_recovery_wait);
+                            if self.wait_for_candidate_until(routed_dc, deadline).await {
+                                continue;
+                            }
+                            self.stats.increment_me_no_writer_failfast_total();
+                            return Err(ProxyError::Proxy("No ME writers available for target DC".into()));
+                        }
                         if emergency_attempts >= self.me_route_inline_recovery_attempts.max(1) {
                             self.stats.increment_me_no_writer_failfast_total();
                             return Err(ProxyError::Proxy("No ME writers available for target DC".into()));
                         }
                         emergency_attempts += 1;
-                        let mut endpoints = self.endpoint_candidates_for_target_dc(target_dc).await;
+                        let mut endpoints = self.endpoint_candidates_for_target_dc(routed_dc).await;
                         endpoints.shuffle(&mut rand::rng());
                         for addr in endpoints {
-                            if self.connect_one(addr, self.rng.as_ref()).await.is_ok() {
+                            if self.connect_one_for_dc(addr, routed_dc, self.rng.as_ref()).await.is_ok() {
                                 break;
                             }
                         }
@@ -207,11 +229,11 @@ impl MePool {
                         writers_snapshot = ws2.clone();
                         drop(ws2);
                         candidate_indices = self
-                            .candidate_indices_for_dc(&writers_snapshot, target_dc, false)
+                            .candidate_indices_for_dc(&writers_snapshot, routed_dc, false)
                             .await;
                         if candidate_indices.is_empty() {
                             candidate_indices = self
-                                .candidate_indices_for_dc(&writers_snapshot, target_dc, true)
+                                .candidate_indices_for_dc(&writers_snapshot, routed_dc, true)
                                 .await;
                         }
                         if candidate_indices.is_empty() {
@@ -219,20 +241,32 @@ impl MePool {
                         }
                     }
                     MeRouteNoWriterMode::HybridAsyncPersistent => {
-                        self.maybe_trigger_hybrid_recovery(
-                            target_dc,
-                            &mut hybrid_recovery_round,
-                            &mut hybrid_last_recovery_at,
-                            hybrid_wait_step,
-                        )
-                        .await;
-                        let deadline = Instant::now() + hybrid_wait_step;
-                        let _ = self.wait_for_candidate_until(target_dc, deadline).await;
+                        if !unknown_target_dc {
+                            self.maybe_trigger_hybrid_recovery(
+                                routed_dc,
+                                &mut hybrid_recovery_round,
+                                &mut hybrid_last_recovery_at,
+                                hybrid_wait_current,
+                            )
+                            .await;
+                        }
+                        let deadline = Instant::now() + hybrid_wait_current;
+                        let _ = self.wait_for_candidate_until(routed_dc, deadline).await;
+                        hybrid_wait_current = (hybrid_wait_current.saturating_mul(2))
+                            .min(Duration::from_millis(400));
                         continue;
                     }
                 }
             }
-            let writer_idle_since = self.registry.writer_idle_since_snapshot().await;
+            hybrid_wait_current = hybrid_wait_step;
+            let writer_ids: Vec<u64> = candidate_indices
+                .iter()
+                .map(|idx| writers_snapshot[*idx].id)
+                .collect();
+            let writer_idle_since = self
+                .registry
+                .writer_idle_since_for_writer_ids(&writer_ids)
+                .await;
             let now_epoch_secs = Self::now_epoch_secs();
 
             if self.me_deterministic_writer_sort.load(Ordering::Relaxed) {
@@ -367,32 +401,32 @@ impl MePool {
         !self.writers.read().await.is_empty()
     }
 
-    async fn wait_for_candidate_until(&self, target_dc: i16, deadline: Instant) -> bool {
+    async fn wait_for_candidate_until(&self, routed_dc: i32, deadline: Instant) -> bool {
         loop {
-            if self.has_candidate_for_target_dc(target_dc).await {
+            if self.has_candidate_for_target_dc(routed_dc).await {
                 return true;
             }
 
             let now = Instant::now();
             if now >= deadline {
-                return self.has_candidate_for_target_dc(target_dc).await;
+                return self.has_candidate_for_target_dc(routed_dc).await;
             }
 
             let waiter = self.writer_available.notified();
-            if self.has_candidate_for_target_dc(target_dc).await {
+            if self.has_candidate_for_target_dc(routed_dc).await {
                 return true;
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
-                return self.has_candidate_for_target_dc(target_dc).await;
+                return self.has_candidate_for_target_dc(routed_dc).await;
             }
             if tokio::time::timeout(remaining, waiter).await.is_err() {
-                return self.has_candidate_for_target_dc(target_dc).await;
+                return self.has_candidate_for_target_dc(routed_dc).await;
             }
         }
     }
 
-    async fn has_candidate_for_target_dc(&self, target_dc: i16) -> bool {
+    async fn has_candidate_for_target_dc(&self, routed_dc: i32) -> bool {
         let writers_snapshot = {
             let ws = self.writers.read().await;
             if ws.is_empty() {
@@ -401,41 +435,41 @@ impl MePool {
             ws.clone()
         };
         let mut candidate_indices = self
-            .candidate_indices_for_dc(&writers_snapshot, target_dc, false)
+            .candidate_indices_for_dc(&writers_snapshot, routed_dc, false)
             .await;
         if candidate_indices.is_empty() {
             candidate_indices = self
-                .candidate_indices_for_dc(&writers_snapshot, target_dc, true)
+                .candidate_indices_for_dc(&writers_snapshot, routed_dc, true)
                 .await;
         }
         !candidate_indices.is_empty()
     }
 
-    async fn trigger_async_recovery_for_target_dc(self: &Arc<Self>, target_dc: i16) -> bool {
-        let endpoints = self.endpoint_candidates_for_target_dc(target_dc).await;
+    async fn trigger_async_recovery_for_target_dc(self: &Arc<Self>, routed_dc: i32) -> bool {
+        let endpoints = self.endpoint_candidates_for_target_dc(routed_dc).await;
         if endpoints.is_empty() {
             return false;
         }
         self.stats.increment_me_async_recovery_trigger_total();
         for addr in endpoints.into_iter().take(8) {
-            self.trigger_immediate_refill(addr);
+            self.trigger_immediate_refill_for_dc(addr, routed_dc);
         }
         true
     }
 
     async fn trigger_async_recovery_global(self: &Arc<Self>) {
         self.stats.increment_me_async_recovery_trigger_total();
-        let mut seen = HashSet::<SocketAddr>::new();
+        let mut seen = HashSet::<(i32, SocketAddr)>::new();
         for family in self.family_order() {
             let map_guard = match family {
                 IpFamily::V4 => self.proxy_map_v4.read().await,
                 IpFamily::V6 => self.proxy_map_v6.read().await,
             };
-            for addrs in map_guard.values() {
+            for (dc, addrs) in map_guard.iter() {
                 for (ip, port) in addrs {
                     let addr = SocketAddr::new(*ip, *port);
-                    if seen.insert(addr) {
-                        self.trigger_immediate_refill(addr);
+                    if seen.insert((*dc, addr)) {
+                        self.trigger_immediate_refill_for_dc(addr, *dc);
                     }
                     if seen.len() >= 8 {
                         return;
@@ -445,11 +479,9 @@ impl MePool {
         }
     }
 
-    async fn endpoint_candidates_for_target_dc(&self, target_dc: i16) -> Vec<SocketAddr> {
-        let key = target_dc as i32;
+    async fn endpoint_candidates_for_target_dc(&self, routed_dc: i32) -> Vec<SocketAddr> {
         let mut preferred = Vec::<SocketAddr>::new();
         let mut seen = HashSet::<SocketAddr>::new();
-        let lookup_keys = self.dc_lookup_chain_for_target(key);
 
         for family in self.family_order() {
             let map_guard = match family {
@@ -457,14 +489,9 @@ impl MePool {
                 IpFamily::V6 => self.proxy_map_v6.read().await,
             };
             let mut family_selected = Vec::<SocketAddr>::new();
-            for lookup in lookup_keys.iter().copied() {
-                if let Some(addrs) = map_guard.get(&lookup) {
-                    for (ip, port) in addrs {
-                        family_selected.push(SocketAddr::new(*ip, *port));
-                    }
-                }
-                if !family_selected.is_empty() {
-                    break;
+            if let Some(addrs) = map_guard.get(&routed_dc) {
+                for (ip, port) in addrs {
+                    family_selected.push(SocketAddr::new(*ip, *port));
                 }
             }
             for addr in family_selected {
@@ -482,7 +509,7 @@ impl MePool {
 
     async fn maybe_trigger_hybrid_recovery(
         self: &Arc<Self>,
-        target_dc: i16,
+        routed_dc: i32,
         hybrid_recovery_round: &mut u32,
         hybrid_last_recovery_at: &mut Option<Instant>,
         hybrid_wait_step: Duration,
@@ -494,7 +521,7 @@ impl MePool {
         }
 
         let round = *hybrid_recovery_round;
-        let target_triggered = self.trigger_async_recovery_for_target_dc(target_dc).await;
+        let target_triggered = self.trigger_async_recovery_for_target_dc(routed_dc).await;
         if !target_triggered || round % HYBRID_GLOBAL_BURST_PERIOD_ROUNDS == 0 {
             self.trigger_async_recovery_global().await;
         }
@@ -507,7 +534,11 @@ impl MePool {
             let mut p = Vec::with_capacity(12);
             p.extend_from_slice(&RPC_CLOSE_EXT_U32.to_le_bytes());
             p.extend_from_slice(&conn_id.to_le_bytes());
-            if w.tx.send(WriterCommand::DataAndFlush(p)).await.is_err() {
+            if w.tx
+                .send(WriterCommand::DataAndFlush(Bytes::from(p)))
+                .await
+                .is_err()
+            {
                 debug!("ME close write failed");
                 self.remove_writer_and_close_clients(w.writer_id).await;
             }
@@ -524,7 +555,7 @@ impl MePool {
             let mut p = Vec::with_capacity(12);
             p.extend_from_slice(&RPC_CLOSE_CONN_U32.to_le_bytes());
             p.extend_from_slice(&conn_id.to_le_bytes());
-            match w.tx.try_send(WriterCommand::DataAndFlush(p)) {
+            match w.tx.try_send(WriterCommand::DataAndFlush(Bytes::from(p))) {
                 Ok(()) => {}
                 Err(TrySendError::Full(cmd)) => {
                     let _ = tokio::time::timeout(Duration::from_millis(50), w.tx.send(cmd)).await;
@@ -557,12 +588,10 @@ impl MePool {
     pub(super) async fn candidate_indices_for_dc(
         &self,
         writers: &[super::pool::MeWriter],
-        target_dc: i16,
+        routed_dc: i32,
         include_warm: bool,
     ) -> Vec<usize> {
-        let key = target_dc as i32;
         let mut preferred = HashSet::<SocketAddr>::new();
-        let lookup_keys = self.dc_lookup_chain_for_target(key);
 
         for family in self.family_order() {
             let map_guard = match family {
@@ -570,13 +599,8 @@ impl MePool {
                 IpFamily::V6 => self.proxy_map_v6.read().await,
             };
             let mut family_selected = Vec::<SocketAddr>::new();
-            for lookup in lookup_keys.iter().copied() {
-                if let Some(v) = map_guard.get(&lookup) {
-                    family_selected.extend(v.iter().map(|(ip, port)| SocketAddr::new(*ip, *port)));
-                }
-                if !family_selected.is_empty() {
-                    break;
-                }
+            if let Some(v) = map_guard.get(&routed_dc) {
+                family_selected.extend(v.iter().map(|(ip, port)| SocketAddr::new(*ip, *port)));
             }
             for endpoint in family_selected {
                 preferred.insert(endpoint);
@@ -598,7 +622,7 @@ impl MePool {
             if !self.writer_eligible_for_selection(w, include_warm) {
                 continue;
             }
-            if preferred.contains(&w.addr) {
+            if w.writer_dc == routed_dc && preferred.contains(&w.addr) {
                 out.push(idx);
             }
         }

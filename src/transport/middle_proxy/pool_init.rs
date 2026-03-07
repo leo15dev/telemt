@@ -55,7 +55,11 @@ impl MePool {
                     .iter()
                     .map(|(ip, port)| SocketAddr::new(*ip, *port))
                     .collect();
-                if self.active_writer_count_for_endpoints(&endpoints).await >= target_writers {
+                if self
+                    .active_writer_count_for_dc_endpoints(dc, &endpoints)
+                    .await
+                    >= target_writers
+                {
                     continue;
                 }
                 let pool = Arc::clone(self);
@@ -79,7 +83,7 @@ impl MePool {
                     .iter()
                     .map(|(ip, port)| SocketAddr::new(*ip, *port))
                     .collect();
-                if self.active_writer_count_for_endpoints(&endpoints).await == 0 {
+                if self.active_writer_count_for_dc_endpoints(*dc, &endpoints).await == 0 {
                     missing_dcs.push(*dc);
                 }
             }
@@ -156,7 +160,9 @@ impl MePool {
         let endpoint_set: HashSet<SocketAddr> = endpoints.iter().copied().collect();
 
         loop {
-            let alive = self.active_writer_count_for_endpoints(&endpoint_set).await;
+            let alive = self
+                .active_writer_count_for_dc_endpoints(dc, &endpoint_set)
+                .await;
             if alive >= target_writers {
                 info!(
                     dc = %dc,
@@ -175,7 +181,7 @@ impl MePool {
                 let rng_clone = Arc::clone(&rng);
                 let endpoints_clone = endpoints.clone();
                 join.spawn(async move {
-                    pool.connect_endpoints_round_robin(&endpoints_clone, rng_clone.as_ref())
+                    pool.connect_endpoints_round_robin(dc, &endpoints_clone, rng_clone.as_ref())
                         .await
                 });
             }
@@ -193,7 +199,9 @@ impl MePool {
                 }
             }
 
-            let alive_after = self.active_writer_count_for_endpoints(&endpoint_set).await;
+            let alive_after = self
+                .active_writer_count_for_dc_endpoints(dc, &endpoint_set)
+                .await;
             if alive_after >= target_writers {
                 info!(
                     dc = %dc,

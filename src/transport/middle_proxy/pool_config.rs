@@ -110,7 +110,10 @@ impl MePool {
     pub async fn reconnect_all(self: &Arc<Self>) {
         let ws = self.writers.read().await.clone();
         for w in ws {
-            if let Ok(()) = self.connect_one(w.addr, self.rng.as_ref()).await {
+            if let Ok(()) = self
+                .connect_one_for_dc(w.addr, w.writer_dc, self.rng.as_ref())
+                .await
+            {
                 self.mark_writer_draining(w.id).await;
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }

@@ -181,7 +181,11 @@ pub(crate) async fn reader_loop(
                 let mut pong = Vec::with_capacity(12);
                 pong.extend_from_slice(&RPC_PONG_U32.to_le_bytes());
                 pong.extend_from_slice(&ping_id.to_le_bytes());
-                if tx.send(WriterCommand::DataAndFlush(pong)).await.is_err() {
+                if tx
+                    .send(WriterCommand::DataAndFlush(Bytes::from(pong)))
+                    .await
+                    .is_err()
+                {
                     warn!("PONG send failed");
                     break;
                 }
@@ -222,5 +226,5 @@ async fn send_close_conn(tx: &mpsc::Sender<WriterCommand>, conn_id: u64) {
     p.extend_from_slice(&RPC_CLOSE_CONN_U32.to_le_bytes());
     p.extend_from_slice(&conn_id.to_le_bytes());
 
-    let _ = tx.send(WriterCommand::DataAndFlush(p)).await;
+    let _ = tx.send(WriterCommand::DataAndFlush(Bytes::from(p))).await;
 }

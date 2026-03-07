@@ -130,19 +130,18 @@ impl MePool {
         }
 
         let writers = self.writers.read().await.clone();
-        let mut live_writers_by_endpoint = HashMap::<SocketAddr, usize>::new();
+        let mut live_writers_by_dc = HashMap::<i16, usize>::new();
         for writer in writers {
             if writer.draining.load(Ordering::Relaxed) {
                 continue;
             }
-            *live_writers_by_endpoint.entry(writer.addr).or_insert(0) += 1;
+            if let Ok(dc) = i16::try_from(writer.writer_dc) {
+                *live_writers_by_dc.entry(dc).or_insert(0) += 1;
+            }
         }
 
-        for endpoints in endpoints_by_dc.values() {
-            let alive: usize = endpoints
-                .iter()
-                .map(|endpoint| live_writers_by_endpoint.get(endpoint).copied().unwrap_or(0))
-                .sum();
+        for dc in endpoints_by_dc.keys() {
+            let alive = live_writers_by_dc.get(dc).copied().unwrap_or(0);
             if alive == 0 {
                 return false;
             }
@@ -168,24 +167,23 @@ impl MePool {
         }
 
         let writers = self.writers.read().await.clone();
-        let mut live_writers_by_endpoint = HashMap::<SocketAddr, usize>::new();
+        let mut live_writers_by_dc = HashMap::<i16, usize>::new();
         for writer in writers {
             if writer.draining.load(Ordering::Relaxed) {
                 continue;
             }
-            *live_writers_by_endpoint.entry(writer.addr).or_insert(0) += 1;
+            if let Ok(dc) = i16::try_from(writer.writer_dc) {
+                *live_writers_by_dc.entry(dc).or_insert(0) += 1;
+            }
         }
 
-        for endpoints in endpoints_by_dc.values() {
+        for (dc, endpoints) in endpoints_by_dc {
             let endpoint_count = endpoints.len();
             if endpoint_count == 0 {
                 return false;
             }
             let required = self.required_writers_for_dc_with_floor_mode(endpoint_count, false);
-            let alive: usize = endpoints
-                .iter()
-                .map(|endpoint| live_writers_by_endpoint.get(endpoint).copied().unwrap_or(0))
-                .sum();
+            let alive = live_writers_by_dc.get(&dc).copied().unwrap_or(0);
             if alive < required {
                 return false;
             }
@@ -207,13 +205,6 @@ impl MePool {
             extend_signed_endpoints(&mut endpoints_by_dc, map);
         }
 
-        let mut endpoint_to_dc = HashMap::<SocketAddr, BTreeSet<i16>>::new();
-        for (dc, endpoints) in &endpoints_by_dc {
-            for endpoint in endpoints {
-                endpoint_to_dc.entry(*endpoint).or_default().insert(*dc);
-            }
-        }
-
         let configured_dc_groups = endpoints_by_dc.len();
         let configured_endpoints = endpoints_by_dc.values().map(BTreeSet::len).sum();
 
@@ -227,20 +218,14 @@ impl MePool {
         let rtt = self.rtt_stats.lock().await.clone();
         let writers = self.writers.read().await.clone();
 
-        let mut live_writers_by_endpoint = HashMap::<SocketAddr, usize>::new();
+        let mut live_writers_by_dc_endpoint = HashMap::<(i16, SocketAddr), usize>::new();
         let mut live_writers_by_dc = HashMap::<i16, usize>::new();
         let mut dc_rtt_agg = HashMap::<i16, (f64, u64)>::new();
         let mut writer_rows = Vec::<MeApiWriterStatusSnapshot>::with_capacity(writers.len());
 
         for writer in writers {
             let endpoint = writer.addr;
-            let dc = endpoint_to_dc.get(&endpoint).and_then(|dcs| {
-                if dcs.len() == 1 {
-                    dcs.iter().next().copied()
-                } else {
-                    None
-                }
-            });
+            let dc = i16::try_from(writer.writer_dc).ok();
             let draining = writer.draining.load(Ordering::Relaxed);
             let degraded = writer.degraded.load(Ordering::Relaxed);
             let bound_clients = activity
@@ -259,8 +244,10 @@ impl MePool {
             };
 
             if !draining {
-                *live_writers_by_endpoint.entry(endpoint).or_insert(0) += 1;
                 if let Some(dc_idx) = dc {
+                    *live_writers_by_dc_endpoint
+                        .entry((dc_idx, endpoint))
+                        .or_insert(0) += 1;
                     *live_writers_by_dc.entry(dc_idx).or_insert(0) += 1;
                     if let Some(ema_ms) = rtt_ema_ms {
                         let entry = dc_rtt_agg.entry(dc_idx).or_insert((0.0, 0));
@@ -298,7 +285,7 @@ impl MePool {
             let endpoint_count = endpoints.len();
             let dc_available_endpoints = endpoints
                 .iter()
-                .filter(|endpoint| live_writers_by_endpoint.contains_key(endpoint))
+                .filter(|endpoint| live_writers_by_dc_endpoint.contains_key(&(dc, **endpoint)))
                 .count();
             let base_required = self.required_writers_for_dc(endpoint_count);
             let dc_required_writers =
