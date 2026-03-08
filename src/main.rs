@@ -37,6 +37,7 @@ use crate::crypto::SecureRandom;
 use crate::ip_tracker::UserIpTracker;
 use crate::network::probe::{decide_network_capabilities, log_probe_result, run_probe};
 use crate::proxy::ClientHandler;
+use crate::proxy::route_mode::{ROUTE_SWITCH_ERROR_MSG, RelayRouteMode, RouteRuntimeController};
 use crate::stats::beobachten::BeobachtenStore;
 use crate::stats::telemetry::TelemetryPolicy;
 use crate::stats::{ReplayChecker, Stats};
@@ -259,6 +260,10 @@ async fn wait_until_admission_open(admission_rx: &mut watch::Receiver<bool>) -> 
             return *admission_rx.borrow();
         }
     }
+}
+
+fn is_expected_handshake_eof(err: &crate::error::ProxyError) -> bool {
+    err.to_string().contains("expected 64 bytes, got 0")
 }
 
 async fn load_startup_proxy_config_snapshot(
@@ -519,6 +524,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let (api_config_tx, api_config_rx) = watch::channel(Arc::new(config.clone()));
     let initial_admission_open = !config.general.use_middle_proxy;
     let (admission_tx, admission_rx) = watch::channel(initial_admission_open);
+    let initial_route_mode = if config.general.use_middle_proxy {
+        RelayRouteMode::Middle
+    } else {
+        RelayRouteMode::Direct
+    };
+    let route_runtime = Arc::new(RouteRuntimeController::new(initial_route_mode));
     let api_me_pool = Arc::new(RwLock::new(None::<Arc<MePool>>));
     startup_tracker
         .start_component(COMPONENT_API_BOOTSTRAP, Some("spawn API listener task".to_string()))
@@ -1783,9 +1794,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     if config.general.use_middle_proxy {
         if let Some(pool) = me_pool.as_ref() {
-            let initial_open = pool.admission_ready_conditional_cast().await;
-            admission_tx.send_replace(initial_open);
-            if initial_open {
+            let fallback_after = Duration::from_secs(6);
+            let initial_ready = pool.admission_ready_conditional_cast().await;
+            admission_tx.send_replace(initial_ready);
+            let _ = route_runtime.set_mode(RelayRouteMode::Middle);
+            if initial_ready {
                 info!("Conditional-admission gate: open (ME pool ready)");
             } else {
                 warn!("Conditional-admission gate: closed (ME pool is not ready)");
@@ -1793,12 +1806,18 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
             let pool_for_gate = pool.clone();
             let admission_tx_gate = admission_tx.clone();
+            let route_runtime_gate = route_runtime.clone();
             let mut config_rx_gate = config_rx.clone();
             let mut admission_poll_ms = config.general.me_admission_poll_ms.max(1);
+            let mut fallback_enabled = config.general.me2dc_fallback;
             tokio::spawn(async move {
-                let mut gate_open = initial_open;
-                let mut open_streak = if initial_open { 1u32 } else { 0u32 };
-                let mut close_streak = if initial_open { 0u32 } else { 1u32 };
+                let mut gate_open = initial_ready;
+                let mut route_mode = RelayRouteMode::Middle;
+                let mut not_ready_since = if initial_ready {
+                    None
+                } else {
+                    Some(Instant::now())
+                };
                 loop {
                     tokio::select! {
                         changed = config_rx_gate.changed() => {
@@ -1807,42 +1826,70 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             }
                             let cfg = config_rx_gate.borrow_and_update().clone();
                             admission_poll_ms = cfg.general.me_admission_poll_ms.max(1);
+                            fallback_enabled = cfg.general.me2dc_fallback;
                             continue;
                         }
                         _ = tokio::time::sleep(Duration::from_millis(admission_poll_ms)) => {}
                     }
                     let ready = pool_for_gate.admission_ready_conditional_cast().await;
-                    if ready {
-                        open_streak = open_streak.saturating_add(1);
-                        close_streak = 0;
-                        if !gate_open && open_streak >= 2 {
-                            gate_open = true;
-                            admission_tx_gate.send_replace(true);
-                            info!(
-                                open_streak,
-                                "Conditional-admission gate opened (ME pool recovered)"
-                            );
-                        }
+                    let now = Instant::now();
+                    let (next_gate_open, next_route_mode, next_fallback_active) = if ready {
+                        not_ready_since = None;
+                        (true, RelayRouteMode::Middle, false)
                     } else {
-                        close_streak = close_streak.saturating_add(1);
-                        open_streak = 0;
-                        if gate_open && close_streak >= 2 {
-                            gate_open = false;
-                            admission_tx_gate.send_replace(false);
-                            warn!(
-                                close_streak,
-                                "Conditional-admission gate closed (ME pool has uncovered DC groups)"
-                            );
+                        let not_ready_started_at = *not_ready_since.get_or_insert(now);
+                        let not_ready_for = now.saturating_duration_since(not_ready_started_at);
+                        if fallback_enabled && not_ready_for > fallback_after {
+                            (true, RelayRouteMode::Direct, true)
+                        } else {
+                            (false, RelayRouteMode::Middle, false)
+                        }
+                    };
+
+                    if next_route_mode != route_mode {
+                        route_mode = next_route_mode;
+                        if let Some(snapshot) = route_runtime_gate.set_mode(route_mode) {
+                            if matches!(route_mode, RelayRouteMode::Middle) {
+                                info!(
+                                    target_mode = route_mode.as_str(),
+                                    cutover_generation = snapshot.generation,
+                                    "Middle-End routing restored for new sessions"
+                                );
+                            } else {
+                                warn!(
+                                    target_mode = route_mode.as_str(),
+                                    cutover_generation = snapshot.generation,
+                                    grace_secs = fallback_after.as_secs(),
+                                    "ME pool stayed not-ready beyond grace; routing new sessions via Direct-DC"
+                                );
+                            }
                         }
                     }
+
+                    if next_gate_open != gate_open {
+                        gate_open = next_gate_open;
+                        admission_tx_gate.send_replace(gate_open);
+                        if gate_open {
+                            if next_fallback_active {
+                                warn!("Conditional-admission gate opened in ME fallback mode");
+                            } else {
+                                info!("Conditional-admission gate opened (ME pool ready)");
+                            }
+                        } else {
+                            warn!("Conditional-admission gate closed (ME pool is not ready)");
+                        }
+                    }
+
                 }
             });
         } else {
             admission_tx.send_replace(false);
+            let _ = route_runtime.set_mode(RelayRouteMode::Direct);
             warn!("Conditional-admission gate: closed (ME pool is unavailable)");
         }
     } else {
         admission_tx.send_replace(true);
+        let _ = route_runtime.set_mode(RelayRouteMode::Direct);
     }
     let _admission_tx_hold = admission_tx;
 
@@ -1886,6 +1933,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let buffer_pool = buffer_pool.clone();
         let rng = rng.clone();
         let me_pool = me_pool.clone();
+        let route_runtime = route_runtime.clone();
         let tls_cache = tls_cache.clone();
         let ip_tracker = ip_tracker.clone();
         let beobachten = beobachten.clone();
@@ -1918,6 +1966,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                         let buffer_pool = buffer_pool.clone();
                         let rng = rng.clone();
                         let me_pool = me_pool.clone();
+                        let route_runtime = route_runtime.clone();
                         let tls_cache = tls_cache.clone();
                         let ip_tracker = ip_tracker.clone();
                         let beobachten = beobachten.clone();
@@ -1928,7 +1977,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             if let Err(e) = crate::proxy::client::handle_client_stream(
                                 stream, fake_peer, config, stats,
                                 upstream_manager, replay_checker, buffer_pool, rng,
-                                me_pool, tls_cache, ip_tracker, beobachten, proxy_protocol_enabled,
+                                me_pool, route_runtime, tls_cache, ip_tracker, beobachten, proxy_protocol_enabled,
                             ).await {
                                 debug!(error = %e, "Unix socket connection error");
                             }
@@ -2039,6 +2088,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let buffer_pool = buffer_pool.clone();
         let rng = rng.clone();
         let me_pool = me_pool.clone();
+        let route_runtime = route_runtime.clone();
         let tls_cache = tls_cache.clone();
         let ip_tracker = ip_tracker.clone();
         let beobachten = beobachten.clone();
@@ -2066,6 +2116,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                         let buffer_pool = buffer_pool.clone();
                         let rng = rng.clone();
                         let me_pool = me_pool.clone();
+                        let route_runtime = route_runtime.clone();
                         let tls_cache = tls_cache.clone();
                         let ip_tracker = ip_tracker.clone();
                         let beobachten = beobachten.clone();
@@ -2083,6 +2134,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                                 buffer_pool,
                                 rng,
                                 me_pool,
+                                route_runtime,
                                 tls_cache,
                                 ip_tracker,
                                 beobachten,
@@ -2119,10 +2171,20 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                                     &e,
                                     crate::error::ProxyError::Proxy(msg) if msg == "ME connection lost"
                                 );
+                                let route_switched = matches!(
+                                    &e,
+                                    crate::error::ProxyError::Proxy(msg) if msg == ROUTE_SWITCH_ERROR_MSG
+                                );
 
                                 match (peer_closed, me_closed) {
                                     (true, _) => debug!(peer = %peer_addr, error = %e, "Connection closed by client"),
                                     (_, true) => warn!(peer = %peer_addr, error = %e, "Connection closed: Middle-End dropped session"),
+                                    _ if route_switched => {
+                                        info!(peer = %peer_addr, error = %e, "Connection closed by controlled route cutover")
+                                    }
+                                    _ if is_expected_handshake_eof(&e) => {
+                                        info!(peer = %peer_addr, error = %e, "Connection closed during initial handshake")
+                                    }
                                     _ => warn!(peer = %peer_addr, error = %e, "Connection closed with error"),
                                 }
                             }

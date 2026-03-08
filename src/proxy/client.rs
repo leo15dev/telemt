@@ -39,6 +39,7 @@ use crate::proxy::direct_relay::handle_via_direct;
 use crate::proxy::handshake::{HandshakeSuccess, handle_mtproto_handshake, handle_tls_handshake};
 use crate::proxy::masking::handle_bad_client;
 use crate::proxy::middle_relay::handle_via_middle_proxy;
+use crate::proxy::route_mode::{RelayRouteMode, RouteRuntimeController};
 
 fn beobachten_ttl(config: &ProxyConfig) -> Duration {
     Duration::from_secs(config.general.beobachten_minutes.saturating_mul(60))
@@ -80,6 +81,7 @@ pub async fn handle_client_stream<S>(
     buffer_pool: Arc<BufferPool>,
     rng: Arc<SecureRandom>,
     me_pool: Option<Arc<MePool>>,
+    route_runtime: Arc<RouteRuntimeController>,
     tls_cache: Option<Arc<TlsFrontCache>>,
     ip_tracker: Arc<UserIpTracker>,
     beobachten: Arc<BeobachtenStore>,
@@ -214,6 +216,7 @@ where
                 RunningClientHandler::handle_authenticated_static(
                     crypto_reader, crypto_writer, success,
                     upstream_manager, stats, config, buffer_pool, rng, me_pool,
+                    route_runtime.clone(),
                     local_addr, real_peer, ip_tracker.clone(),
                 ),
             )))
@@ -274,6 +277,7 @@ where
                     buffer_pool,
                     rng,
                     me_pool,
+                    route_runtime.clone(),
                     local_addr,
                     real_peer,
                     ip_tracker.clone(),
@@ -324,6 +328,7 @@ pub struct RunningClientHandler {
     buffer_pool: Arc<BufferPool>,
     rng: Arc<SecureRandom>,
     me_pool: Option<Arc<MePool>>,
+    route_runtime: Arc<RouteRuntimeController>,
     tls_cache: Option<Arc<TlsFrontCache>>,
     ip_tracker: Arc<UserIpTracker>,
     beobachten: Arc<BeobachtenStore>,
@@ -341,6 +346,7 @@ impl ClientHandler {
         buffer_pool: Arc<BufferPool>,
         rng: Arc<SecureRandom>,
         me_pool: Option<Arc<MePool>>,
+        route_runtime: Arc<RouteRuntimeController>,
         tls_cache: Option<Arc<TlsFrontCache>>,
         ip_tracker: Arc<UserIpTracker>,
         beobachten: Arc<BeobachtenStore>,
@@ -356,6 +362,7 @@ impl ClientHandler {
             buffer_pool,
             rng,
             me_pool,
+            route_runtime,
             tls_cache,
             ip_tracker,
             beobachten,
@@ -597,6 +604,7 @@ impl RunningClientHandler {
                 buffer_pool,
                 self.rng,
                 self.me_pool,
+                self.route_runtime.clone(),
                 local_addr,
                 peer,
                 self.ip_tracker,
@@ -677,6 +685,7 @@ impl RunningClientHandler {
                 buffer_pool,
                 self.rng,
                 self.me_pool,
+                self.route_runtime.clone(),
                 local_addr,
                 peer,
                 self.ip_tracker,
@@ -698,6 +707,7 @@ impl RunningClientHandler {
         buffer_pool: Arc<BufferPool>,
         rng: Arc<SecureRandom>,
         me_pool: Option<Arc<MePool>>,
+        route_runtime: Arc<RouteRuntimeController>,
         local_addr: SocketAddr,
         peer_addr: SocketAddr,
         ip_tracker: Arc<UserIpTracker>,
@@ -713,7 +723,11 @@ impl RunningClientHandler {
             return Err(e);
         }
 
-        let relay_result = if config.general.use_middle_proxy {
+        let route_snapshot = route_runtime.snapshot();
+        let session_id = rng.u64();
+        let relay_result = if config.general.use_middle_proxy
+            && matches!(route_snapshot.mode, RelayRouteMode::Middle)
+        {
             if let Some(ref pool) = me_pool {
                 handle_via_middle_proxy(
                     client_reader,
@@ -725,6 +739,9 @@ impl RunningClientHandler {
                     buffer_pool,
                     local_addr,
                     rng,
+                    route_runtime.subscribe(),
+                    route_snapshot,
+                    session_id,
                 )
                 .await
             } else {
@@ -738,6 +755,9 @@ impl RunningClientHandler {
                     config,
                     buffer_pool,
                     rng,
+                    route_runtime.subscribe(),
+                    route_snapshot,
+                    session_id,
                 )
                 .await
             }
@@ -752,6 +772,9 @@ impl RunningClientHandler {
                 config,
                 buffer_pool,
                 rng,
+                route_runtime.subscribe(),
+                route_snapshot,
+                session_id,
             )
             .await
         };

@@ -828,10 +828,29 @@ impl MePool {
         effective
     }
 
+    // Keeps per-contour (active/warm) writer budget bounded by CPU count.
+    // Baseline is 86 writers on the first core and +48 for each extra core.
+    fn adaptive_floor_cpu_budget_per_contour_cap(&self, cores: usize) -> usize {
+        const FIRST_CORE_WRITER_BUDGET: usize = 86;
+        const EXTRA_CORE_WRITER_BUDGET: usize = 48;
+        if cores == 0 {
+            return FIRST_CORE_WRITER_BUDGET;
+        }
+        FIRST_CORE_WRITER_BUDGET.saturating_add(
+            cores
+                .saturating_sub(1)
+                .saturating_mul(EXTRA_CORE_WRITER_BUDGET),
+        )
+    }
+
     pub(super) fn adaptive_floor_active_cap_configured_total(&self) -> usize {
         let cores = self.adaptive_floor_effective_cpu_cores();
-        let per_core_cap = cores.saturating_mul(self.adaptive_floor_max_active_writers_per_core());
-        let configured = per_core_cap.min(self.adaptive_floor_max_active_writers_global());
+        let per_contour_budget = self.adaptive_floor_cpu_budget_per_contour_cap(cores);
+        let configured = cores
+            .saturating_mul(self.adaptive_floor_max_active_writers_per_core())
+            .min(self.adaptive_floor_max_active_writers_global())
+            .min(per_contour_budget)
+            .max(1);
         self.me_adaptive_floor_active_cap_configured
             .store(configured as u64, Ordering::Relaxed);
         self.stats
@@ -841,8 +860,12 @@ impl MePool {
 
     pub(super) fn adaptive_floor_warm_cap_configured_total(&self) -> usize {
         let cores = self.adaptive_floor_effective_cpu_cores();
-        let per_core_cap = cores.saturating_mul(self.adaptive_floor_max_warm_writers_per_core());
-        let configured = per_core_cap.min(self.adaptive_floor_max_warm_writers_global());
+        let per_contour_budget = self.adaptive_floor_cpu_budget_per_contour_cap(cores);
+        let configured = cores
+            .saturating_mul(self.adaptive_floor_max_warm_writers_per_core())
+            .min(self.adaptive_floor_max_warm_writers_global())
+            .min(per_contour_budget)
+            .max(1);
         self.me_adaptive_floor_warm_cap_configured
             .store(configured as u64, Ordering::Relaxed);
         self.stats
