@@ -1,55 +1,75 @@
-### TELEMT Public License 3 - 2026 ###
+###### TELEMT Public License 3 ######
+##### Copyright (c) 2026 Telemt #####
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
+in the Software WITHOUT restriction, including without limitation the rights
 to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions.
 
 #### 1 Attribution
 
-Redistributions of the Software, in source or binary form, must retain the
+Redistributions of the Software, in source or binary form, MUST RETAIN the
 above copyright notice, this license text, and any existing attribution
 notices.
 
 #### 2 Modification Notice
 
-If you modify the Software, you must clearly state that the Software has been
+If you modify the Software, you MUST clearly state that the Software has been
 modified and include a brief description of the changes made.
 
-Modified versions must not be presented as the original Telemt project.
+Modified versions MUST NOT be presented as the original Telemt.
 
 #### 3 Trademark and Branding
 
-This license does not grant permission to use the name "Telemt", the Telemt
-logo, or any Telemt trademarks or branding.
+This license DOES NOT grant permission to use the name "Telemt", 
+the Telemt logo, or any Telemt trademarks or branding.
 
-Redistributed or modified versions of the Software may not use the Telemt
+Redistributed or modified versions of the Software MAY NOT use the Telemt
 name in a way that suggests endorsement or official origin without explicit
-permission from the Telemt project maintainers.
+permission from the Telemt maintainers.
 
 #### 4 Binary Distribution Transparency
 
-If you distribute compiled binaries of the Software, you must make the
-corresponding source code and build instructions available to recipients
-of those binaries.
+If you distribute compiled binaries of the Software,
+you are ENCOURAGED to provide access to the corresponding
+source code and build instructions where reasonably possible.
 
-This requirement exists to preserve transparency and allow verification
-of distributed builds.
+This helps preserve transparency and allows recipients to verify the
+integrity and reproducibility of distributed builds.
 
-#### 5 Patent Grant
+#### 5 Patent Grant and Defensive Termination Clause
 
 Each contributor grants you a perpetual, worldwide, non-exclusive,
 no-charge, royalty-free, irrevocable patent license to make, have made,
 use, offer to sell, sell, import, and otherwise transfer the Software.
 
-If you initiate patent litigation claiming that the Software or a
-contribution incorporated within the Software constitutes direct or
-contributory patent infringement, then any patent licenses granted to you
-under this license shall terminate as of the date such litigation is filed.
+This patent license applies only to those patent claims necessarily
+infringed by the contributor’s contribution alone or by combination of
+their contribution with the Software.
 
-#### 6 Disclaimer of Warranty
+If you initiate or participate in any patent litigation, including
+cross-claims or counterclaims, alleging that the Software or any
+contribution incorporated within the Software constitutes patent
+infringement, then **all rights granted to you under this license shall
+terminate immediately** as of the date such litigation is filed.
+
+Additionally, if you initiate legal action alleging that the
+Software itself infringes your patent or other intellectual
+property rights, then all rights granted to you under this
+license SHALL TERMINATE automatically.
+
+#### 7 Network Use Attribution
+
+If the Software is used to provide a publicly accessible network
+service, the operator of such service MUST RETAIN reasonable
+attribution to the Telemt in documentation, service
+descriptions, or user-visible materials.
+
+Such attribution MUST NOT imply endorsement by the Telemt.
+
+#### 8 Disclaimer of Warranty
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
