@@ -168,17 +168,24 @@ pub async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         stats.clone(),
     ));
     let ip_tracker = Arc::new(UserIpTracker::new());
-    ip_tracker.load_limits(&config.access.user_max_unique_ips).await;
+    ip_tracker
+        .load_limits(
+            config.access.user_max_unique_ips_global_each,
+            &config.access.user_max_unique_ips,
+        )
+        .await;
     ip_tracker
         .set_limit_policy(
             config.access.user_max_unique_ips_mode,
             config.access.user_max_unique_ips_window_secs,
         )
         .await;
-    if !config.access.user_max_unique_ips.is_empty() {
+    if config.access.user_max_unique_ips_global_each > 0 || !config.access.user_max_unique_ips.is_empty()
+    {
         info!(
-            "IP limits configured for {} users",
-            config.access.user_max_unique_ips.len()
+            global_each_limit = config.access.user_max_unique_ips_global_each,
+            explicit_user_limits = config.access.user_max_unique_ips.len(),
+            "User unique IP limits configured"
         );
     }
     if !config.network.dns_overrides.is_empty() {
