@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 #[cfg(test)]
 use std::sync::Mutex;
 
-use bytes::Bytes;
 use dashmap::DashMap;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -24,11 +23,11 @@ use crate::proxy::route_mode::{
     cutover_stagger_delay,
 };
 use crate::stats::Stats;
-use crate::stream::{BufferPool, CryptoReader, CryptoWriter};
+use crate::stream::{BufferPool, CryptoReader, CryptoWriter, PooledBuffer};
 use crate::transport::middle_proxy::{MePool, MeResponse, proto_flags_for_tag};
 
 enum C2MeCommand {
-    Data { payload: Bytes, flags: u32 },
+    Data { payload: PooledBuffer, flags: u32 },
     Close,
 }
 
@@ -686,7 +685,7 @@ async fn read_client_payload<R>(
     forensics: &RelayForensicsState,
     frame_counter: &mut u64,
     stats: &Stats,
-) -> Result<Option<(Bytes, bool)>>
+) -> Result<Option<(PooledBuffer, bool)>>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
@@ -807,8 +806,7 @@ where
             payload.truncate(secure_payload_len);
         }
         *frame_counter += 1;
-        let payload_bytes = Bytes::copy_from_slice(&payload[..]);
-        return Ok(Some((payload_bytes, quickack)));
+        return Ok(Some((payload, quickack)));
     }
 }
 

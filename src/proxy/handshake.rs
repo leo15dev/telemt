@@ -11,6 +11,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, warn, trace};
 use zeroize::Zeroize;
@@ -118,20 +119,29 @@ fn auth_probe_record_failure_with_state(
     peer_ip: IpAddr,
     now: Instant,
 ) {
-    if let Some(mut entry) = state.get_mut(&peer_ip) {
-        if auth_probe_state_expired(&entry, now) {
-            *entry = AuthProbeState {
-                fail_streak: 1,
-                blocked_until: now + auth_probe_backoff(1),
-                last_seen: now,
-            };
+    let make_new_state = || AuthProbeState {
+        fail_streak: 1,
+        blocked_until: now + auth_probe_backoff(1),
+        last_seen: now,
+    };
+
+    let update_existing = |entry: &mut AuthProbeState| {
+        if auth_probe_state_expired(entry, now) {
+            *entry = make_new_state();
+        } else {
+            entry.fail_streak = entry.fail_streak.saturating_add(1);
+            entry.last_seen = now;
+            entry.blocked_until = now + auth_probe_backoff(entry.fail_streak);
+        }
+    };
+
+    match state.entry(peer_ip) {
+        Entry::Occupied(mut entry) => {
+            update_existing(entry.get_mut());
             return;
         }
-        entry.fail_streak = entry.fail_streak.saturating_add(1);
-        entry.last_seen = now;
-        entry.blocked_until = now + auth_probe_backoff(entry.fail_streak);
-        return;
-    };
+        Entry::Vacant(_) => {}
+    }
 
     if state.len() >= AUTH_PROBE_TRACK_MAX_ENTRIES {
         let mut stale_keys = Vec::new();
@@ -155,11 +165,14 @@ fn auth_probe_record_failure_with_state(
         }
     }
 
-    state.insert(peer_ip, AuthProbeState {
-        fail_streak: 1,
-        blocked_until: now + auth_probe_backoff(1),
-        last_seen: now,
-    });
+    match state.entry(peer_ip) {
+        Entry::Occupied(mut entry) => {
+            update_existing(entry.get_mut());
+        }
+        Entry::Vacant(entry) => {
+            entry.insert(make_new_state());
+        }
+    }
 }
 
 fn auth_probe_record_success(peer_ip: IpAddr) {

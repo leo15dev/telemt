@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::Barrier;
 
 fn make_valid_tls_handshake(secret: &[u8], timestamp: u32) -> Vec<u8> {
     let session_id_len: usize = 32;
@@ -993,4 +994,117 @@ fn auth_probe_eviction_offset_varies_with_input() {
 
     assert_eq!(a, b, "same input must yield deterministic offset");
     assert_ne!(a, c, "different peer IPs should not collapse to one offset");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn auth_probe_concurrent_failures_do_not_lose_fail_streak_updates() {
+    let _guard = auth_probe_test_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    clear_auth_probe_state_for_testing();
+
+    let peer_ip: IpAddr = "198.51.100.90".parse().unwrap();
+    let tasks = 128usize;
+    let barrier = Arc::new(Barrier::new(tasks));
+    let mut handles = Vec::with_capacity(tasks);
+
+    for _ in 0..tasks {
+        let barrier = barrier.clone();
+        handles.push(tokio::spawn(async move {
+            barrier.wait().await;
+            auth_probe_record_failure(peer_ip, Instant::now());
+        }));
+    }
+
+    for handle in handles {
+        handle
+            .await
+            .expect("concurrent failure recording task must not panic");
+    }
+
+    let streak = auth_probe_fail_streak_for_testing(peer_ip)
+        .expect("tracked peer must exist after concurrent failure burst");
+    assert_eq!(
+        streak as usize,
+        tasks,
+        "concurrent failures for one source must account every attempt"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn invalid_probe_noise_from_other_ips_does_not_break_valid_tls_handshake() {
+    let _guard = auth_probe_test_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    clear_auth_probe_state_for_testing();
+
+    let secret = [0x31u8; 16];
+    let config = Arc::new(test_config_with_secret_hex("31313131313131313131313131313131"));
+    let replay_checker = Arc::new(ReplayChecker::new(4096, Duration::from_secs(60)));
+    let rng = Arc::new(SecureRandom::new());
+    let victim_peer: SocketAddr = "198.51.100.91:44391".parse().unwrap();
+    let valid = Arc::new(make_valid_tls_handshake(&secret, 0));
+
+    let mut invalid = vec![0x42u8; tls::TLS_DIGEST_POS + tls::TLS_DIGEST_LEN + 1 + 32];
+    invalid[tls::TLS_DIGEST_POS + tls::TLS_DIGEST_LEN] = 32;
+    let invalid = Arc::new(invalid);
+
+    let mut noise_tasks = Vec::new();
+    for idx in 0..96u16 {
+        let config = config.clone();
+        let replay_checker = replay_checker.clone();
+        let rng = rng.clone();
+        let invalid = invalid.clone();
+        noise_tasks.push(tokio::spawn(async move {
+            let octet = ((idx % 200) + 1) as u8;
+            let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(203, 0, 113, octet)), 45000 + idx);
+            let result = handle_tls_handshake(
+                &invalid,
+                tokio::io::empty(),
+                tokio::io::sink(),
+                peer,
+                &config,
+                &replay_checker,
+                &rng,
+                None,
+            )
+            .await;
+            assert!(matches!(result, HandshakeResult::BadClient { .. }));
+        }));
+    }
+
+    let victim_config = config.clone();
+    let victim_replay_checker = replay_checker.clone();
+    let victim_rng = rng.clone();
+    let victim_valid = valid.clone();
+    let victim_task = tokio::spawn(async move {
+        handle_tls_handshake(
+            &victim_valid,
+            tokio::io::empty(),
+            tokio::io::sink(),
+            victim_peer,
+            &victim_config,
+            &victim_replay_checker,
+            &victim_rng,
+            None,
+        )
+        .await
+    });
+
+    for task in noise_tasks {
+        task.await.expect("noise task must not panic");
+    }
+
+    let victim_result = victim_task
+        .await
+        .expect("victim handshake task must not panic");
+    assert!(
+        matches!(victim_result, HandshakeResult::Success(_)),
+        "invalid probe noise from other IPs must not block a valid victim handshake"
+    );
+    assert_eq!(
+        auth_probe_fail_streak_for_testing(victim_peer.ip()),
+        None,
+        "successful victim handshake must not retain pre-auth failure streak"
+    );
 }
