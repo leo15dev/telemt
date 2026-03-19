@@ -74,6 +74,7 @@ async fn make_pool(me_pool_drain_threshold: u64) -> Arc<MePool> {
         general.me_adaptive_floor_max_warm_writers_global,
         general.hardswap,
         general.me_pool_drain_ttl_secs,
+        general.me_instadrain,
         general.me_pool_drain_threshold,
         general.me_pool_drain_soft_evict_enabled,
         general.me_pool_drain_soft_evict_grace_secs,
@@ -180,8 +181,14 @@ async fn current_writer_ids(pool: &Arc<MePool>) -> Vec<u64> {
 async fn reap_draining_writers_drops_warn_state_for_removed_writer() {
     let pool = make_pool(128).await;
     let now_epoch_secs = MePool::now_epoch_secs();
-    let conn_ids =
-        insert_draining_writer(&pool, 7, now_epoch_secs.saturating_sub(180), 1, 0).await;
+    let conn_ids = insert_draining_writer(
+        &pool,
+        7,
+        now_epoch_secs.saturating_sub(180),
+        1,
+        now_epoch_secs.saturating_add(3_600),
+    )
+    .await;
     let mut warn_next_allowed = HashMap::new();
     let mut soft_evict_next_allowed = HashMap::new();
 
@@ -331,17 +338,17 @@ async fn reap_draining_writers_deadline_force_close_applies_under_threshold() {
 
 #[tokio::test]
 async fn reap_draining_writers_limits_closes_per_health_tick() {
-    let pool = make_pool(128).await;
+    let pool = make_pool(1).await;
     let now_epoch_secs = MePool::now_epoch_secs();
     let close_budget = health_drain_close_budget();
-    let writer_total = close_budget.saturating_add(19);
+    let writer_total = close_budget.saturating_add(20);
     for writer_id in 1..=writer_total as u64 {
         insert_draining_writer(
             &pool,
             writer_id,
             now_epoch_secs.saturating_sub(20),
             1,
-            now_epoch_secs.saturating_sub(1),
+            0,
         )
         .await;
     }
@@ -364,8 +371,8 @@ async fn reap_draining_writers_backlog_drains_across_ticks() {
             &pool,
             writer_id,
             now_epoch_secs.saturating_sub(20),
-            1,
-            now_epoch_secs.saturating_sub(1),
+            0,
+            0,
         )
         .await;
     }
@@ -393,7 +400,7 @@ async fn reap_draining_writers_threshold_backlog_converges_to_threshold() {
         insert_draining_writer(
             &pool,
             writer_id,
-            now_epoch_secs.saturating_sub(200).saturating_add(writer_id),
+            now_epoch_secs.saturating_sub(20),
             1,
             0,
         )
@@ -429,27 +436,27 @@ async fn reap_draining_writers_threshold_zero_preserves_non_expired_non_empty_wr
 
 #[tokio::test]
 async fn reap_draining_writers_prioritizes_force_close_before_empty_cleanup() {
-    let pool = make_pool(128).await;
+    let pool = make_pool(1).await;
     let now_epoch_secs = MePool::now_epoch_secs();
     let close_budget = health_drain_close_budget();
-    for writer_id in 1..=close_budget as u64 {
+    for writer_id in 1..=close_budget.saturating_add(1) as u64 {
         insert_draining_writer(
             &pool,
             writer_id,
             now_epoch_secs.saturating_sub(20),
             1,
-            now_epoch_secs.saturating_sub(1),
+            0,
         )
         .await;
     }
-    let empty_writer_id = close_budget as u64 + 1;
+    let empty_writer_id = close_budget.saturating_add(2) as u64;
     insert_draining_writer(&pool, empty_writer_id, now_epoch_secs.saturating_sub(20), 0, 0).await;
     let mut warn_next_allowed = HashMap::new();
     let mut soft_evict_next_allowed = HashMap::new();
 
     reap_draining_writers(&pool, &mut warn_next_allowed, &mut soft_evict_next_allowed).await;
 
-    assert_eq!(current_writer_ids(&pool).await, vec![empty_writer_id]);
+    assert_eq!(current_writer_ids(&pool).await, vec![1, empty_writer_id]);
 }
 
 #[tokio::test]
@@ -571,7 +578,14 @@ async fn reap_draining_writers_soft_evicts_stuck_writer_with_per_writer_cap() {
         .store(1, Ordering::Relaxed);
 
     let now_epoch_secs = MePool::now_epoch_secs();
-    insert_draining_writer(&pool, 77, now_epoch_secs.saturating_sub(240), 3, 0).await;
+    insert_draining_writer(
+        &pool,
+        77,
+        now_epoch_secs.saturating_sub(240),
+        3,
+        now_epoch_secs.saturating_add(3_600),
+    )
+    .await;
     let mut warn_next_allowed = HashMap::new();
     let mut soft_evict_next_allowed = HashMap::new();
 
@@ -595,7 +609,14 @@ async fn reap_draining_writers_soft_evict_respects_cooldown_per_writer() {
         .store(60_000, Ordering::Relaxed);
 
     let now_epoch_secs = MePool::now_epoch_secs();
-    insert_draining_writer(&pool, 88, now_epoch_secs.saturating_sub(240), 3, 0).await;
+    insert_draining_writer(
+        &pool,
+        88,
+        now_epoch_secs.saturating_sub(240),
+        3,
+        now_epoch_secs.saturating_add(3_600),
+    )
+    .await;
     let mut warn_next_allowed = HashMap::new();
     let mut soft_evict_next_allowed = HashMap::new();
 
@@ -606,6 +627,21 @@ async fn reap_draining_writers_soft_evict_respects_cooldown_per_writer() {
     assert_eq!(activity.bound_clients_by_writer.get(&88), Some(&2));
     assert_eq!(pool.stats.get_pool_drain_soft_evict_total(), 1);
     assert_eq!(pool.stats.get_pool_drain_soft_evict_writer_total(), 1);
+}
+
+#[tokio::test]
+async fn reap_draining_writers_instadrain_removes_non_expired_writers_immediately() {
+    let pool = make_pool(0).await;
+    pool.me_instadrain.store(true, Ordering::Relaxed);
+    let now_epoch_secs = MePool::now_epoch_secs();
+    insert_draining_writer(&pool, 101, now_epoch_secs.saturating_sub(5), 1, 0).await;
+    insert_draining_writer(&pool, 102, now_epoch_secs.saturating_sub(4), 1, 0).await;
+    let mut warn_next_allowed = HashMap::new();
+    let mut soft_evict_next_allowed = HashMap::new();
+
+    reap_draining_writers(&pool, &mut warn_next_allowed, &mut soft_evict_next_allowed).await;
+
+    assert!(current_writer_ids(&pool).await.is_empty());
 }
 
 #[test]

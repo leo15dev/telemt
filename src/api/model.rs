@@ -364,6 +364,7 @@ pub(super) struct MinimalMeRuntimeData {
     pub(super) me_reconnect_backoff_cap_ms: u64,
     pub(super) me_reconnect_fast_retry_count: u32,
     pub(super) me_pool_drain_ttl_secs: u64,
+    pub(super) me_instadrain: bool,
     pub(super) me_pool_drain_soft_evict_enabled: bool,
     pub(super) me_pool_drain_soft_evict_grace_secs: u64,
     pub(super) me_pool_drain_soft_evict_per_writer: u8,

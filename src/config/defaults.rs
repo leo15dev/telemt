@@ -613,6 +613,10 @@ pub(crate) fn default_me_pool_drain_ttl_secs() -> u64 {
     90
 }
 
+pub(crate) fn default_me_instadrain() -> bool {
+    false
+}
+
 pub(crate) fn default_me_pool_drain_threshold() -> u64 {
     128
 }

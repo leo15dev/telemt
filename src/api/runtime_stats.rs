@@ -431,6 +431,7 @@ async fn get_minimal_payload_cached(
         me_reconnect_backoff_cap_ms: runtime.me_reconnect_backoff_cap_ms,
         me_reconnect_fast_retry_count: runtime.me_reconnect_fast_retry_count,
         me_pool_drain_ttl_secs: runtime.me_pool_drain_ttl_secs,
+        me_instadrain: runtime.me_instadrain,
         me_pool_drain_soft_evict_enabled: runtime.me_pool_drain_soft_evict_enabled,
         me_pool_drain_soft_evict_grace_secs: runtime.me_pool_drain_soft_evict_grace_secs,
         me_pool_drain_soft_evict_per_writer: runtime.me_pool_drain_soft_evict_per_writer,

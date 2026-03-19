@@ -81,6 +81,7 @@ async fn make_pool(
         general.me_adaptive_floor_max_warm_writers_global,
         general.hardswap,
         general.me_pool_drain_ttl_secs,
+        general.me_instadrain,
         general.me_pool_drain_threshold,
         general.me_pool_drain_soft_evict_enabled,
         general.me_pool_drain_soft_evict_grace_secs,
@@ -213,7 +214,7 @@ async fn reap_draining_writers_respects_threshold_across_multiple_overflow_cycle
         insert_draining_writer(
             &pool,
             writer_id,
-            now_epoch_secs.saturating_sub(600).saturating_add(writer_id),
+            now_epoch_secs.saturating_sub(20),
             1,
             0,
         )
@@ -230,7 +231,7 @@ async fn reap_draining_writers_respects_threshold_across_multiple_overflow_cycle
     }
 
     assert_eq!(writer_count(&pool).await, threshold as usize);
-    assert_eq!(sorted_writer_ids(&pool).await, vec![58, 59, 60]);
+    assert_eq!(sorted_writer_ids(&pool).await, vec![1, 2, 3]);
 }
 
 #[tokio::test]

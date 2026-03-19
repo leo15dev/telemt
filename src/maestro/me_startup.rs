@@ -237,6 +237,7 @@ pub(crate) async fn initialize_me_pool(
                     config.general.me_adaptive_floor_max_warm_writers_global,
                     config.general.hardswap,
                     config.general.me_pool_drain_ttl_secs,
+                    config.general.me_instadrain,
                     config.general.me_pool_drain_threshold,
                     config.general.me_pool_drain_soft_evict_enabled,
                     config.general.me_pool_drain_soft_evict_grace_secs,
@@ -342,6 +343,13 @@ pub(crate) async fn initialize_me_pool(
                                             )
                                             .await;
                                         });
+                                        let pool_drain_enforcer = pool_bg.clone();
+                                        tokio::spawn(async move {
+                                            crate::transport::middle_proxy::me_drain_timeout_enforcer(
+                                                pool_drain_enforcer,
+                                            )
+                                            .await;
+                                        });
                                         break;
                                     }
                                     Err(e) => {
@@ -406,6 +414,13 @@ pub(crate) async fn initialize_me_pool(
                                 tokio::spawn(async move {
                                     crate::transport::middle_proxy::me_health_monitor(
                                         pool_clone, rng_clone, min_conns,
+                                    )
+                                    .await;
+                                });
+                                let pool_drain_enforcer = pool.clone();
+                                tokio::spawn(async move {
+                                    crate::transport::middle_proxy::me_drain_timeout_enforcer(
+                                        pool_drain_enforcer,
                                     )
                                     .await;
                                 });

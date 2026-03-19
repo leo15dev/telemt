@@ -126,6 +126,7 @@ pub(crate) struct MeApiRuntimeSnapshot {
     pub me_reconnect_backoff_cap_ms: u64,
     pub me_reconnect_fast_retry_count: u32,
     pub me_pool_drain_ttl_secs: u64,
+    pub me_instadrain: bool,
     pub me_pool_drain_soft_evict_enabled: bool,
     pub me_pool_drain_soft_evict_grace_secs: u64,
     pub me_pool_drain_soft_evict_per_writer: u8,
@@ -583,6 +584,7 @@ impl MePool {
             me_reconnect_backoff_cap_ms: self.me_reconnect_backoff_cap.as_millis() as u64,
             me_reconnect_fast_retry_count: self.me_reconnect_fast_retry_count,
             me_pool_drain_ttl_secs: self.me_pool_drain_ttl_secs.load(Ordering::Relaxed),
+            me_instadrain: self.me_instadrain.load(Ordering::Relaxed),
             me_pool_drain_soft_evict_enabled: self
                 .me_pool_drain_soft_evict_enabled
                 .load(Ordering::Relaxed),

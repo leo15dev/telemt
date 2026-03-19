@@ -80,6 +80,7 @@ async fn make_pool(
         general.me_adaptive_floor_max_warm_writers_global,
         general.hardswap,
         general.me_pool_drain_ttl_secs,
+        general.me_instadrain,
         general.me_pool_drain_threshold,
         general.me_pool_drain_soft_evict_enabled,
         general.me_pool_drain_soft_evict_grace_secs,

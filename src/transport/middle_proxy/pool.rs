@@ -171,6 +171,7 @@ pub struct MePool {
     pub(super) endpoint_quarantine: Arc<Mutex<HashMap<SocketAddr, Instant>>>,
     pub(super) kdf_material_fingerprint: Arc<RwLock<HashMap<SocketAddr, (u64, u16)>>>,
     pub(super) me_pool_drain_ttl_secs: AtomicU64,
+    pub(super) me_instadrain: AtomicBool,
     pub(super) me_pool_drain_threshold: AtomicU64,
     pub(super) me_pool_drain_soft_evict_enabled: AtomicBool,
     pub(super) me_pool_drain_soft_evict_grace_secs: AtomicU64,
@@ -279,6 +280,7 @@ impl MePool {
         me_adaptive_floor_max_warm_writers_global: u32,
         hardswap: bool,
         me_pool_drain_ttl_secs: u64,
+        me_instadrain: bool,
         me_pool_drain_threshold: u64,
         me_pool_drain_soft_evict_enabled: bool,
         me_pool_drain_soft_evict_grace_secs: u64,
@@ -462,6 +464,7 @@ impl MePool {
             endpoint_quarantine: Arc::new(Mutex::new(HashMap::new())),
             kdf_material_fingerprint: Arc::new(RwLock::new(HashMap::new())),
             me_pool_drain_ttl_secs: AtomicU64::new(me_pool_drain_ttl_secs),
+            me_instadrain: AtomicBool::new(me_instadrain),
             me_pool_drain_threshold: AtomicU64::new(me_pool_drain_threshold),
             me_pool_drain_soft_evict_enabled: AtomicBool::new(me_pool_drain_soft_evict_enabled),
             me_pool_drain_soft_evict_grace_secs: AtomicU64::new(me_pool_drain_soft_evict_grace_secs),
@@ -524,6 +527,7 @@ impl MePool {
         &self,
         hardswap: bool,
         drain_ttl_secs: u64,
+        instadrain: bool,
         pool_drain_threshold: u64,
         pool_drain_soft_evict_enabled: bool,
         pool_drain_soft_evict_grace_secs: u64,
@@ -568,6 +572,7 @@ impl MePool {
         self.hardswap.store(hardswap, Ordering::Relaxed);
         self.me_pool_drain_ttl_secs
             .store(drain_ttl_secs, Ordering::Relaxed);
+        self.me_instadrain.store(instadrain, Ordering::Relaxed);
         self.me_pool_drain_threshold
             .store(pool_drain_threshold, Ordering::Relaxed);
         self.me_pool_drain_soft_evict_enabled

@@ -812,6 +812,10 @@ pub struct GeneralConfig {
     #[serde(default = "default_me_pool_drain_ttl_secs")]
     pub me_pool_drain_ttl_secs: u64,
 
+    /// Force-remove any draining writer on the next cleanup tick, regardless of age/deadline.
+    #[serde(default = "default_me_instadrain")]
+    pub me_instadrain: bool,
+
     /// Maximum allowed number of draining ME writers before oldest ones are force-closed in batches.
     /// Set to 0 to disable threshold-based draining cleanup and keep timeout-only behavior.
     #[serde(default = "default_me_pool_drain_threshold")]
@@ -1020,6 +1024,7 @@ impl Default for GeneralConfig {
             me_secret_atomic_snapshot: default_me_secret_atomic_snapshot(),
             proxy_secret_len_max: default_proxy_secret_len_max(),
             me_pool_drain_ttl_secs: default_me_pool_drain_ttl_secs(),
+            me_instadrain: default_me_instadrain(),
             me_pool_drain_threshold: default_me_pool_drain_threshold(),
             me_pool_drain_soft_evict_enabled: default_me_pool_drain_soft_evict_enabled(),
             me_pool_drain_soft_evict_grace_secs: default_me_pool_drain_soft_evict_grace_secs(),
