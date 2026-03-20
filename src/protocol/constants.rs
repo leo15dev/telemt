@@ -339,7 +339,7 @@ pub mod rpc_flags {
     pub const ME_HANDSHAKE_TIMEOUT_SECS: u64 = 10;
 
     #[cfg(test)]
-    #[path = "tls_size_constants_security_tests.rs"]
+    #[path = "tests/tls_size_constants_security_tests.rs"]
     mod tls_size_constants_security_tests;
     
     #[cfg(test)]

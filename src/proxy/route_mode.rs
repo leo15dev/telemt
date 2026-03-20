@@ -133,5 +133,5 @@ pub(crate) fn cutover_stagger_delay(session_id: u64, generation: u64) -> Duratio
 }
 
 #[cfg(test)]
-#[path = "route_mode_security_tests.rs"]
+#[path = "tests/route_mode_security_tests.rs"]
 mod security_tests;

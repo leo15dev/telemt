@@ -294,7 +294,7 @@ pub fn build_emulated_server_hello(
 }
 
 #[cfg(test)]
-#[path = "emulator_security_tests.rs"]
+#[path = "tests/emulator_security_tests.rs"]
 mod security_tests;
 
 #[cfg(test)]

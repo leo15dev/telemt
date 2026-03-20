@@ -1211,53 +1211,53 @@ impl RunningClientHandler {
 }
 
 #[cfg(test)]
-#[path = "client_security_tests.rs"]
+#[path = "tests/client_security_tests.rs"]
 mod security_tests;
 
 #[cfg(test)]
-#[path = "client_adversarial_tests.rs"]
+#[path = "tests/client_adversarial_tests.rs"]
 mod adversarial_tests;
 
 #[cfg(test)]
-#[path = "client_tls_mtproto_fallback_security_tests.rs"]
+#[path = "tests/client_tls_mtproto_fallback_security_tests.rs"]
 mod tls_mtproto_fallback_security_tests;
 
 #[cfg(test)]
-#[path = "client_tls_clienthello_size_security_tests.rs"]
+#[path = "tests/client_tls_clienthello_size_security_tests.rs"]
 mod tls_clienthello_size_security_tests;
 
 #[cfg(test)]
-#[path = "client_tls_clienthello_truncation_adversarial_tests.rs"]
+#[path = "tests/client_tls_clienthello_truncation_adversarial_tests.rs"]
 mod tls_clienthello_truncation_adversarial_tests;
 
 #[cfg(test)]
-#[path = "client_timing_profile_adversarial_tests.rs"]
+#[path = "tests/client_timing_profile_adversarial_tests.rs"]
 mod timing_profile_adversarial_tests;
 
 #[cfg(test)]
-#[path = "client_masking_budget_security_tests.rs"]
+#[path = "tests/client_masking_budget_security_tests.rs"]
 mod masking_budget_security_tests;
 
 #[cfg(test)]
-#[path = "client_masking_redteam_expected_fail_tests.rs"]
+#[path = "tests/client_masking_redteam_expected_fail_tests.rs"]
 mod masking_redteam_expected_fail_tests;
 
 #[cfg(test)]
-#[path = "client_masking_hard_adversarial_tests.rs"]
+#[path = "tests/client_masking_hard_adversarial_tests.rs"]
 mod masking_hard_adversarial_tests;
 
 #[cfg(test)]
-#[path = "client_masking_stress_adversarial_tests.rs"]
+#[path = "tests/client_masking_stress_adversarial_tests.rs"]
 mod masking_stress_adversarial_tests;
 
 #[cfg(test)]
-#[path = "client_masking_blackhat_campaign_tests.rs"]
+#[path = "tests/client_masking_blackhat_campaign_tests.rs"]
 mod masking_blackhat_campaign_tests;
 
 #[cfg(test)]
-#[path = "client_masking_diagnostics_security_tests.rs"]
+#[path = "tests/client_masking_diagnostics_security_tests.rs"]
 mod masking_diagnostics_security_tests;
 
 #[cfg(test)]
-#[path = "client_masking_shape_hardening_security_tests.rs"]
+#[path = "tests/client_masking_shape_hardening_security_tests.rs"]
 mod masking_shape_hardening_security_tests;

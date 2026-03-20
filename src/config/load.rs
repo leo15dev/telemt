@@ -992,11 +992,11 @@ impl ProxyConfig {
 }
 
 #[cfg(test)]
-#[path = "load_idle_policy_tests.rs"]
+#[path = "tests/load_idle_policy_tests.rs"]
 mod load_idle_policy_tests;
 
 #[cfg(test)]
-#[path = "load_security_tests.rs"]
+#[path = "tests/load_security_tests.rs"]
 mod load_security_tests;
 
 #[cfg(test)]

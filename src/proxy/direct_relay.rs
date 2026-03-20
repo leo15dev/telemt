@@ -390,5 +390,5 @@ async fn do_tg_handshake_static(
 }
 
 #[cfg(test)]
-#[path = "direct_relay_security_tests.rs"]
+#[path = "tests/direct_relay_security_tests.rs"]
 mod security_tests;

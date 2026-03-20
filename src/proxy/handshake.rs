@@ -964,15 +964,15 @@ pub fn encrypt_tg_nonce(nonce: &[u8; HANDSHAKE_LEN]) -> Vec<u8> {
 }
 
 #[cfg(test)]
-#[path = "handshake_security_tests.rs"]
+#[path = "tests/handshake_security_tests.rs"]
 mod security_tests;
 
 #[cfg(test)]
-#[path = "handshake_adversarial_tests.rs"]
+#[path = "tests/handshake_adversarial_tests.rs"]
 mod adversarial_tests;
 
 #[cfg(test)]
-#[path = "handshake_fuzz_security_tests.rs"]
+#[path = "tests/handshake_fuzz_security_tests.rs"]
 mod fuzz_security_tests;
 
 /// Compile-time guard: HandshakeSuccess holds cryptographic key material and

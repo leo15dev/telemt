@@ -7,6 +7,7 @@ mod crypto;
 mod error;
 mod ip_tracker;
 #[cfg(test)]
+#[path = "tests/ip_tracker_regression_tests.rs"]
 mod ip_tracker_regression_tests;
 mod maestro;
 mod metrics;

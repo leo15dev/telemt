@@ -1893,9 +1893,9 @@ mod tests {
 }
 
 #[cfg(test)]
-#[path = "connection_lease_security_tests.rs"]
+#[path = "tests/connection_lease_security_tests.rs"]
 mod connection_lease_security_tests;
 
 #[cfg(test)]
-#[path = "replay_checker_security_tests.rs"]
+#[path = "tests/replay_checker_security_tests.rs"]
 mod replay_checker_security_tests;
