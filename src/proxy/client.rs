@@ -295,8 +295,16 @@ where
             ).await {
                 HandshakeResult::Success(result) => result,
                 HandshakeResult::BadClient { reader, writer } => {
+                    // MTProto failed after TLS ServerHello was already sent.
+                    // Switch fallback relay back to raw transport so the mask
+                    // backend receives valid TLS records (not unwrapped payload).
+                    let reader = reader.into_inner();
+                    let writer = writer.into_inner();
                     stats.increment_connects_bad();
-                    debug!(peer = %peer, "Valid TLS but invalid MTProto handshake");
+                    debug!(
+                        peer = %peer,
+                        "Authenticated TLS session failed MTProto validation; engaging masking fallback"
+                    );
                     handle_bad_client(
                         reader,
                         writer,
@@ -708,8 +716,16 @@ impl RunningClientHandler {
         {
             HandshakeResult::Success(result) => result,
             HandshakeResult::BadClient { reader, writer } => {
+                // MTProto failed after TLS ServerHello was already sent.
+                // Switch fallback relay back to raw transport so the mask
+                // backend receives valid TLS records (not unwrapped payload).
+                let reader = reader.into_inner();
+                let writer = writer.into_inner();
                 stats.increment_connects_bad();
-                debug!(peer = %peer, "Valid TLS but invalid MTProto handshake");
+                debug!(
+                    peer = %peer,
+                    "Authenticated TLS session failed MTProto validation; engaging masking fallback"
+                );
                 handle_bad_client(
                     reader,
                     writer,
@@ -1044,3 +1060,7 @@ mod security_tests;
 #[cfg(test)]
 #[path = "client_adversarial_tests.rs"]
 mod adversarial_tests;
+
+#[cfg(test)]
+#[path = "client_tls_mtproto_fallback_security_tests.rs"]
+mod tls_mtproto_fallback_security_tests;

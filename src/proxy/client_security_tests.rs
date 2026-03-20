@@ -1322,13 +1322,20 @@ async fn valid_tls_with_invalid_mtproto_falls_back_to_mask_backend() {
     let client_hello = make_valid_tls_client_hello(&secret, 0);
     let invalid_mtproto = vec![0u8; crate::protocol::constants::HANDSHAKE_LEN];
     let tls_app_record = wrap_tls_application_data(&invalid_mtproto);
+    let trailing_tls_payload = b"still-tls-after-fallback".to_vec();
+    let trailing_tls_record = wrap_tls_application_data(&trailing_tls_payload);
 
     let expected_fallback = client_hello.clone();
+    let expected_trailing_tls_record = trailing_tls_record.clone();
     let accept_task = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let mut got = vec![0u8; expected_fallback.len()];
         stream.read_exact(&mut got).await.unwrap();
         assert_eq!(got, expected_fallback);
+
+        let mut trailing = vec![0u8; expected_trailing_tls_record.len()];
+        stream.read_exact(&mut trailing).await.unwrap();
+        assert_eq!(trailing, expected_trailing_tls_record);
     });
 
     let mut cfg = ProxyConfig::default();
@@ -1396,6 +1403,7 @@ async fn valid_tls_with_invalid_mtproto_falls_back_to_mask_backend() {
     assert_eq!(tls_response_head[0], 0x16);
 
     client_side.write_all(&tls_app_record).await.unwrap();
+    client_side.write_all(&trailing_tls_record).await.unwrap();
 
     tokio::time::timeout(Duration::from_secs(3), accept_task)
         .await
@@ -1421,13 +1429,20 @@ async fn client_handler_tls_bad_mtproto_is_forwarded_to_mask_backend() {
     let client_hello = make_valid_tls_client_hello(&secret, 0);
     let invalid_mtproto = vec![0u8; crate::protocol::constants::HANDSHAKE_LEN];
     let tls_app_record = wrap_tls_application_data(&invalid_mtproto);
+    let trailing_tls_payload = b"second-tls-record".to_vec();
+    let trailing_tls_record = wrap_tls_application_data(&trailing_tls_payload);
 
     let expected_fallback = client_hello.clone();
+    let expected_trailing_tls_record = trailing_tls_record.clone();
     let mask_accept_task = tokio::spawn(async move {
         let (mut stream, _) = mask_listener.accept().await.unwrap();
         let mut got = vec![0u8; expected_fallback.len()];
         stream.read_exact(&mut got).await.unwrap();
         assert_eq!(got, expected_fallback);
+
+        let mut trailing = vec![0u8; expected_trailing_tls_record.len()];
+        stream.read_exact(&mut trailing).await.unwrap();
+        assert_eq!(trailing, expected_trailing_tls_record);
     });
 
     let mut cfg = ProxyConfig::default();
@@ -1513,6 +1528,7 @@ async fn client_handler_tls_bad_mtproto_is_forwarded_to_mask_backend() {
     assert_eq!(tls_response_head[0], 0x16);
 
     client.write_all(&tls_app_record).await.unwrap();
+    client.write_all(&trailing_tls_record).await.unwrap();
 
     tokio::time::timeout(Duration::from_secs(3), mask_accept_task)
         .await
