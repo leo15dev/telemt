@@ -23,10 +23,8 @@ impl std::task::Wake for WakeCounter {
     }
 }
 
-fn quota_test_guard() -> std::sync::MutexGuard<'static, ()> {
-    super::quota_user_lock_test_guard()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+fn quota_test_guard() -> impl Drop {
+    super::quota_user_lock_test_scope()
 }
 
 fn saturate_quota_user_locks() -> Vec<Arc<std::sync::Mutex<()>>> {

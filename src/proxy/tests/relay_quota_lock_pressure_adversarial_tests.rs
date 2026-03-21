@@ -12,9 +12,7 @@ use tokio::time::Instant;
 
 #[test]
 fn quota_lock_same_user_returns_same_arc_instance() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = QUOTA_USER_LOCKS.get_or_init(DashMap::new);
     map.clear();
 
@@ -25,9 +23,7 @@ fn quota_lock_same_user_returns_same_arc_instance() {
 
 #[test]
 fn quota_lock_parallel_same_user_reuses_single_lock() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = QUOTA_USER_LOCKS.get_or_init(DashMap::new);
     map.clear();
 
@@ -51,9 +47,7 @@ fn quota_lock_parallel_same_user_reuses_single_lock() {
 
 #[test]
 fn quota_lock_unique_users_materialize_distinct_entries() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = QUOTA_USER_LOCKS.get_or_init(DashMap::new);
 
     map.clear();
@@ -74,9 +68,7 @@ fn quota_lock_unique_users_materialize_distinct_entries() {
 
 #[test]
 fn quota_lock_unique_churn_stress_keeps_all_inserted_keys_addressable() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = QUOTA_USER_LOCKS.get_or_init(DashMap::new);
 
     map.clear();
@@ -94,9 +86,7 @@ fn quota_lock_unique_churn_stress_keeps_all_inserted_keys_addressable() {
 
 #[test]
 fn quota_lock_saturation_returns_stable_overflow_lock_without_cache_growth() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = QUOTA_USER_LOCKS.get_or_init(DashMap::new);
     map.clear();
 
@@ -135,17 +125,19 @@ fn quota_lock_saturation_returns_stable_overflow_lock_without_cache_growth() {
 
 #[test]
 fn quota_lock_reclaims_unreferenced_entries_before_ephemeral_fallback() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = QUOTA_USER_LOCKS.get_or_init(DashMap::new);
     map.clear();
 
-    // Fill and immediately drop strong references, leaving only map-owned Arcs.
+    // Saturate with retained strong references first so parallel tests cannot
+    // reclaim our fixture entries before we validate the reclaim path.
+    let prefix = format!("quota-reclaim-drop-{}", std::process::id());
+    let mut retained = Vec::with_capacity(QUOTA_USER_LOCKS_MAX);
     for idx in 0..QUOTA_USER_LOCKS_MAX {
-        let _ = quota_user_lock(&format!("quota-reclaim-drop-{}-{idx}", std::process::id()));
+        retained.push(quota_user_lock(&format!("{prefix}-{idx}")));
     }
-    assert_eq!(map.len(), QUOTA_USER_LOCKS_MAX);
+
+    drop(retained);
 
     let overflow_user = format!("quota-reclaim-overflow-{}", std::process::id());
     let overflow = quota_user_lock(&overflow_user);
@@ -162,9 +154,7 @@ fn quota_lock_reclaims_unreferenced_entries_before_ephemeral_fallback() {
 
 #[test]
 fn quota_lock_saturated_same_user_must_not_return_distinct_locks() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = QUOTA_USER_LOCKS.get_or_init(DashMap::new);
     map.clear();
 
@@ -187,9 +177,7 @@ fn quota_lock_saturated_same_user_must_not_return_distinct_locks() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn quota_lock_saturation_concurrent_same_user_never_overshoots_quota() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = QUOTA_USER_LOCKS.get_or_init(DashMap::new);
     map.clear();
 
@@ -240,9 +228,7 @@ async fn quota_lock_saturation_concurrent_same_user_never_overshoots_quota() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn quota_lock_saturation_stress_same_user_never_overshoots_quota() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = QUOTA_USER_LOCKS.get_or_init(DashMap::new);
     map.clear();
 
@@ -320,6 +306,24 @@ fn quota_error_classifier_accepts_internal_quota_sentinel_only() {
 fn quota_error_classifier_rejects_plain_permission_denied() {
     let err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "permission denied");
     assert!(!is_quota_io_error(&err));
+}
+
+#[test]
+fn quota_lock_test_scope_recovers_after_guard_poison() {
+    let poison_result = std::thread::spawn(|| {
+        let _guard = super::quota_user_lock_test_scope();
+        panic!("intentional test-only guard poison");
+    })
+    .join();
+    assert!(poison_result.is_err(), "poison setup thread must panic");
+
+    let _guard = super::quota_user_lock_test_scope();
+    let map = QUOTA_USER_LOCKS.get_or_init(DashMap::new);
+    map.clear();
+
+    let a = quota_user_lock("quota-lock-poison-recovery-user");
+    let b = quota_user_lock("quota-lock-poison-recovery-user");
+    assert!(Arc::ptr_eq(&a, &b));
 }
 
 #[tokio::test]

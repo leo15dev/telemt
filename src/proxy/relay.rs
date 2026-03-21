@@ -316,6 +316,13 @@ fn quota_user_lock_test_guard() -> &'static Mutex<()> {
     TEST_LOCK.get_or_init(|| Mutex::new(()))
 }
 
+#[cfg(test)]
+fn quota_user_lock_test_scope() -> std::sync::MutexGuard<'static, ()> {
+    quota_user_lock_test_guard()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn quota_overflow_user_lock(user: &str) -> Arc<Mutex<()>> {
     let stripes = QUOTA_USER_OVERFLOW_LOCKS.get_or_init(|| {
         (0..QUOTA_OVERFLOW_LOCK_STRIPES)

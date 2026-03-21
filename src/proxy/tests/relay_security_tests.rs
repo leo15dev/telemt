@@ -31,9 +31,7 @@ impl std::task::Wake for WakeCounter {
 
 #[tokio::test]
 async fn quota_lock_contention_does_not_self_wake_pending_writer() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = super::QUOTA_USER_LOCKS.get_or_init(dashmap::DashMap::new);
     map.clear();
 
@@ -72,9 +70,7 @@ async fn quota_lock_contention_does_not_self_wake_pending_writer() {
 
 #[tokio::test]
 async fn quota_lock_contention_writer_schedules_single_deferred_wake_until_lock_acquired() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = super::QUOTA_USER_LOCKS.get_or_init(dashmap::DashMap::new);
     map.clear();
 
@@ -145,9 +141,7 @@ async fn quota_lock_contention_writer_schedules_single_deferred_wake_until_lock_
 
 #[tokio::test]
 async fn quota_lock_contention_read_path_schedules_deferred_wake_for_liveness() {
-    let _guard = super::quota_user_lock_test_guard()
-        .lock()
-        .expect("quota lock test guard must be available");
+    let _guard = super::quota_user_lock_test_scope();
     let map = super::QUOTA_USER_LOCKS.get_or_init(dashmap::DashMap::new);
     map.clear();
 
