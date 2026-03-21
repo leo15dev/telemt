@@ -297,6 +297,11 @@ impl<R> FakeTlsReader<R> {
     pub fn into_inner_with_pending_plaintext(mut self) -> (R, Vec<u8>) {
         let pending = match std::mem::replace(&mut self.state, TlsReaderState::Idle) {
             TlsReaderState::Yielding { buffer } => buffer.as_slice().to_vec(),
+            TlsReaderState::ReadingBody { record_type, buffer, .. }
+                if record_type == TLS_RECORD_APPLICATION =>
+            {
+                buffer.to_vec()
+            }
             _ => Vec::new(),
         };
         (self.upstream, pending)
@@ -1293,3 +1298,7 @@ mod tests {
         assert_eq!(bytes, [0x17, 0x03, 0x03, 0x12, 0x34]);
     }
 }
+
+#[cfg(test)]
+#[path = "tls_stream_pending_plaintext_security_tests.rs"]
+mod pending_plaintext_security_tests;

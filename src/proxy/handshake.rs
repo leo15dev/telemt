@@ -78,6 +78,13 @@ fn auth_probe_saturation_state() -> &'static Mutex<Option<AuthProbeSaturationSta
     AUTH_PROBE_SATURATION_STATE.get_or_init(|| Mutex::new(None))
 }
 
+fn auth_probe_saturation_state_lock(
+) -> std::sync::MutexGuard<'static, Option<AuthProbeSaturationState>> {
+    auth_probe_saturation_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn normalize_auth_probe_ip(peer_ip: IpAddr) -> IpAddr {
     match peer_ip {
         IpAddr::V4(ip) => IpAddr::V4(ip),
@@ -155,11 +162,7 @@ fn auth_probe_should_apply_preauth_throttle(peer_ip: IpAddr, now: Instant) -> bo
 }
 
 fn auth_probe_saturation_is_throttled(now: Instant) -> bool {
-    let saturation = auth_probe_saturation_state();
-    let mut guard = match saturation.lock() {
-        Ok(guard) => guard,
-        Err(_) => return false,
-    };
+    let mut guard = auth_probe_saturation_state_lock();
 
     let Some(state) = guard.as_mut() else {
         return false;
@@ -178,11 +181,7 @@ fn auth_probe_saturation_is_throttled(now: Instant) -> bool {
 }
 
 fn auth_probe_note_saturation(now: Instant) {
-    let saturation = auth_probe_saturation_state();
-    let mut guard = match saturation.lock() {
-        Ok(guard) => guard,
-        Err(_) => return,
-    };
+    let mut guard = auth_probe_saturation_state_lock();
 
     match guard.as_mut() {
         Some(state)
@@ -356,9 +355,8 @@ fn clear_auth_probe_state_for_testing() {
     if let Some(state) = AUTH_PROBE_STATE.get() {
         state.clear();
     }
-    if let Some(saturation) = AUTH_PROBE_SATURATION_STATE.get()
-        && let Ok(mut guard) = saturation.lock()
-    {
+    if AUTH_PROBE_SATURATION_STATE.get().is_some() {
+        let mut guard = auth_probe_saturation_state_lock();
         *guard = None;
     }
 }
@@ -974,6 +972,14 @@ mod adversarial_tests;
 #[cfg(test)]
 #[path = "tests/handshake_fuzz_security_tests.rs"]
 mod fuzz_security_tests;
+
+#[cfg(test)]
+#[path = "tests/handshake_saturation_poison_security_tests.rs"]
+mod saturation_poison_security_tests;
+
+#[cfg(test)]
+#[path = "tests/handshake_auth_probe_hardening_adversarial_tests.rs"]
+mod auth_probe_hardening_adversarial_tests;
 
 /// Compile-time guard: HandshakeSuccess holds cryptographic key material and
 /// must never be Copy.  A Copy impl would allow silent key duplication,

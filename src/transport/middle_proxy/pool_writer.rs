@@ -591,14 +591,9 @@ impl MePool {
         if let Some(tx) = close_tx {
             let _ = tx.send(WriterCommand::Close).await;
         }
-        if let Some(addr) = removed_addr
-            && let Some(uptime) = removed_uptime
-        {
-            // Quarantine flapping endpoints regardless of draining state.
-            self.maybe_quarantine_flapping_endpoint(addr, uptime).await;
-        }
         if let Some(addr) = removed_addr {
             if let Some(uptime) = removed_uptime {
+                // Quarantine flapping endpoints regardless of draining state.
                 self.maybe_quarantine_flapping_endpoint(addr, uptime).await;
             }
             if trigger_refill

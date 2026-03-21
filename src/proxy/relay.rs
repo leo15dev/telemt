@@ -81,6 +81,11 @@ const ACTIVITY_TIMEOUT: Duration = Duration::from_secs(1800);
 /// without measurable overhead from atomic reads.
 const WATCHDOG_INTERVAL: Duration = Duration::from_secs(10);
 
+#[inline]
+fn watchdog_delta(current: u64, previous: u64) -> u64 {
+    current.saturating_sub(previous)
+}
+
 // ============= CombinedStream =============
 
 /// Combines separate read and write halves into a single bidirectional stream.
@@ -210,6 +215,8 @@ struct StatsIo<S> {
     quota_exceeded: Arc<AtomicBool>,
     quota_read_wake_scheduled: bool,
     quota_write_wake_scheduled: bool,
+    quota_read_retry_active: Arc<AtomicBool>,
+    quota_write_retry_active: Arc<AtomicBool>,
     epoch: Instant,
 }
 
@@ -234,8 +241,17 @@ impl<S> StatsIo<S> {
             quota_exceeded,
             quota_read_wake_scheduled: false,
             quota_write_wake_scheduled: false,
+            quota_read_retry_active: Arc::new(AtomicBool::new(false)),
+            quota_write_retry_active: Arc::new(AtomicBool::new(false)),
             epoch,
         }
+    }
+}
+
+impl<S> Drop for StatsIo<S> {
+    fn drop(&mut self) {
+        self.quota_read_retry_active.store(false, Ordering::Relaxed);
+        self.quota_write_retry_active.store(false, Ordering::Relaxed);
     }
 }
 
@@ -260,6 +276,26 @@ fn is_quota_io_error(err: &io::Error) -> bool {
             .get_ref()
             .and_then(|source| source.downcast_ref::<QuotaIoSentinel>())
             .is_some()
+}
+
+#[cfg(test)]
+const QUOTA_CONTENTION_RETRY_INTERVAL: Duration = Duration::from_millis(1);
+#[cfg(not(test))]
+const QUOTA_CONTENTION_RETRY_INTERVAL: Duration = Duration::from_millis(2);
+
+fn spawn_quota_retry_waker(retry_active: Arc<AtomicBool>, waker: std::task::Waker) {
+    tokio::task::spawn(async move {
+        loop {
+            if !retry_active.load(Ordering::Relaxed) {
+                break;
+            }
+            tokio::time::sleep(QUOTA_CONTENTION_RETRY_INTERVAL).await;
+            if !retry_active.load(Ordering::Relaxed) {
+                break;
+            }
+            waker.wake_by_ref();
+        }
+    });
 }
 
 static QUOTA_USER_LOCKS: OnceLock<DashMap<String, Arc<Mutex<()>>>> = OnceLock::new();
@@ -334,16 +370,17 @@ impl<S: AsyncRead + Unpin> AsyncRead for StatsIo<S> {
             match lock.try_lock() {
                 Ok(guard) => {
                     this.quota_read_wake_scheduled = false;
+                    this.quota_read_retry_active.store(false, Ordering::Relaxed);
                     Some(guard)
                 }
                 Err(_) => {
                     if !this.quota_read_wake_scheduled {
                         this.quota_read_wake_scheduled = true;
-                        let waker = cx.waker().clone();
-                        tokio::task::spawn(async move {
-                            tokio::task::yield_now().await;
-                            waker.wake();
-                        });
+                        this.quota_read_retry_active.store(true, Ordering::Relaxed);
+                        spawn_quota_retry_waker(
+                            Arc::clone(&this.quota_read_retry_active),
+                            cx.waker().clone(),
+                        );
                     }
                     return Poll::Pending;
                 }
@@ -423,16 +460,17 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for StatsIo<S> {
             match lock.try_lock() {
                 Ok(guard) => {
                     this.quota_write_wake_scheduled = false;
+                    this.quota_write_retry_active.store(false, Ordering::Relaxed);
                     Some(guard)
                 }
                 Err(_) => {
                     if !this.quota_write_wake_scheduled {
                         this.quota_write_wake_scheduled = true;
-                        let waker = cx.waker().clone();
-                        tokio::task::spawn(async move {
-                            tokio::task::yield_now().await;
-                            waker.wake();
-                        });
+                        this.quota_write_retry_active.store(true, Ordering::Relaxed);
+                        spawn_quota_retry_waker(
+                            Arc::clone(&this.quota_write_retry_active),
+                            cx.waker().clone(),
+                        );
                     }
                     return Poll::Pending;
                 }
@@ -591,8 +629,8 @@ where
             // ── Periodic rate logging ───────────────────────────────
             let c2s = wd_counters.c2s_bytes.load(Ordering::Relaxed);
             let s2c = wd_counters.s2c_bytes.load(Ordering::Relaxed);
-            let c2s_delta = c2s - prev_c2s;
-            let s2c_delta = s2c - prev_s2c;
+            let c2s_delta = watchdog_delta(c2s, prev_c2s);
+            let s2c_delta = watchdog_delta(s2c, prev_s2c);
 
             if c2s_delta > 0 || s2c_delta > 0 {
                 let secs = WATCHDOG_INTERVAL.as_secs_f64();
@@ -730,3 +768,15 @@ mod relay_quota_model_adversarial_tests;
 #[cfg(test)]
 #[path = "tests/relay_quota_overflow_regression_tests.rs"]
 mod relay_quota_overflow_regression_tests;
+
+#[cfg(test)]
+#[path = "tests/relay_watchdog_delta_security_tests.rs"]
+mod relay_watchdog_delta_security_tests;
+
+#[cfg(test)]
+#[path = "tests/relay_quota_waker_storm_adversarial_tests.rs"]
+mod relay_quota_waker_storm_adversarial_tests;
+
+#[cfg(test)]
+#[path = "tests/relay_quota_wake_liveness_regression_tests.rs"]
+mod relay_quota_wake_liveness_regression_tests;

@@ -4,7 +4,10 @@ use crate::crypto::sha256_hmac;
 use crate::protocol::constants::{
     HANDSHAKE_LEN,
     MAX_TLS_CIPHERTEXT_SIZE,
+    TLS_RECORD_ALERT,
     TLS_RECORD_APPLICATION,
+    TLS_RECORD_CHANGE_CIPHER,
+    TLS_RECORD_HANDSHAKE,
     TLS_VERSION,
 };
 use crate::protocol::tls;
@@ -2752,4 +2755,107 @@ async fn blackhat_coalesced_tail_zero_following_record_after_coalesced_is_not_in
         .await
         .unwrap()
         .unwrap();
+}
+
+#[tokio::test]
+async fn blackhat_coalesced_tail_light_fuzz_mixed_followup_records_stay_byte_exact() {
+    let mut seed = 0xA11C_E2E5_F00D_BAADu64;
+
+    for case in 0..24u32 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let backend_addr = listener.local_addr().unwrap();
+
+        seed ^= seed << 7;
+        seed ^= seed >> 9;
+        seed ^= seed << 8;
+        let tail_len = (seed as usize % 1536) + 1;
+        let mut tail = vec![0u8; tail_len];
+        for (i, b) in tail.iter_mut().enumerate() {
+            *b = (seed as u8).wrapping_add(i as u8).wrapping_mul(13);
+        }
+
+        seed ^= seed << 7;
+        seed ^= seed >> 9;
+        seed ^= seed << 8;
+        let follow_type = match seed & 0x3 {
+            0 => TLS_RECORD_APPLICATION,
+            1 => TLS_RECORD_ALERT,
+            2 => TLS_RECORD_CHANGE_CIPHER,
+            _ => TLS_RECORD_HANDSHAKE,
+        };
+        let follow_len = (seed as usize % 96) + (case as usize % 3);
+        let mut follow_payload = vec![0u8; follow_len];
+        for (i, b) in follow_payload.iter_mut().enumerate() {
+            *b = (case as u8).wrapping_mul(29).wrapping_add(i as u8);
+        }
+
+        let secret = [0xD1u8; 16];
+        let client_hello = make_valid_tls_client_hello(&secret, 600 + case, 600, 0x33);
+        let coalesced_record = wrap_invalid_mtproto_with_coalesced_tail(&tail);
+        let expected_tail = wrap_tls_application_data(&tail);
+        let follow_record = wrap_tls_record(follow_type, &follow_payload);
+        let expected_wire = [expected_tail.clone(), follow_record.clone()].concat();
+
+        let accept_task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+
+            let mut got = vec![0u8; expected_wire.len()];
+            stream.read_exact(&mut got).await.unwrap();
+            assert_eq!(got, expected_wire);
+        });
+
+        let harness = build_harness("d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1", backend_addr.port());
+        let (server_side, mut client_side) = duplex(262144);
+        let peer: SocketAddr = format!("198.51.100.250:{}", 57000 + case as u16)
+            .parse()
+            .unwrap();
+
+        let handler = tokio::spawn(handle_client_stream(
+            server_side,
+            peer,
+            harness.config,
+            harness.stats,
+            harness.upstream_manager,
+            harness.replay_checker,
+            harness.buffer_pool,
+            harness.rng,
+            None,
+            harness.route_runtime,
+            None,
+            harness.ip_tracker,
+            harness.beobachten,
+            false,
+        ));
+
+        client_side.write_all(&client_hello).await.unwrap();
+        let mut head = [0u8; 5];
+        client_side.read_exact(&mut head).await.unwrap();
+        assert_eq!(head[0], 0x16);
+        read_and_discard_tls_record_body(&mut client_side, head).await;
+
+        let mut local_seed = seed ^ 0x55AA_55AA_1234_5678;
+        for data in [&coalesced_record, &follow_record] {
+            let mut pos = 0usize;
+            while pos < data.len() {
+                local_seed ^= local_seed << 7;
+                local_seed ^= local_seed >> 9;
+                local_seed ^= local_seed << 8;
+                let step = ((local_seed as usize % 17) + 1).min(data.len() - pos);
+                let end = pos + step;
+                client_side.write_all(&data[pos..end]).await.unwrap();
+                pos = end;
+            }
+        }
+
+        tokio::time::timeout(Duration::from_secs(3), accept_task)
+            .await
+            .unwrap()
+            .unwrap();
+
+        drop(client_side);
+        let _ = tokio::time::timeout(Duration::from_secs(3), handler)
+            .await
+            .unwrap()
+            .unwrap();
+    }
 }

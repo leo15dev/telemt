@@ -1653,3 +1653,7 @@ mod security_tests;
 #[cfg(test)]
 #[path = "tests/middle_relay_idle_policy_security_tests.rs"]
 mod idle_policy_security_tests;
+
+#[cfg(test)]
+#[path = "tests/middle_relay_desync_all_full_dedup_security_tests.rs"]
+mod desync_all_full_dedup_security_tests;

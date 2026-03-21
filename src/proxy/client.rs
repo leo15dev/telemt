@@ -87,6 +87,7 @@ use crate::proxy::middle_relay::handle_via_middle_proxy;
 use crate::proxy::route_mode::{RelayRouteMode, RouteRuntimeController};
 
 fn beobachten_ttl(config: &ProxyConfig) -> Duration {
+    const BEOBACHTEN_TTL_MAX_MINUTES: u64 = 24 * 60;
     let minutes = config.general.beobachten_minutes;
     if minutes == 0 {
         static BEOBACHTEN_ZERO_MINUTES_WARNED: OnceLock<AtomicBool> = OnceLock::new();
@@ -99,7 +100,19 @@ fn beobachten_ttl(config: &ProxyConfig) -> Duration {
         return Duration::from_secs(60);
     }
 
-    Duration::from_secs(minutes.saturating_mul(60))
+    if minutes > BEOBACHTEN_TTL_MAX_MINUTES {
+        static BEOBACHTEN_OVERSIZED_MINUTES_WARNED: OnceLock<AtomicBool> = OnceLock::new();
+        let warned = BEOBACHTEN_OVERSIZED_MINUTES_WARNED.get_or_init(|| AtomicBool::new(false));
+        if !warned.swap(true, Ordering::Relaxed) {
+            warn!(
+                configured_minutes = minutes,
+                max_minutes = BEOBACHTEN_TTL_MAX_MINUTES,
+                "general.beobachten_minutes is too large; clamping to secure maximum"
+            );
+        }
+    }
+
+    Duration::from_secs(minutes.min(BEOBACHTEN_TTL_MAX_MINUTES).saturating_mul(60))
 }
 
 fn wrap_tls_application_record(payload: &[u8]) -> Vec<u8> {
@@ -1277,3 +1290,7 @@ mod masking_shape_classifier_fuzz_redteam_expected_fail_tests;
 #[cfg(test)]
 #[path = "tests/client_masking_probe_evasion_blackhat_tests.rs"]
 mod masking_probe_evasion_blackhat_tests;
+
+#[cfg(test)]
+#[path = "tests/client_beobachten_ttl_bounds_security_tests.rs"]
+mod beobachten_ttl_bounds_security_tests;
