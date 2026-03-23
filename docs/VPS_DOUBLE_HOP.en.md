@@ -63,7 +63,7 @@ recommended range from 5 to 2147483647 inclusive
 
 > [!IMPORTANT]
 > It is recommended to use your own, unique values.\
-> You can use the [generator](https://htmlpreview.github.io/?https://gist.githubusercontent.com/avbor/955782b5c37b06240b243aa375baeac5/raw/e8b269ff0089a27effd88f8d925179b78e5666c4/awg-gen.html) to select parameters.
+> You can use the [generator](https://htmlpreview.github.io/?https://gist.githubusercontent.com/avbor/955782b5c37b06240b243aa375baeac5/raw/13f5517ca473b47c412b9a99407066de973732bd/awg-gen.html) to select parameters.
 
 #### Server B Configuration (Netherlands):
 
@@ -84,6 +84,8 @@ Jmin = 8
 Jmax = 80
 S1 = 29
 S2 = 15
+S3 = 18
+S4 = 0
 H1 = 2087563914
 H2 = 188817757
 H3 = 101784570
@@ -121,6 +123,8 @@ Jmin = 8
 Jmax = 80
 S1 = 29
 S2 = 15
+S3 = 18
+S4 = 0
 H1 = 2087563914
 H2 = 188817757
 H3 = 101784570
