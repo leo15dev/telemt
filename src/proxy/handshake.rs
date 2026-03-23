@@ -614,6 +614,15 @@ where
         }
     };
 
+    // Reject known replay digests before expensive cache/domain/ALPN policy work.
+    let digest_half = &validation.digest[..tls::TLS_DIGEST_HALF_LEN];
+    if replay_checker.check_tls_digest(digest_half) {
+        auth_probe_record_failure(peer.ip(), Instant::now());
+        maybe_apply_server_hello_delay(config).await;
+        warn!(peer = %peer, "TLS replay attack detected (duplicate digest)");
+        return HandshakeResult::BadClient { reader, writer };
+    }
+
     let secret = match secrets.iter().find(|(name, _)| *name == validation.user) {
         Some((_, s)) => s,
         None => {
@@ -669,15 +678,8 @@ where
         None
     };
 
-    // Replay tracking is applied only after full policy validation (including
-    // ALPN checks) so rejected handshakes cannot poison replay state.
-    let digest_half = &validation.digest[..tls::TLS_DIGEST_HALF_LEN];
-    if replay_checker.check_and_add_tls_digest(digest_half) {
-        auth_probe_record_failure(peer.ip(), Instant::now());
-        maybe_apply_server_hello_delay(config).await;
-        warn!(peer = %peer, "TLS replay attack detected (duplicate digest)");
-        return HandshakeResult::BadClient { reader, writer };
-    }
+    // Add replay digest only for policy-valid handshakes.
+    replay_checker.add_tls_digest(digest_half);
 
     let response = if let Some((cached_entry, use_full_cert_payload)) = cached {
         emulator::build_emulated_server_hello(

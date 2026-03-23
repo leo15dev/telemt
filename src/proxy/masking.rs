@@ -60,7 +60,7 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let mut buf = [0u8; MASK_BUFFER_SIZE];
+    let mut buf = Box::new([0u8; MASK_BUFFER_SIZE]);
     let mut total = 0usize;
     let mut ended_by_eof = false;
 
@@ -262,7 +262,11 @@ fn mask_outcome_target_budget(config: &ProxyConfig) -> Duration {
         let floor = config.censorship.mask_timing_normalization_floor_ms;
         let ceiling = config.censorship.mask_timing_normalization_ceiling_ms;
         if floor == 0 {
-            return MASK_TIMEOUT;
+            if ceiling == 0 {
+                return Duration::from_millis(0);
+            }
+            let mut rng = rand::rng();
+            return Duration::from_millis(rng.random_range(0..=ceiling));
         }
         if ceiling > floor {
             let mut rng = rand::rng();
@@ -838,7 +842,7 @@ async fn consume_client_data<R: AsyncRead + Unpin>(mut reader: R, byte_cap: usiz
     }
 
     // Keep drain path fail-closed under slow-loris stalls.
-    let mut buf = [0u8; MASK_BUFFER_SIZE];
+    let mut buf = Box::new([0u8; MASK_BUFFER_SIZE]);
     let mut total = 0usize;
 
     loop {

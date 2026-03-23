@@ -64,7 +64,6 @@ pub mod direct_relay;
 pub mod handshake;
 pub mod masking;
 pub mod middle_relay;
-pub mod quota_lock_registry;
 pub mod relay;
 pub mod route_mode;
 pub mod session_eviction;

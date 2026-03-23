@@ -1223,7 +1223,7 @@ impl RunningClientHandler {
         }
 
         if let Some(quota) = config.access.user_data_quota.get(user)
-            && stats.get_user_total_octets(user) >= *quota
+            && stats.get_user_quota_used(user) >= *quota
         {
             return Err(ProxyError::DataQuotaExceeded {
                 user: user.to_string(),
@@ -1282,7 +1282,7 @@ impl RunningClientHandler {
         }
 
         if let Some(quota) = config.access.user_data_quota.get(user)
-            && stats.get_user_total_octets(user) >= *quota
+            && stats.get_user_quota_used(user) >= *quota
         {
             return Err(ProxyError::DataQuotaExceeded {
                 user: user.to_string(),
