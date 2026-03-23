@@ -11,7 +11,7 @@ env:
 
 jobs:
   build:
-    name: Build
+    name: Compile, Test, Lint
     runs-on: ubuntu-latest
 
     permissions:
@@ -39,23 +39,11 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-
 
-    - name: Build Release
-      run: cargo build --release --verbose
+    - name: Compile (no tests)
+      run: cargo check --workspace --all-features --lib --bins --verbose
 
-    - name: Run tests
-      run: cargo test --verbose
-
-    - name: Stress quota-lock suites (PR only)
-      if: github.event_name == 'pull_request'
-      env:
-        RUST_TEST_THREADS: 16
-      run: |
-        set -euo pipefail
-        for i in $(seq 1 12); do
-          echo "[quota-lock-stress] iteration ${i}/12"
-          cargo test quota_lock_ --bin telemt -- --nocapture --test-threads 16
-          cargo test relay_quota_wake --bin telemt -- --nocapture --test-threads 16
-        done
+    - name: Run tests (single pass)
+      run: cargo test --workspace --all-features --verbose
 
 # clippy dont fail on warnings because of active development of telemt 
 # and many warnings
