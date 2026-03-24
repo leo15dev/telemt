@@ -3,6 +3,9 @@ name = "telemt"
 version = "3.3.30"
 edition = "2024"
 
+[profile.release]
+codegen-units = 1
+
 [features]
 redteam_offline_expected_fail = []
 
