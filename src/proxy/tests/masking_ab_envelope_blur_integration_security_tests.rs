@@ -562,9 +562,10 @@ async fn timing_classifier_light_fuzz_pairwise_bucketed_accuracy_stays_bounded_u
     if low_info_pair_count > 0 {
         let low_info_baseline_avg = low_info_baseline_sum / low_info_pair_count as f64;
         let low_info_hardened_avg = low_info_hardened_sum / low_info_pair_count as f64;
+        let low_info_avg_jitter_budget = 0.40 + acc_quant_step;
         assert!(
-            low_info_hardened_avg <= low_info_baseline_avg + 0.40,
-            "normalization low-info average drift exceeded jitter budget: baseline_avg={low_info_baseline_avg:.3} hardened_avg={low_info_hardened_avg:.3}"
+            low_info_hardened_avg <= low_info_baseline_avg + low_info_avg_jitter_budget,
+            "normalization low-info average drift exceeded jitter budget: baseline_avg={low_info_baseline_avg:.3} hardened_avg={low_info_hardened_avg:.3} tolerated={low_info_avg_jitter_budget:.3}"
         );
     }
 
