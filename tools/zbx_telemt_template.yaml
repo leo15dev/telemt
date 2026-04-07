@@ -842,6 +842,7 @@ zabbix_export:
           name: 'Prometheus metrics'
           type: HTTP_AGENT
           key: telemt.prom_metrics
+          history: '0'
           value_type: TEXT
           trends: '0'
           url: '{$TELEMT_URL}'
