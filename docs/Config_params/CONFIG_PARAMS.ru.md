@@ -2460,7 +2460,7 @@
 | --- | ---- | ------- |
 | [`tls_domain`](#cfg-censorship-tls_domain) | `String` | `"petrovich.ru"` |
 | [`tls_domains`](#cfg-censorship-tls_domains) | `String[]` | `[]` |
-| [`unknown_sni_action`](#cfg-censorship-unknown_sni_action) | `"drop"` or `"mask"` | `"drop"` |
+| [`unknown_sni_action`](#cfg-censorship-unknown_sni_action) | `"drop"`, `"mask"`, `"accept"` | `"drop"` |
 | [`tls_fetch_scope`](#cfg-censorship-tls_fetch_scope) | `String` | `""` |
 | [`tls_fetch`](#cfg-censorship-tls_fetch) | `Table` | built-in defaults |
 | [`mask`](#cfg-censorship-mask) | `bool` | `true` |
@@ -2511,7 +2511,7 @@
     ```
 ## "cfg-censorship-unknown_sni_action"
 - `unknown_sni_action`
-  - **Ограничения / валидация**: «капля» или «маска».
+  - **Ограничения / валидация**: «drop», «mask» или «accept».
   - **Описание**: Действие для TLS ClientHello с неизвестным/ненастроенным SNI.
   - **Пример**:
 

@@ -2460,7 +2460,7 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
 | --- | ---- | ------- |
 | [`tls_domain`](#cfg-censorship-tls_domain) | `String` | `"petrovich.ru"` |
 | [`tls_domains`](#cfg-censorship-tls_domains) | `String[]` | `[]` |
-| [`unknown_sni_action`](#cfg-censorship-unknown_sni_action) | `"drop"` or `"mask"` | `"drop"` |
+| [`unknown_sni_action`](#cfg-censorship-unknown_sni_action) | `"drop"`, `"mask"`, `"accept"` | `"drop"` |
 | [`tls_fetch_scope`](#cfg-censorship-tls_fetch_scope) | `String` | `""` |
 | [`tls_fetch`](#cfg-censorship-tls_fetch) | `Table` | built-in defaults |
 | [`mask`](#cfg-censorship-mask) | `bool` | `true` |
@@ -2511,7 +2511,7 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     ```
 ## "cfg-censorship-unknown_sni_action"
 - `unknown_sni_action`
-  - **Constraints / validation**: `"drop"` or `"mask"`.
+  - **Constraints / validation**: `"drop"`, `"mask"` or `"accept"`.
   - **Description**: Action for TLS ClientHello with unknown / non-configured SNI.
   - **Example**:
 
