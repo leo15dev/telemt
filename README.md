@@ -1,13 +1,15 @@
 # Telemt - MTProxy on Rust + Tokio
 
+![Latest Release](https://img.shields.io/github/v/release/telemt/telemt?color=neon) ![Stars](https://img.shields.io/github/stars/telemt/telemt?style=social) ![Forks](https://img.shields.io/github/forks/telemt/telemt?style=social) [![Telegram](https://img.shields.io/badge/Telegram-Chat-24a1de?logo=telegram&logoColor=24a1de)](https://t.me/telemtrs)
+
 ***Löst Probleme, bevor andere überhaupt wissen, dass sie existieren*** / ***It solves problems before others even realize they exist***
 
 > [!NOTE]
 >
 > Fixed TLS ClientHello is now available:
-> - in **Telegram Desktop** starting from version **6.7.2**
-> - in **Telegram Android Client** starting from version **12.6.4**
-> - **release for iOS is "work in progress"**
+> - in **Telegram Desktop** starting from version **6.7.2**;
+> - in **Telegram Android Client** starting from version **12.6.4**;
+> - in **Telegram for iOS** starting from version **12.6.2**
 >
 > To work with EE-MTProxy, please update your client!
 
@@ -59,7 +61,6 @@ See more in the [Quick Start Guide](docs/Quick_start/QUICK_START_GUIDE.en.md).
 - [Quick Start Guide EN](docs/Quick_start/QUICK_START_GUIDE.en.md)
 
 ## FAQ
-
 - [FAQ RU](docs/FAQ.ru.md)
 - [FAQ EN](docs/FAQ.en.md)
 
@@ -72,9 +73,8 @@ cd telemt
 # Starting Release Build
 cargo build --release
 
-# Low-RAM devices (1 GB, e.g. NanoPi Neo3 / Raspberry Pi Zero 2):
-# release profile uses lto = "thin" to reduce peak linker memory.
-# If your custom toolchain overrides profiles, avoid enabling fat LTO.
+# Current release profile uses lto = "fat" for maximum optimization (see Cargo.toml).
+# On low-RAM systems (~1 GB) you can override it to "thin".
 
 # Move to /bin
 mv ./target/release/telemt /bin
@@ -91,8 +91,8 @@ telemt config.toml
 
 
 ## Why Rust?
-- Long-running reliability and idempotent behavior
-- Rust's deterministic resource management - RAII 
-- No garbage collector
-- Memory safety and reduced attack surface
-- Tokio's asynchronous architecture
+- Long-running reliability and idempotent behavior;
+- Rust's deterministic resource management - RAII;
+- No garbage collector;
+- Memory safety and reduced attack surface;
+- Tokio's asynchronous architecture.

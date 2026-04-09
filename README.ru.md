@@ -1,12 +1,17 @@
 # Telemt — MTProxy на Rust + Tokio
 
+![Latest Release](https://img.shields.io/github/v/release/telemt/telemt?color=neon) ![Stars](https://img.shields.io/github/stars/telemt/telemt?style=social) ![Forks](https://img.shields.io/github/forks/telemt/telemt?style=social) [![Telegram](https://img.shields.io/badge/Telegram-Chat-24a1de?logo=telegram&logoColor=24a1de)](https://t.me/telemtrs)
+
 ***Решает проблемы раньше, чем другие узнают об их существовании***
 
 > [!NOTE]
 >
-> Исправленный TLS ClientHello доступен в **Telegram Desktop** начиная с версии **6.7.2**: для работы с EE-MTProxy обновите клиент.
->
-> Исправленный TLS ClientHello доступен в **Telegram Android** начиная с версии **12.6.4**; **официальный релиз для iOS находится в процессе разработки**.
+> Исправленный TLS ClientHello доступен:
+> - в **Telegram Desktop** начиная с версии **6.7.2**; 
+> - в **Telegram Android** начиная с версии **12.6.4**;
+> - в **Telegram для iOS** начиная с версии **12.6.2**.
+> 
+> Пожалуйста, обновите клиентское приложение для работы с EE-MTProxy.
 
 <p align="center">
   <a href="https://t.me/telemtrs">
@@ -78,8 +83,8 @@ cd telemt
 cargo build --release
 
 # Устройства с небольшим объёмом оперативной памяти (1 ГБ, например NanoPi Neo3 / Raspberry Pi Zero 2):
-# используется параметр lto = «thin» для уменьшения пикового потребления памяти.
-# Если ваш пользовательский набор инструментов переопределяет профили, не используйте Fat LTO.
+# В текущем release-профиле используется lto = "fat" для максимальной оптимизации (см. Cargo.toml).
+# На системах с малым объёмом RAM (~1 ГБ) можно переопределить это значение на "thin".
 
 # Перейдите в каталог /bin
 mv ./target/release/telemt /bin
@@ -95,7 +100,6 @@ telemt config.toml
 - не рекомендуется включать fat LTO.
 
 ## OpenBSD
-
 - Руководство по сборке и настройке на английском языке [OpenBSD Guide (EN)](docs/Quick_start/OPENBSD_QUICK_START_GUIDE.en.md);
 - Пример rc.d скрипта: [contrib/openbsd/telemt.rcd](contrib/openbsd/telemt.rcd);
 - Поддержка sandbox с `pledge(2)` и `unveil(2)` пока не реализована.
