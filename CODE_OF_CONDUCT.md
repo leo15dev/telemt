@@ -159,42 +159,41 @@ Actions are taken to maintain function, continuity, and signal quality.
 
 ## Final
 
-Telemt is built on discipline, structure, and shared intent.
-- Signal over noise.
-- Facts over opinion.
-- Systems over rhetoric.
-
-- Work is collective.
-- Outcomes are shared.
-- Responsibility is distributed.
-
-- Precision is learned.
-- Rigor is expected.
-- Help is part of the work.
+**Telemt is built on discipline, structure, and shared intent**
+- Signal over noise
+- Facts over opinion
+- Systems over rhetoric
+- Work is collective
+- Outcomes are shared
+- Responsibility is distributed
+- Precision is learned
+- Rigor is expected
+- Help is part of the work
 
 > **Ordnung ist Voraussetzung der Freiheit**
 
-- If you contribute — contribute with care.
-- If you speak — speak with substance.
-- If you engage — engage constructively.
+- If you contribute — contribute with care
+- If you speak — speak with substance
+- If you engage — engage constructively
 
 ---
 
 ## After All
 
-Systems outlive intentions.
-- What is built will be used.
-- What is released will propagate.
-- What is maintained will define the future state.
+Systems outlive intentions
+- What is built will be used
+- What is released will propagate
+- What is maintained will define the future state
 
-There is no neutral infrastructure, only infrastructure shaped well or poorly.
+There is no neutral infrastructure, only infrastructure shaped well or poorly
 
 > **Ordnung → Umsetzung → Ergebnis**
 
 > Order → Implementation → Result
 
-- Stability requires discipline.
-- Freedom requires structure.
-- Trust requires honesty.
+- Stability requires discipline
+- Freedom requires structure
+- Trust requires honesty
 
-In the end: the system reflects its contributors.
+In the end: the system reflects its contributors
+
