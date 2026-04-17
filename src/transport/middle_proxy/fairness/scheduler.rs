@@ -390,9 +390,8 @@ impl WorkerFairnessState {
                     flow.queue.push_front(candidate.frame);
                     flow.fairness.pending_bytes =
                         flow.fairness.pending_bytes.saturating_add(frame_bytes);
-                    if flow.fairness.queue_started_at.is_none() {
-                        flow.fairness.queue_started_at = Some(now);
-                    }
+                    flow.fairness.queue_started_at =
+                        flow.queue.front().map(|front| front.enqueued_at);
                     self.total_queued_bytes = self.total_queued_bytes.saturating_add(frame_bytes);
                     self.bucket_queued_bytes[flow.fairness.bucket_id] = self.bucket_queued_bytes
                         [flow.fairness.bucket_id]
