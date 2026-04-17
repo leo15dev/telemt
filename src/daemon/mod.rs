@@ -158,15 +158,15 @@ fn redirect_stdio_to_devnull() -> Result<(), DaemonError> {
     unsafe {
         // Redirect stdin (fd 0)
         if libc::dup2(devnull_fd, 0) < 0 {
-            return Err(DaemonError::RedirectFailed(nix::errno::Errno::last()));
+            return Err(DaemonError::RedirectFailed(Errno::last()));
         }
         // Redirect stdout (fd 1)
         if libc::dup2(devnull_fd, 1) < 0 {
-            return Err(DaemonError::RedirectFailed(nix::errno::Errno::last()));
+            return Err(DaemonError::RedirectFailed(Errno::last()));
         }
         // Redirect stderr (fd 2)
         if libc::dup2(devnull_fd, 2) < 0 {
-            return Err(DaemonError::RedirectFailed(nix::errno::Errno::last()));
+            return Err(DaemonError::RedirectFailed(Errno::last()));
         }
     }
 
