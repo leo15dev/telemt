@@ -255,12 +255,21 @@ This document lists all configuration keys accepted by `config.toml`.
     ```
 ## proxy_secret_path
   - **Constraints / validation**: `String`. When omitted, the default path is `"proxy-secret"`. Empty values are accepted by TOML/serde but will likely fail at runtime (invalid file path).
-  - **Description**: Path to Telegram infrastructure `proxy-secret` cache file used by ME handshake/RPC auth. Telemt always tries a fresh download from `https://core.telegram.org/getProxySecret` first, caches it to this path on success, and falls back to reading the cached file (any age) on download failure.
+  - **Description**: Path to Telegram infrastructure `proxy-secret` cache file used by ME handshake/RPC auth. Telemt always tries a fresh download from `https://core.telegram.org/getProxySecret` first (unless `proxy_secret_url` is set) , caches it to this path on success, and falls back to reading the cached file (any age) on download failure.
   - **Example**:
 
     ```toml
     [general]
     proxy_secret_path = "proxy-secret"
+    ```
+## proxy_secret_url
+  - **Constraints / validation**: `String`. When omitted, the `"https://core.telegram.org/getProxySecret"` is used.
+  - **Description**: Optional URL to obtain `proxy-secret` file used by ME handshake/RPC auth. Telemt always tries a fresh download from this URL first (with fallback to `https://core.telegram.org/getProxySecret` if absent). 
+  - **Example**:
+
+    ```toml
+    [general]
+    proxy_secret_url = "https://core.telegram.org/getProxySecret"
     ```
 ## proxy_config_v4_cache_path
   - **Constraints / validation**: `String`. When set, must not be empty/whitespace-only.
@@ -271,6 +280,15 @@ This document lists all configuration keys accepted by `config.toml`.
     [general]
     proxy_config_v4_cache_path = "cache/proxy-config-v4.txt"
     ```
+## proxy_config_v4_url
+- **Constraints / validation**: `String`. When omitted, the `"https://core.telegram.org/getProxyConfig"` is used.
+- **Description**: Optional URL to obtain raw `getProxyConfig` (IPv4). Telemt always tries a fresh download from this URL first (with fallback to `https://core.telegram.org/getProxyConfig` if absent).
+- **Example**:
+
+  ```toml
+  [general]
+  proxy_config_v4_url = "https://core.telegram.org/getProxyConfig"
+  ```
 ## proxy_config_v6_cache_path
   - **Constraints / validation**: `String`. When set, must not be empty/whitespace-only.
   - **Description**: Optional disk cache path for raw `getProxyConfigV6` (IPv6) snapshot. At startup Telemt tries to fetch a fresh snapshot first; on fetch failure or empty snapshot it falls back to this cache file when present and non-empty.
@@ -280,6 +298,15 @@ This document lists all configuration keys accepted by `config.toml`.
     [general]
     proxy_config_v6_cache_path = "cache/proxy-config-v6.txt"
     ```
+## proxy_config_v6_url
+- **Constraints / validation**: `String`. When omitted, the `"https://core.telegram.org/getProxyConfigV6"` is used.
+- **Description**: Optional URL to obtain raw `getProxyConfigV6` (IPv6). Telemt always tries a fresh download from this URL first (with fallback to `https://core.telegram.org/getProxyConfigV6` if absent).
+- **Example**:
+
+  ```toml
+  [general]
+  proxy_config_v6_url = "https://core.telegram.org/getProxyConfigV6"
+  ```
 ## ad_tag
   - **Constraints / validation**: `String` (optional). When set, must be exactly 32 hex characters; invalid values are disabled during config load.
   - **Description**: Global fallback sponsored-channel `ad_tag` (used when user has no override in `access.user_ad_tags`). An all-zero tag is accepted but has no effect (and is warned about) until replaced with a real tag from `@MTProxybot`.
