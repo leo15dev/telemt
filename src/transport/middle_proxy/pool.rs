@@ -396,6 +396,8 @@ pub(super) struct WriterSelectionPolicyCore {
 
 pub(super) struct TransportPolicyCore {
     pub(super) me_socks_kdf_policy: AtomicU8,
+    pub(super) me_route_backpressure_enabled: Arc<AtomicBool>,
+    pub(super) me_route_fairshare_enabled: Arc<AtomicBool>,
     pub(super) me_reader_route_data_wait_ms: Arc<AtomicU64>,
 }
 
@@ -548,6 +550,8 @@ impl MePool {
         me_socks_kdf_policy: MeSocksKdfPolicy,
         me_writer_cmd_channel_capacity: usize,
         me_route_channel_capacity: usize,
+        me_route_backpressure_enabled: bool,
+        me_route_fairshare_enabled: bool,
         me_route_backpressure_base_timeout_ms: u64,
         me_route_backpressure_high_timeout_ms: u64,
         me_route_backpressure_high_watermark_pct: u8,
@@ -783,6 +787,10 @@ impl MePool {
             }),
             transport_policy: Arc::new(TransportPolicyCore {
                 me_socks_kdf_policy: AtomicU8::new(me_socks_kdf_policy.as_u8()),
+                me_route_backpressure_enabled: Arc::new(AtomicBool::new(
+                    me_route_backpressure_enabled,
+                )),
+                me_route_fairshare_enabled: Arc::new(AtomicBool::new(me_route_fairshare_enabled)),
                 me_reader_route_data_wait_ms: Arc::new(AtomicU64::new(
                     me_reader_route_data_wait_ms,
                 )),
@@ -1245,6 +1253,8 @@ impl MePool {
     pub fn update_runtime_transport_policy(
         &self,
         socks_kdf_policy: MeSocksKdfPolicy,
+        route_backpressure_enabled: bool,
+        route_fairshare_enabled: bool,
         route_backpressure_base_timeout_ms: u64,
         route_backpressure_high_timeout_ms: u64,
         route_backpressure_high_watermark_pct: u8,
@@ -1253,6 +1263,12 @@ impl MePool {
         self.transport_policy
             .me_socks_kdf_policy
             .store(socks_kdf_policy.as_u8(), Ordering::Relaxed);
+        self.transport_policy
+            .me_route_backpressure_enabled
+            .store(route_backpressure_enabled, Ordering::Relaxed);
+        self.transport_policy
+            .me_route_fairshare_enabled
+            .store(route_fairshare_enabled, Ordering::Relaxed);
         self.transport_policy
             .me_reader_route_data_wait_ms
             .store(reader_route_data_wait_ms, Ordering::Relaxed);

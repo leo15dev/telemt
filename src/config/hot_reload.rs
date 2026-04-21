@@ -86,6 +86,8 @@ pub struct HotFields {
     pub telemetry_user_enabled: bool,
     pub telemetry_me_level: MeTelemetryLevel,
     pub me_socks_kdf_policy: MeSocksKdfPolicy,
+    pub me_route_backpressure_enabled: bool,
+    pub me_route_fairshare_enabled: bool,
     pub me_floor_mode: MeFloorMode,
     pub me_adaptive_floor_idle_secs: u64,
     pub me_adaptive_floor_min_writers_single_endpoint: u8,
@@ -187,6 +189,8 @@ impl HotFields {
             telemetry_user_enabled: cfg.general.telemetry.user_enabled,
             telemetry_me_level: cfg.general.telemetry.me_level,
             me_socks_kdf_policy: cfg.general.me_socks_kdf_policy,
+            me_route_backpressure_enabled: cfg.general.me_route_backpressure_enabled,
+            me_route_fairshare_enabled: cfg.general.me_route_fairshare_enabled,
             me_floor_mode: cfg.general.me_floor_mode,
             me_adaptive_floor_idle_secs: cfg.general.me_adaptive_floor_idle_secs,
             me_adaptive_floor_min_writers_single_endpoint: cfg
@@ -529,6 +533,8 @@ fn overlay_hot_fields(old: &ProxyConfig, new: &ProxyConfig) -> ProxyConfig {
         new.general.me_route_backpressure_high_timeout_ms;
     cfg.general.me_route_backpressure_high_watermark_pct =
         new.general.me_route_backpressure_high_watermark_pct;
+    cfg.general.me_route_backpressure_enabled = new.general.me_route_backpressure_enabled;
+    cfg.general.me_route_fairshare_enabled = new.general.me_route_fairshare_enabled;
     cfg.general.me_reader_route_data_wait_ms = new.general.me_reader_route_data_wait_ms;
     cfg.general.me_d2c_flush_batch_max_frames = new.general.me_d2c_flush_batch_max_frames;
     cfg.general.me_d2c_flush_batch_max_bytes = new.general.me_d2c_flush_batch_max_bytes;
@@ -1053,6 +1059,8 @@ fn log_changes(
             != new_hot.me_route_backpressure_high_timeout_ms
         || old_hot.me_route_backpressure_high_watermark_pct
             != new_hot.me_route_backpressure_high_watermark_pct
+        || old_hot.me_route_backpressure_enabled != new_hot.me_route_backpressure_enabled
+        || old_hot.me_route_fairshare_enabled != new_hot.me_route_fairshare_enabled
         || old_hot.me_reader_route_data_wait_ms != new_hot.me_reader_route_data_wait_ms
         || old_hot.me_health_interval_ms_unhealthy != new_hot.me_health_interval_ms_unhealthy
         || old_hot.me_health_interval_ms_healthy != new_hot.me_health_interval_ms_healthy
@@ -1060,10 +1068,12 @@ fn log_changes(
         || old_hot.me_warn_rate_limit_ms != new_hot.me_warn_rate_limit_ms
     {
         info!(
-            "config reload: me_route_backpressure: base={}ms high={}ms watermark={}%; me_reader_route_data_wait_ms={}; me_health_interval: unhealthy={}ms healthy={}ms; me_admission_poll={}ms; me_warn_rate_limit={}ms",
+            "config reload: me_route_backpressure: enabled={} base={}ms high={}ms watermark={}%; me_route_fairshare_enabled={}; me_reader_route_data_wait_ms={}; me_health_interval: unhealthy={}ms healthy={}ms; me_admission_poll={}ms; me_warn_rate_limit={}ms",
+            new_hot.me_route_backpressure_enabled,
             new_hot.me_route_backpressure_base_timeout_ms,
             new_hot.me_route_backpressure_high_timeout_ms,
             new_hot.me_route_backpressure_high_watermark_pct,
+            new_hot.me_route_fairshare_enabled,
             new_hot.me_reader_route_data_wait_ms,
             new_hot.me_health_interval_ms_unhealthy,
             new_hot.me_health_interval_ms_healthy,

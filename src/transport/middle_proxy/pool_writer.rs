@@ -436,6 +436,9 @@ impl MePool {
         let cancel_signal = cancel.clone();
         let cancel_select = cancel.clone();
         let cancel_cleanup = cancel.clone();
+        let route_backpressure_enabled =
+            self.transport_policy.me_route_backpressure_enabled.clone();
+        let route_fairshare_enabled = self.transport_policy.me_route_fairshare_enabled.clone();
         let reader_route_data_wait_ms = self.transport_policy.me_reader_route_data_wait_ms.clone();
 
         tokio::spawn(async move {
@@ -458,6 +461,8 @@ impl MePool {
                     writer_id,
                     degraded,
                     rtt_ema_ms_x10,
+                    route_backpressure_enabled,
+                    route_fairshare_enabled,
                     reader_route_data_wait_ms,
                     cancel_reader,
                 ) => WriterLifecycleExit::Reader(reader_res),

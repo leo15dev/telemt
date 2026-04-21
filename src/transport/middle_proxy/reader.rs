@@ -45,7 +45,15 @@ fn is_data_route_queue_full(result: RouteResult) -> bool {
     )
 }
 
-fn should_close_on_queue_full_streak(streak: u8, pressure_state: PressureState) -> bool {
+fn should_close_on_queue_full_streak_with_policy(
+    streak: u8,
+    pressure_state: PressureState,
+    backpressure_enabled: bool,
+) -> bool {
+    if !backpressure_enabled {
+        return false;
+    }
+
     if pressure_state < PressureState::Shedding {
         return false;
     }
@@ -160,6 +168,7 @@ async fn drain_fairness_scheduler(
     reg: &ConnRegistry,
     tx: &mpsc::Sender<WriterCommand>,
     data_route_queue_full_streak: &mut HashMap<u64, u8>,
+    backpressure_enabled: bool,
     route_wait_ms: u64,
     stats: &Stats,
 ) {
@@ -188,7 +197,11 @@ async fn drain_fairness_scheduler(
         if is_data_route_queue_full(routed) {
             let streak = data_route_queue_full_streak.entry(cid).or_insert(0);
             *streak = streak.saturating_add(1);
-            if should_close_on_queue_full_streak(*streak, pressure_state) {
+            if should_close_on_queue_full_streak_with_policy(
+                *streak,
+                pressure_state,
+                backpressure_enabled,
+            ) {
                 fairness.remove_flow(cid);
                 data_route_queue_full_streak.remove(&cid);
                 reg.unregister(cid).await;
@@ -220,6 +233,8 @@ pub(crate) async fn reader_loop(
     writer_id: u64,
     degraded: Arc<AtomicBool>,
     writer_rtt_ema_ms_x10: Arc<AtomicU32>,
+    route_backpressure_enabled: Arc<AtomicBool>,
+    route_fairshare_enabled: Arc<AtomicBool>,
     reader_route_data_wait_ms: Arc<AtomicU64>,
     cancel: CancellationToken,
 ) -> Result<()> {
@@ -236,14 +251,19 @@ pub(crate) async fn reader_loop(
             max_flow_queued_bytes: (reg.route_channel_capacity() as u64)
                 .saturating_mul(2 * 1024)
                 .clamp(64 * 1024, 2 * 1024 * 1024),
+            backpressure_enabled: route_backpressure_enabled.load(Ordering::Relaxed),
             ..WorkerFairnessConfig::default()
         },
         Instant::now(),
     );
     let mut fairness_snapshot = fairness.snapshot();
     loop {
+        let backpressure_enabled = route_backpressure_enabled.load(Ordering::Relaxed);
+        let fairshare_enabled = route_fairshare_enabled.load(Ordering::Relaxed);
+        fairness.set_backpressure_enabled(backpressure_enabled);
+        let fairness_has_backlog = should_schedule_fairness_retry(&fairness_snapshot);
         let mut tmp = [0u8; 65_536];
-        let backlog_retry_enabled = should_schedule_fairness_retry(&fairness_snapshot);
+        let backlog_retry_enabled = fairness_has_backlog;
         let backlog_retry_delay =
             fairness_retry_delay(reader_route_data_wait_ms.load(Ordering::Relaxed));
         let mut retry_only = false;
@@ -262,6 +282,7 @@ pub(crate) async fn reader_loop(
                 reg.as_ref(),
                 &tx,
                 &mut data_route_queue_full_streak,
+                backpressure_enabled,
                 route_wait_ms,
                 stats.as_ref(),
             )
@@ -346,20 +367,56 @@ pub(crate) async fn reader_loop(
                 let data = body.slice(12..);
                 trace!(cid, flags, len = data.len(), "RPC_PROXY_ANS");
 
-                let admission = fairness.enqueue_data(cid, flags, data, Instant::now());
-                if !matches!(admission, AdmissionDecision::Admit) {
-                    stats.increment_me_route_drop_queue_full();
-                    stats.increment_me_route_drop_queue_full_high();
-                    let streak = data_route_queue_full_streak.entry(cid).or_insert(0);
-                    *streak = streak.saturating_add(1);
-                    let pressure_state = fairness.pressure_state();
-                    if should_close_on_queue_full_streak(*streak, pressure_state)
-                        || matches!(admission, AdmissionDecision::RejectSaturated)
-                    {
+                if fairshare_enabled {
+                    let admission = fairness.enqueue_data(cid, flags, data, Instant::now());
+                    if !matches!(admission, AdmissionDecision::Admit) {
+                        stats.increment_me_route_drop_queue_full();
+                        stats.increment_me_route_drop_queue_full_high();
+                        let streak = data_route_queue_full_streak.entry(cid).or_insert(0);
+                        *streak = streak.saturating_add(1);
+                        let pressure_state = fairness.pressure_state();
+                        if should_close_on_queue_full_streak_with_policy(
+                            *streak,
+                            pressure_state,
+                            backpressure_enabled,
+                        ) || (backpressure_enabled
+                            && matches!(admission, AdmissionDecision::RejectSaturated))
+                        {
+                            fairness.remove_flow(cid);
+                            data_route_queue_full_streak.remove(&cid);
+                            reg.unregister(cid).await;
+                            send_close_conn(&tx, cid).await;
+                        }
+                    }
+                } else {
+                    let route_wait_ms = reader_route_data_wait_ms.load(Ordering::Relaxed);
+                    let routed =
+                        route_data_with_retry(reg.as_ref(), cid, flags, data, route_wait_ms).await;
+                    if matches!(routed, RouteResult::Routed) {
+                        data_route_queue_full_streak.remove(&cid);
+                        continue;
+                    }
+                    report_route_drop(routed, stats.as_ref());
+                    if should_close_on_route_result_for_data(routed) {
                         fairness.remove_flow(cid);
                         data_route_queue_full_streak.remove(&cid);
                         reg.unregister(cid).await;
                         send_close_conn(&tx, cid).await;
+                        continue;
+                    }
+                    if is_data_route_queue_full(routed) {
+                        let streak = data_route_queue_full_streak.entry(cid).or_insert(0);
+                        *streak = streak.saturating_add(1);
+                        if should_close_on_queue_full_streak_with_policy(
+                            *streak,
+                            PressureState::Shedding,
+                            backpressure_enabled,
+                        ) {
+                            fairness.remove_flow(cid);
+                            data_route_queue_full_streak.remove(&cid);
+                            reg.unregister(cid).await;
+                            send_close_conn(&tx, cid).await;
+                        }
                     }
                 }
             } else if pt == RPC_SIMPLE_ACK_U32 && body.len() >= 12 {
@@ -465,6 +522,7 @@ pub(crate) async fn reader_loop(
                 reg.as_ref(),
                 &tx,
                 &mut data_route_queue_full_streak,
+                backpressure_enabled,
                 route_wait_ms,
                 stats.as_ref(),
             )
@@ -486,9 +544,9 @@ mod tests {
 
     use super::{
         MeResponse, RouteResult, WorkerFairnessSnapshot, fairness_retry_delay,
-        is_data_route_queue_full, route_data_with_retry, should_close_on_queue_full_streak,
-        should_close_on_route_result_for_ack, should_close_on_route_result_for_data,
-        should_schedule_fairness_retry,
+        is_data_route_queue_full, route_data_with_retry,
+        should_close_on_queue_full_streak_with_policy, should_close_on_route_result_for_ack,
+        should_close_on_route_result_for_data, should_schedule_fairness_retry,
     };
 
     #[test]
@@ -511,22 +569,35 @@ mod tests {
         assert!(is_data_route_queue_full(RouteResult::QueueFullBase));
         assert!(is_data_route_queue_full(RouteResult::QueueFullHigh));
         assert!(!is_data_route_queue_full(RouteResult::NoConn));
-        assert!(!should_close_on_queue_full_streak(1, PressureState::Normal));
-        assert!(!should_close_on_queue_full_streak(
+        assert!(!should_close_on_queue_full_streak_with_policy(
+            1,
+            PressureState::Normal,
+            true
+        ));
+        assert!(!should_close_on_queue_full_streak_with_policy(
             2,
-            PressureState::Pressured
+            PressureState::Pressured,
+            true
         ));
-        assert!(!should_close_on_queue_full_streak(
+        assert!(!should_close_on_queue_full_streak_with_policy(
             3,
-            PressureState::Pressured
+            PressureState::Pressured,
+            true
         ));
-        assert!(should_close_on_queue_full_streak(
+        assert!(should_close_on_queue_full_streak_with_policy(
             3,
-            PressureState::Shedding
+            PressureState::Shedding,
+            true
         ));
-        assert!(should_close_on_queue_full_streak(
+        assert!(should_close_on_queue_full_streak_with_policy(
             u8::MAX,
-            PressureState::Saturated
+            PressureState::Saturated,
+            true
+        ));
+        assert!(!should_close_on_queue_full_streak_with_policy(
+            u8::MAX,
+            PressureState::Saturated,
+            false
         ));
     }
 

@@ -58,11 +58,22 @@ async fn consume_stall_stress_finishes_within_idle_budget() {
 }
 
 #[tokio::test]
-async fn consume_zero_cap_returns_immediately() {
+async fn consume_zero_cap_is_idle_bounded_on_stall() {
     let started = Instant::now();
-    consume_client_data(tokio::io::empty(), 0, MASK_RELAY_IDLE_TIMEOUT).await;
+    tokio::time::timeout(
+        MASK_RELAY_TIMEOUT,
+        consume_client_data(OneByteThenStall { sent: false }, 0, MASK_RELAY_IDLE_TIMEOUT),
+    )
+    .await
+    .expect("zero-cap consume path must remain bounded by timeout guards");
+
+    let elapsed = started.elapsed();
     assert!(
-        started.elapsed() < MASK_RELAY_IDLE_TIMEOUT,
-        "zero byte cap must return immediately"
+        elapsed >= (MASK_RELAY_IDLE_TIMEOUT / 2),
+        "zero cap must not short-circuit before idle timeout path, got {elapsed:?}"
+    );
+    assert!(
+        elapsed < MASK_RELAY_TIMEOUT,
+        "zero-cap consume path must complete before relay timeout, got {elapsed:?}"
     );
 }

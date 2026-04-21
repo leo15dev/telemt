@@ -238,7 +238,7 @@ mask_shape_above_cap_blur_max_bytes = 8
 }
 
 #[test]
-fn load_rejects_zero_mask_relay_max_bytes() {
+fn load_accepts_zero_mask_relay_max_bytes_as_unlimited() {
     let path = write_temp_config(
         r#"
 [censorship]
@@ -246,12 +246,9 @@ mask_relay_max_bytes = 0
 "#,
     );
 
-    let err = ProxyConfig::load(&path).expect_err("mask_relay_max_bytes must be > 0");
-    let msg = err.to_string();
-    assert!(
-        msg.contains("censorship.mask_relay_max_bytes must be > 0"),
-        "error must explain non-zero relay cap invariant, got: {msg}"
-    );
+    let cfg = ProxyConfig::load(&path)
+        .expect("mask_relay_max_bytes=0 must be accepted as unlimited relay cap");
+    assert_eq!(cfg.censorship.mask_relay_max_bytes, 0);
 
     remove_temp_config(&path);
 }

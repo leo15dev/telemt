@@ -14,6 +14,7 @@ use super::pressure::{PressureConfig, PressureEvaluator, PressureSignals};
 #[derive(Debug, Clone)]
 pub(crate) struct WorkerFairnessConfig {
     pub(crate) worker_id: u16,
+    pub(crate) backpressure_enabled: bool,
     pub(crate) max_active_flows: usize,
     pub(crate) max_total_queued_bytes: u64,
     pub(crate) max_flow_queued_bytes: u64,
@@ -36,6 +37,7 @@ impl Default for WorkerFairnessConfig {
     fn default() -> Self {
         Self {
             worker_id: 0,
+            backpressure_enabled: true,
             max_active_flows: 4096,
             max_total_queued_bytes: 16 * 1024 * 1024,
             max_flow_queued_bytes: 512 * 1024,
@@ -107,7 +109,8 @@ pub(crate) struct WorkerFairnessState {
 }
 
 impl WorkerFairnessState {
-    pub(crate) fn new(config: WorkerFairnessConfig, now: Instant) -> Self {
+    pub(crate) fn new(mut config: WorkerFairnessConfig, now: Instant) -> Self {
+        config.pressure.backpressure_enabled = config.backpressure_enabled;
         let bucket_count = config.soft_bucket_count.max(1);
         Self {
             config,
@@ -132,6 +135,15 @@ impl WorkerFairnessState {
 
     pub(crate) fn pressure_state(&self) -> PressureState {
         self.pressure.state()
+    }
+
+    pub(crate) fn set_backpressure_enabled(&mut self, enabled: bool) {
+        if self.config.backpressure_enabled == enabled {
+            return;
+        }
+        self.config.backpressure_enabled = enabled;
+        self.config.pressure.backpressure_enabled = enabled;
+        self.evaluate_pressure(Instant::now(), true);
     }
 
     pub(crate) fn snapshot(&self) -> WorkerFairnessSnapshot {
@@ -166,7 +178,7 @@ impl WorkerFairnessState {
         };
         let frame_bytes = frame.queued_bytes();
 
-        if self.pressure.state() == PressureState::Saturated {
+        if self.config.backpressure_enabled && self.pressure.state() == PressureState::Saturated {
             self.pressure
                 .note_admission_reject(now, &self.config.pressure);
             self.enqueue_rejects = self.enqueue_rejects.saturating_add(1);
@@ -231,7 +243,8 @@ impl WorkerFairnessState {
             return AdmissionDecision::RejectFlowCap;
         }
 
-        if self.pressure.state() >= PressureState::Shedding
+        if self.config.backpressure_enabled
+            && self.pressure.state() >= PressureState::Shedding
             && entry.fairness.standing_state == StandingQueueState::Standing
         {
             self.pressure
@@ -422,8 +435,10 @@ impl WorkerFairnessState {
                 DispatchAction::Continue
             }
             DispatchFeedback::QueueFull => {
-                self.pressure.note_route_stall(now, &self.config.pressure);
-                self.downstream_stalls = self.downstream_stalls.saturating_add(1);
+                if self.config.backpressure_enabled {
+                    self.pressure.note_route_stall(now, &self.config.pressure);
+                    self.downstream_stalls = self.downstream_stalls.saturating_add(1);
+                }
                 let state = self.pressure.state();
                 let Some(flow) = self.flows.get_mut(&conn_id) else {
                     self.evaluate_pressure(now, true);
@@ -433,16 +448,19 @@ impl WorkerFairnessState {
                     let before_membership = Self::flow_membership(&flow.fairness);
                     let mut enqueue_active = false;
 
-                    flow.fairness.consecutive_stalls =
-                        flow.fairness.consecutive_stalls.saturating_add(1);
-                    flow.fairness.scheduler_state = FlowSchedulerState::Backpressured;
-                    flow.fairness.pressure_class = FlowPressureClass::Backpressured;
+                    if self.config.backpressure_enabled {
+                        flow.fairness.consecutive_stalls =
+                            flow.fairness.consecutive_stalls.saturating_add(1);
+                        flow.fairness.scheduler_state = FlowSchedulerState::Backpressured;
+                        flow.fairness.pressure_class = FlowPressureClass::Backpressured;
+                    }
 
-                    let should_shed_frame = matches!(state, PressureState::Saturated)
-                        || (matches!(state, PressureState::Shedding)
-                            && flow.fairness.standing_state == StandingQueueState::Standing
-                            && flow.fairness.consecutive_stalls
-                                >= self.config.max_consecutive_stalls_before_shed);
+                    let should_shed_frame = self.config.backpressure_enabled
+                        && (matches!(state, PressureState::Saturated)
+                            || (matches!(state, PressureState::Shedding)
+                                && flow.fairness.standing_state == StandingQueueState::Standing
+                                && flow.fairness.consecutive_stalls
+                                    >= self.config.max_consecutive_stalls_before_shed));
 
                     if should_shed_frame {
                         self.shed_drops = self.shed_drops.saturating_add(1);
@@ -467,8 +485,9 @@ impl WorkerFairnessState {
 
                     Self::classify_flow(&self.config, state, now, &mut flow.fairness);
                     let after_membership = Self::flow_membership(&flow.fairness);
-                    let should_close_flow = flow.fairness.consecutive_stalls
-                        >= self.config.max_consecutive_stalls_before_close
+                    let should_close_flow = self.config.backpressure_enabled
+                        && flow.fairness.consecutive_stalls
+                            >= self.config.max_consecutive_stalls_before_close
                         && self.pressure.state() == PressureState::Saturated;
                     (
                         before_membership,

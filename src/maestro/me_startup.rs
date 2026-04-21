@@ -277,6 +277,8 @@ pub(crate) async fn initialize_me_pool(
                     config.general.me_socks_kdf_policy,
                     config.general.me_writer_cmd_channel_capacity,
                     config.general.me_route_channel_capacity,
+                    config.general.me_route_backpressure_enabled,
+                    config.general.me_route_fairshare_enabled,
                     config.general.me_route_backpressure_base_timeout_ms,
                     config.general.me_route_backpressure_high_timeout_ms,
                     config.general.me_route_backpressure_high_watermark_pct,

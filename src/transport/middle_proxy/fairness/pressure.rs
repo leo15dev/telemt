@@ -12,6 +12,7 @@ pub(crate) struct PressureSignals {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PressureConfig {
+    pub(crate) backpressure_enabled: bool,
     pub(crate) evaluate_every_rounds: u32,
     pub(crate) transition_hysteresis_rounds: u8,
     pub(crate) standing_ratio_pressured_pct: u8,
@@ -32,6 +33,7 @@ pub(crate) struct PressureConfig {
 impl Default for PressureConfig {
     fn default() -> Self {
         Self {
+            backpressure_enabled: true,
             evaluate_every_rounds: 8,
             transition_hysteresis_rounds: 3,
             standing_ratio_pressured_pct: 20,
@@ -99,6 +101,13 @@ impl PressureEvaluator {
         force: bool,
     ) -> PressureState {
         self.rotate_window_if_needed(now, cfg);
+        if !cfg.backpressure_enabled {
+            self.state = PressureState::Normal;
+            self.candidate_state = PressureState::Normal;
+            self.candidate_hits = 0;
+            self.rounds_since_eval = 0;
+            return self.state;
+        }
         self.rounds_since_eval = self.rounds_since_eval.saturating_add(1);
         if !force && self.rounds_since_eval < cfg.evaluate_every_rounds.max(1) {
             return self.state;
@@ -133,6 +142,10 @@ impl PressureEvaluator {
         max_total_queued_bytes: u64,
         signals: PressureSignals,
     ) -> PressureState {
+        if !cfg.backpressure_enabled {
+            return PressureState::Normal;
+        }
+
         let queue_ratio_pct = if max_total_queued_bytes == 0 {
             100
         } else {
@@ -146,57 +159,59 @@ impl PressureEvaluator {
             ((signals.standing_flows.saturating_mul(100)) / signals.active_flows).min(100) as u8
         };
 
-        let mut pressured = false;
-        let mut saturated = false;
+        let mut pressure_score = 0u8;
 
-        let queue_saturated_pct = cfg
-            .queue_ratio_shedding_pct
-            .min(cfg.queue_ratio_saturated_pct);
         if queue_ratio_pct >= cfg.queue_ratio_pressured_pct {
-            pressured = true;
+            pressure_score = pressure_score.max(1);
         }
-        if queue_ratio_pct >= queue_saturated_pct {
-            saturated = true;
+        if queue_ratio_pct >= cfg.queue_ratio_shedding_pct {
+            pressure_score = pressure_score.max(2);
+        }
+        if queue_ratio_pct >= cfg.queue_ratio_saturated_pct {
+            pressure_score = pressure_score.max(3);
         }
 
-        let standing_saturated_pct = cfg
-            .standing_ratio_shedding_pct
-            .min(cfg.standing_ratio_saturated_pct);
         if standing_ratio_pct >= cfg.standing_ratio_pressured_pct {
-            pressured = true;
+            pressure_score = pressure_score.max(1);
         }
-        if standing_ratio_pct >= standing_saturated_pct {
-            saturated = true;
+        if standing_ratio_pct >= cfg.standing_ratio_shedding_pct {
+            pressure_score = pressure_score.max(2);
+        }
+        if standing_ratio_pct >= cfg.standing_ratio_saturated_pct {
+            pressure_score = pressure_score.max(3);
         }
 
-        let rejects_saturated = cfg.rejects_shedding.min(cfg.rejects_saturated);
         if self.admission_rejects_window >= cfg.rejects_pressured {
-            pressured = true;
+            pressure_score = pressure_score.max(1);
         }
-        if self.admission_rejects_window >= rejects_saturated {
-            saturated = true;
+        if self.admission_rejects_window >= cfg.rejects_shedding {
+            pressure_score = pressure_score.max(2);
+        }
+        if self.admission_rejects_window >= cfg.rejects_saturated {
+            pressure_score = pressure_score.max(3);
         }
 
-        let stalls_saturated = cfg.stalls_shedding.min(cfg.stalls_saturated);
         if self.route_stalls_window >= cfg.stalls_pressured {
-            pressured = true;
+            pressure_score = pressure_score.max(1);
         }
-        if self.route_stalls_window >= stalls_saturated {
-            saturated = true;
+        if self.route_stalls_window >= cfg.stalls_shedding {
+            pressure_score = pressure_score.max(2);
+        }
+        if self.route_stalls_window >= cfg.stalls_saturated {
+            pressure_score = pressure_score.max(3);
         }
 
         if signals.backpressured_flows > signals.active_flows.saturating_div(2)
             && signals.active_flows > 0
         {
-            pressured = true;
+            pressure_score = pressure_score.max(2);
         }
 
-        if saturated {
-            PressureState::Saturated
-        } else if pressured {
-            PressureState::Pressured
-        } else {
-            PressureState::Normal
+        match pressure_score {
+            0 => PressureState::Normal,
+            1 => PressureState::Pressured,
+            2 => PressureState::Shedding,
+            _ => PressureState::Saturated,
         }
     }
 

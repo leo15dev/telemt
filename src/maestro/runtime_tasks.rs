@@ -122,6 +122,8 @@ pub(crate) async fn spawn_runtime_tasks(
             if let Some(pool) = &me_pool_for_policy {
                 pool.update_runtime_transport_policy(
                     cfg.general.me_socks_kdf_policy,
+                    cfg.general.me_route_backpressure_enabled,
+                    cfg.general.me_route_fairshare_enabled,
                     cfg.general.me_route_backpressure_base_timeout_ms,
                     cfg.general.me_route_backpressure_high_timeout_ms,
                     cfg.general.me_route_backpressure_high_watermark_pct,

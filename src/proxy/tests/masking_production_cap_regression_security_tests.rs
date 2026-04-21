@@ -148,9 +148,10 @@ async fn positive_copy_with_production_cap_stops_exactly_at_budget() {
 }
 
 #[tokio::test]
-async fn negative_consume_with_zero_cap_performs_no_reads() {
-    let read_calls = Arc::new(AtomicUsize::new(0));
-    let reader = FinitePatternReader::new(1024, 64, Arc::clone(&read_calls));
+async fn consume_with_zero_cap_drains_until_eof() {
+    let payload = 256 * 1024;
+    let total_read = Arc::new(AtomicUsize::new(0));
+    let reader = BudgetProbeReader::new(payload, Arc::clone(&total_read));
 
     consume_client_data_with_timeout_and_cap(
         reader,
@@ -161,9 +162,27 @@ async fn negative_consume_with_zero_cap_performs_no_reads() {
     .await;
 
     assert_eq!(
-        read_calls.load(Ordering::Relaxed),
-        0,
-        "zero cap must return before reading attacker-controlled bytes"
+        total_read.load(Ordering::Relaxed),
+        payload,
+        "zero cap must disable byte budget and drain finite payload to EOF"
+    );
+}
+
+#[tokio::test]
+async fn copy_with_zero_cap_drains_until_eof() {
+    let read_calls = Arc::new(AtomicUsize::new(0));
+    let payload = 73 * 1024;
+    let mut reader = FinitePatternReader::new(payload, 3072, read_calls);
+    let mut writer = CountingWriter::default();
+
+    let outcome =
+        copy_with_idle_timeout(&mut reader, &mut writer, 0, true, MASK_RELAY_IDLE_TIMEOUT).await;
+
+    assert_eq!(outcome.total, payload);
+    assert_eq!(writer.written, payload);
+    assert!(
+        outcome.ended_by_eof,
+        "zero cap must not terminate relay early on byte budget"
     );
 }
 

@@ -21,6 +21,8 @@ const DEFAULT_ME_ADAPTIVE_FLOOR_MAX_ACTIVE_WRITERS_PER_CORE: u16 = 64;
 const DEFAULT_ME_ADAPTIVE_FLOOR_MAX_WARM_WRITERS_PER_CORE: u16 = 64;
 const DEFAULT_ME_ADAPTIVE_FLOOR_MAX_ACTIVE_WRITERS_GLOBAL: u32 = 256;
 const DEFAULT_ME_ADAPTIVE_FLOOR_MAX_WARM_WRITERS_GLOBAL: u32 = 256;
+const DEFAULT_ME_ROUTE_BACKPRESSURE_ENABLED: bool = false;
+const DEFAULT_ME_ROUTE_FAIRSHARE_ENABLED: bool = false;
 const DEFAULT_ME_WRITER_CMD_CHANNEL_CAPACITY: usize = 4096;
 const DEFAULT_ME_ROUTE_CHANNEL_CAPACITY: usize = 768;
 const DEFAULT_ME_C2ME_CHANNEL_CAPACITY: usize = 1024;
@@ -527,6 +529,14 @@ pub(crate) fn default_desync_all_full() -> bool {
 
 pub(crate) fn default_me_route_backpressure_base_timeout_ms() -> u64 {
     25
+}
+
+pub(crate) fn default_me_route_backpressure_enabled() -> bool {
+    DEFAULT_ME_ROUTE_BACKPRESSURE_ENABLED
+}
+
+pub(crate) fn default_me_route_fairshare_enabled() -> bool {
+    DEFAULT_ME_ROUTE_FAIRSHARE_ENABLED
 }
 
 pub(crate) fn default_me_route_backpressure_high_timeout_ms() -> u64 {
