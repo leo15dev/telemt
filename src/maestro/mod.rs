@@ -47,7 +47,7 @@ use crate::stats::{ReplayChecker, Stats};
 use crate::stream::BufferPool;
 use crate::transport::UpstreamManager;
 use crate::transport::middle_proxy::MePool;
-use helpers::{parse_cli, resolve_runtime_config_path};
+use helpers::{parse_cli, resolve_runtime_base_dir, resolve_runtime_config_path};
 
 #[cfg(unix)]
 use crate::daemon::{DaemonOptions, PidFile, drop_privileges};
@@ -112,8 +112,51 @@ async fn run_telemt_core(
             std::process::exit(1);
         }
     };
+    if let Some(ref data_path) = data_path
+        && !data_path.is_absolute()
+    {
+        eprintln!(
+            "[telemt] data_path must be absolute: {}",
+            data_path.display()
+        );
+        std::process::exit(1);
+    }
     let mut config_path =
         resolve_runtime_config_path(&config_path_cli, &startup_cwd, config_path_explicit);
+    let runtime_base_dir = resolve_runtime_base_dir(
+        &config_path,
+        &startup_cwd,
+        config_path_explicit,
+        data_path.as_deref(),
+    );
+
+    if !runtime_base_dir.exists()
+        && let Err(e) = std::fs::create_dir_all(&runtime_base_dir)
+    {
+        eprintln!(
+            "[telemt] Can't create runtime directory {}: {}",
+            runtime_base_dir.display(),
+            e
+        );
+        std::process::exit(1);
+    }
+
+    if !runtime_base_dir.is_dir() {
+        eprintln!(
+            "[telemt] Runtime path exists but is not a directory: {}",
+            runtime_base_dir.display()
+        );
+        std::process::exit(1);
+    }
+
+    if let Err(e) = std::env::set_current_dir(&runtime_base_dir) {
+        eprintln!(
+            "[telemt] Can't use runtime directory {}: {}",
+            runtime_base_dir.display(),
+            e
+        );
+        std::process::exit(1);
+    }
 
     let mut config = match ProxyConfig::load(&config_path) {
         Ok(c) => c,
@@ -156,16 +199,15 @@ async fn run_telemt_core(
                         );
                     }
                 } else {
-                    let system_dir = std::path::Path::new("/etc/telemt");
-                    let system_config_path = system_dir.join("telemt.toml");
-                    let startup_config_path = startup_cwd.join("config.toml");
+                    let runtime_config_path = runtime_base_dir.join("telemt.toml");
+                    let fallback_config_path = runtime_base_dir.join("config.toml");
                     let mut persisted = false;
 
                     if let Some(serialized) = serialized.as_ref() {
-                        match std::fs::create_dir_all(system_dir) {
-                            Ok(()) => match std::fs::write(&system_config_path, serialized) {
+                        match std::fs::create_dir_all(&runtime_base_dir) {
+                            Ok(()) => match std::fs::write(&runtime_config_path, serialized) {
                                 Ok(()) => {
-                                    config_path = system_config_path;
+                                    config_path = runtime_config_path;
                                     eprintln!(
                                         "[telemt] Created default config at {}",
                                         config_path.display()
@@ -175,7 +217,7 @@ async fn run_telemt_core(
                                 Err(write_error) => {
                                     eprintln!(
                                         "[telemt] Warning: failed to write default config at {}: {}",
-                                        system_config_path.display(),
+                                        runtime_config_path.display(),
                                         write_error
                                     );
                                 }
@@ -183,16 +225,16 @@ async fn run_telemt_core(
                             Err(create_error) => {
                                 eprintln!(
                                     "[telemt] Warning: failed to create {}: {}",
-                                    system_dir.display(),
+                                    runtime_base_dir.display(),
                                     create_error
                                 );
                             }
                         }
 
                         if !persisted {
-                            match std::fs::write(&startup_config_path, serialized) {
+                            match std::fs::write(&fallback_config_path, serialized) {
                                 Ok(()) => {
-                                    config_path = startup_config_path;
+                                    config_path = fallback_config_path;
                                     eprintln!(
                                         "[telemt] Created default config at {}",
                                         config_path.display()
@@ -202,7 +244,7 @@ async fn run_telemt_core(
                                 Err(write_error) => {
                                     eprintln!(
                                         "[telemt] Warning: failed to write default config at {}: {}",
-                                        startup_config_path.display(),
+                                        fallback_config_path.display(),
                                         write_error
                                     );
                                 }

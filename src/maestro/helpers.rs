@@ -1,6 +1,6 @@
 #![allow(clippy::items_after_test_module)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use tokio::sync::watch;
@@ -17,7 +17,7 @@ use crate::transport::middle_proxy::{
 
 pub(crate) fn resolve_runtime_config_path(
     config_path_cli: &str,
-    startup_cwd: &std::path::Path,
+    startup_cwd: &Path,
     config_path_explicit: bool,
 ) -> PathBuf {
     if config_path_explicit {
@@ -44,6 +44,39 @@ pub(crate) fn resolve_runtime_config_path(
     }
 
     startup_cwd.join("config.toml")
+}
+
+pub(crate) fn resolve_runtime_base_dir(
+    config_path: &Path,
+    startup_cwd: &Path,
+    config_path_explicit: bool,
+    data_path: Option<&Path>,
+) -> PathBuf {
+    if let Some(path) = data_path {
+        return normalize_runtime_dir(path, startup_cwd);
+    }
+
+    if startup_cwd != Path::new("/") {
+        return normalize_runtime_dir(startup_cwd, startup_cwd);
+    }
+
+    if config_path_explicit
+        && let Some(parent) = config_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        return normalize_runtime_dir(parent, startup_cwd);
+    }
+
+    PathBuf::from("/etc/telemt")
+}
+
+fn normalize_runtime_dir(path: &Path, startup_cwd: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        startup_cwd.join(path)
+    };
+    absolute.canonicalize().unwrap_or(absolute)
 }
 
 /// Parsed CLI arguments.
@@ -231,9 +264,11 @@ fn print_help() {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use super::{
         expected_handshake_close_description, is_expected_handshake_eof, peer_close_description,
-        resolve_runtime_config_path,
+        resolve_runtime_base_dir, resolve_runtime_config_path,
     };
     use crate::error::{ProxyError, StreamError};
 
@@ -302,6 +337,92 @@ mod tests {
         assert_eq!(resolved, startup_cwd.join("config.toml"));
 
         let _ = std::fs::remove_dir(&startup_cwd);
+    }
+
+    #[test]
+    fn resolve_runtime_base_dir_prefers_cli_data_path() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let startup_cwd = std::env::temp_dir().join(format!("telemt_runtime_base_cwd_{nonce}"));
+        let data_path = std::env::temp_dir().join(format!("telemt_runtime_base_data_{nonce}"));
+        std::fs::create_dir_all(&startup_cwd).unwrap();
+        std::fs::create_dir_all(&data_path).unwrap();
+
+        let resolved = resolve_runtime_base_dir(
+            &startup_cwd.join("config.toml"),
+            &startup_cwd,
+            true,
+            Some(&data_path),
+        );
+        assert_eq!(resolved, data_path.canonicalize().unwrap());
+
+        let _ = std::fs::remove_dir(&data_path);
+        let _ = std::fs::remove_dir(&startup_cwd);
+    }
+
+    #[test]
+    fn resolve_runtime_base_dir_uses_working_directory_before_explicit_config_parent() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let startup_cwd = std::env::temp_dir().join(format!("telemt_runtime_base_start_{nonce}"));
+        let config_dir = std::env::temp_dir().join(format!("telemt_runtime_base_cfg_{nonce}"));
+        std::fs::create_dir_all(&startup_cwd).unwrap();
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        let resolved =
+            resolve_runtime_base_dir(&config_dir.join("telemt.toml"), &startup_cwd, true, None);
+        assert_eq!(resolved, startup_cwd.canonicalize().unwrap());
+
+        let _ = std::fs::remove_dir(&config_dir);
+        let _ = std::fs::remove_dir(&startup_cwd);
+    }
+
+    #[test]
+    fn resolve_runtime_base_dir_uses_explicit_config_parent_from_root() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let config_dir = std::env::temp_dir().join(format!("telemt_runtime_base_root_cfg_{nonce}"));
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        let resolved =
+            resolve_runtime_base_dir(&config_dir.join("telemt.toml"), Path::new("/"), true, None);
+        assert_eq!(resolved, config_dir.canonicalize().unwrap());
+
+        let _ = std::fs::remove_dir(&config_dir);
+    }
+
+    #[test]
+    fn resolve_runtime_base_dir_uses_systemd_working_directory_before_etc() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let startup_cwd =
+            std::env::temp_dir().join(format!("telemt_runtime_base_systemd_{nonce}"));
+        std::fs::create_dir_all(&startup_cwd).unwrap();
+
+        let resolved =
+            resolve_runtime_base_dir(&startup_cwd.join("config.toml"), &startup_cwd, false, None);
+        assert_eq!(resolved, startup_cwd.canonicalize().unwrap());
+
+        let _ = std::fs::remove_dir(&startup_cwd);
+    }
+
+    #[test]
+    fn resolve_runtime_base_dir_falls_back_to_etc_from_root() {
+        let resolved = resolve_runtime_base_dir(
+            Path::new("/etc/telemt/config.toml"),
+            Path::new("/"),
+            false,
+            None,
+        );
+        assert_eq!(resolved, PathBuf::from("/etc/telemt"));
     }
 
     #[test]

@@ -102,7 +102,7 @@ pub(crate) fn default_fake_cert_len() -> usize {
 }
 
 pub(crate) fn default_tls_front_dir() -> String {
-    "/etc/telemt/tlsfront".to_string()
+    "tlsfront".to_string()
 }
 
 pub(crate) fn default_replay_check_len() -> usize {
@@ -568,7 +568,7 @@ pub(crate) fn default_beobachten_flush_secs() -> u64 {
 }
 
 pub(crate) fn default_beobachten_file() -> String {
-    "/etc/telemt/beobachten.txt".to_string()
+    "beobachten.txt".to_string()
 }
 
 pub(crate) fn default_tls_new_session_tickets() -> u8 {
