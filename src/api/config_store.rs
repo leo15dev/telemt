@@ -82,6 +82,7 @@ pub(super) async fn load_config_from_disk(config_path: &Path) -> Result<ProxyCon
         .map_err(|e| ApiFailure::internal(format!("failed to load config: {}", e)))
 }
 
+#[allow(dead_code)]
 pub(super) async fn save_config_to_disk(
     config_path: &Path,
     cfg: &ProxyConfig,
@@ -104,6 +105,12 @@ pub(super) async fn save_access_sections_to_disk(
     let mut applied = Vec::new();
     for section in sections {
         if applied.contains(section) {
+            continue;
+        }
+        if find_toml_table_bounds(&content, section.table_name()).is_none()
+            && access_section_is_empty(cfg, *section)
+        {
+            applied.push(*section);
             continue;
         }
         let rendered = render_access_section(cfg, *section)?;
@@ -181,6 +188,17 @@ fn render_access_section(cfg: &ProxyConfig, section: AccessSection) -> Result<St
         out.push('\n');
     }
     Ok(out)
+}
+
+fn access_section_is_empty(cfg: &ProxyConfig, section: AccessSection) -> bool {
+    match section {
+        AccessSection::Users => cfg.access.users.is_empty(),
+        AccessSection::UserAdTags => cfg.access.user_ad_tags.is_empty(),
+        AccessSection::UserMaxTcpConns => cfg.access.user_max_tcp_conns.is_empty(),
+        AccessSection::UserExpirations => cfg.access.user_expirations.is_empty(),
+        AccessSection::UserDataQuota => cfg.access.user_data_quota.is_empty(),
+        AccessSection::UserMaxUniqueIps => cfg.access.user_max_unique_ips.is_empty(),
+    }
 }
 
 fn serialize_table_body<T: Serialize>(value: &T) -> Result<String, ApiFailure> {

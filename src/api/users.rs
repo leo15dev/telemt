@@ -8,12 +8,12 @@ use crate::stats::Stats;
 
 use super::ApiShared;
 use super::config_store::{
-    AccessSection, ensure_expected_revision, load_config_from_disk, save_access_sections_to_disk,
-    save_config_to_disk,
+    AccessSection, current_revision, ensure_expected_revision, load_config_from_disk,
+    save_access_sections_to_disk,
 };
 use super::model::{
     ApiFailure, CreateUserRequest, CreateUserResponse, PatchUserRequest, RotateSecretRequest,
-    UserInfo, UserLinks, is_valid_ad_tag, is_valid_user_secret, is_valid_username,
+    TlsDomainLink, UserInfo, UserLinks, is_valid_ad_tag, is_valid_user_secret, is_valid_username,
     parse_optional_expiration, parse_patch_expiration, random_user_secret,
 };
 use super::patch::Patch;
@@ -176,6 +176,13 @@ pub(super) async fn patch_user(
     expected_revision: Option<String>,
     shared: &ApiShared,
 ) -> Result<(UserInfo, String), ApiFailure> {
+    let touches_users = body.secret.is_some();
+    let touches_user_ad_tags = !matches!(&body.user_ad_tag, Patch::Unchanged);
+    let touches_user_max_tcp_conns = !matches!(&body.max_tcp_conns, Patch::Unchanged);
+    let touches_user_expirations = !matches!(&body.expiration_rfc3339, Patch::Unchanged);
+    let touches_user_data_quota = !matches!(&body.data_quota_bytes, Patch::Unchanged);
+    let touches_user_max_unique_ips = !matches!(&body.max_unique_ips, Patch::Unchanged);
+
     if let Some(secret) = body.secret.as_ref()
         && !is_valid_user_secret(secret)
     {
@@ -265,7 +272,31 @@ pub(super) async fn patch_user(
     cfg.validate()
         .map_err(|e| ApiFailure::bad_request(format!("config validation failed: {}", e)))?;
 
-    let revision = save_config_to_disk(&shared.config_path, &cfg).await?;
+    let mut touched_sections = Vec::new();
+    if touches_users {
+        touched_sections.push(AccessSection::Users);
+    }
+    if touches_user_ad_tags {
+        touched_sections.push(AccessSection::UserAdTags);
+    }
+    if touches_user_max_tcp_conns {
+        touched_sections.push(AccessSection::UserMaxTcpConns);
+    }
+    if touches_user_expirations {
+        touched_sections.push(AccessSection::UserExpirations);
+    }
+    if touches_user_data_quota {
+        touched_sections.push(AccessSection::UserDataQuota);
+    }
+    if touches_user_max_unique_ips {
+        touched_sections.push(AccessSection::UserMaxUniqueIps);
+    }
+
+    let revision = if touched_sections.is_empty() {
+        current_revision(&shared.config_path).await?
+    } else {
+        save_access_sections_to_disk(&shared.config_path, &cfg, &touched_sections).await?
+    };
     drop(_guard);
     match max_unique_ips_change {
         Some(Some(limit)) => shared.ip_tracker.set_user_limit(user, limit).await,
@@ -438,6 +469,7 @@ pub(super) async fn users_from_config(
                 classic: Vec::new(),
                 secure: Vec::new(),
                 tls: Vec::new(),
+                tls_domains: Vec::new(),
             });
         users.push(UserInfo {
             in_runtime: runtime_cfg
@@ -492,10 +524,12 @@ fn build_user_links(
         .public_port
         .unwrap_or(resolve_default_link_port(cfg));
     let tls_domains = resolve_tls_domains(cfg);
+    let extra_tls_domains = resolve_extra_tls_domains(cfg);
 
     let mut classic = Vec::new();
     let mut secure = Vec::new();
     let mut tls = Vec::new();
+    let mut tls_domain_links = Vec::new();
 
     for host in &hosts {
         if cfg.general.modes.classic {
@@ -518,6 +552,17 @@ fn build_user_links(
                     host, port, secret, domain_hex
                 ));
             }
+            for domain in &extra_tls_domains {
+                let domain_hex = hex::encode(domain);
+                let link = format!(
+                    "tg://proxy?server={}&port={}&secret=ee{}{}",
+                    host, port, secret, domain_hex
+                );
+                tls_domain_links.push(TlsDomainLink {
+                    domain: (*domain).to_string(),
+                    link,
+                });
+            }
         }
     }
 
@@ -525,6 +570,7 @@ fn build_user_links(
         classic,
         secure,
         tls,
+        tls_domains: tls_domain_links,
     }
 }
 
@@ -641,6 +687,19 @@ fn resolve_tls_domains(cfg: &ProxyConfig) -> Vec<&str> {
     domains
 }
 
+fn resolve_extra_tls_domains(cfg: &ProxyConfig) -> Vec<&str> {
+    let mut domains = Vec::with_capacity(cfg.censorship.tls_domains.len());
+    let primary = cfg.censorship.tls_domain.as_str();
+    for domain in &cfg.censorship.tls_domains {
+        let value = domain.as_str();
+        if value.is_empty() || value == primary || domains.contains(&value) {
+            continue;
+        }
+        domains.push(value);
+    }
+    domains
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -729,5 +788,81 @@ mod tests {
 
         assert!(alice.in_runtime);
         assert!(!bob.in_runtime);
+    }
+
+    #[tokio::test]
+    async fn users_from_config_returns_tls_link_for_each_tls_domain() {
+        let mut cfg = ProxyConfig::default();
+        cfg.access.users.insert(
+            "alice".to_string(),
+            "0123456789abcdef0123456789abcdef".to_string(),
+        );
+        cfg.general.modes.classic = false;
+        cfg.general.modes.secure = false;
+        cfg.general.modes.tls = true;
+        cfg.general.links.public_host = Some("proxy.example.net".to_string());
+        cfg.general.links.public_port = Some(443);
+        cfg.censorship.tls_domain = "front-a.example.com".to_string();
+        cfg.censorship.tls_domains = vec![
+            "front-b.example.com".to_string(),
+            "front-c.example.com".to_string(),
+            "front-b.example.com".to_string(),
+            "front-a.example.com".to_string(),
+        ];
+
+        let stats = Stats::new();
+        let tracker = UserIpTracker::new();
+        let users = users_from_config(&cfg, &stats, &tracker, None, None, None).await;
+        let alice = users
+            .iter()
+            .find(|entry| entry.username == "alice")
+            .expect("alice must be present");
+
+        assert_eq!(alice.links.tls.len(), 3);
+        assert!(
+            alice
+                .links
+                .tls
+                .iter()
+                .any(|link| link.ends_with(&hex::encode("front-a.example.com")))
+        );
+        assert!(
+            alice
+                .links
+                .tls
+                .iter()
+                .any(|link| link.ends_with(&hex::encode("front-b.example.com")))
+        );
+        assert!(
+            alice
+                .links
+                .tls
+                .iter()
+                .any(|link| link.ends_with(&hex::encode("front-c.example.com")))
+        );
+        assert_eq!(alice.links.tls_domains.len(), 2);
+        assert!(
+            alice
+                .links
+                .tls_domains
+                .iter()
+                .any(|entry| entry.domain == "front-b.example.com"
+                    && entry.link.ends_with(&hex::encode("front-b.example.com")))
+        );
+        assert!(
+            alice
+                .links
+                .tls_domains
+                .iter()
+                .any(|entry| entry.domain == "front-c.example.com"
+                    && entry.link.ends_with(&hex::encode("front-c.example.com")))
+        );
+        assert!(
+            !alice
+                .links
+                .tls_domains
+                .iter()
+                .any(|entry| entry.domain == "front-a.example.com")
+        );
     }
 }
