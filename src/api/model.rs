@@ -456,6 +456,13 @@ pub(super) struct UserLinks {
     pub(super) classic: Vec<String>,
     pub(super) secure: Vec<String>,
     pub(super) tls: Vec<String>,
+    pub(super) tls_domains: Vec<TlsDomainLink>,
+}
+
+#[derive(Serialize)]
+pub(super) struct TlsDomainLink {
+    pub(super) domain: String,
+    pub(super) link: String,
 }
 
 #[derive(Serialize)]
