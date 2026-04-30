@@ -73,8 +73,7 @@ impl Drop for UserConnectionReservation {
         self.active = false;
         self.stats.decrement_user_curr_connects(&self.user);
         if self.tracks_ip {
-            self.ip_tracker
-                .release_or_enqueue_cleanup(self.user.clone(), self.ip);
+            self.ip_tracker.enqueue_cleanup(self.user.clone(), self.ip);
         }
     }
 }

@@ -2618,9 +2618,7 @@ mod tests {
         let path = dir.join("telemt_me_route_blocking_send_timeout_zero_test.toml");
         std::fs::write(&path, toml).unwrap();
         let err = ProxyConfig::load(&path).unwrap_err().to_string();
-        assert!(
-            err.contains("general.me_route_blocking_send_timeout_ms must be within [1, 5000]")
-        );
+        assert!(err.contains("general.me_route_blocking_send_timeout_ms must be within [1, 5000]"));
         let _ = std::fs::remove_file(path);
     }
 

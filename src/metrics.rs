@@ -381,10 +381,7 @@ async fn render_metrics(
         out,
         "# HELP telemt_tls_fetch_profile_cache_entries Current adaptive TLS fetch profile-cache entries"
     );
-    let _ = writeln!(
-        out,
-        "# TYPE telemt_tls_fetch_profile_cache_entries gauge"
-    );
+    let _ = writeln!(out, "# TYPE telemt_tls_fetch_profile_cache_entries gauge");
     let _ = writeln!(
         out,
         "telemt_tls_fetch_profile_cache_entries {}",
@@ -3123,14 +3120,9 @@ async fn render_metrics(
     );
     let _ = writeln!(
         out,
-        "# HELP telemt_ip_tracker_cleanup_total Release cleanup decisions by path"
+        "# HELP telemt_ip_tracker_cleanup_total Release cleanups deferred through the cleanup queue"
     );
     let _ = writeln!(out, "# TYPE telemt_ip_tracker_cleanup_total counter");
-    let _ = writeln!(
-        out,
-        "telemt_ip_tracker_cleanup_total{{path=\"direct\"}} {}",
-        ip_memory.cleanup_direct_releases
-    );
     let _ = writeln!(
         out,
         "telemt_ip_tracker_cleanup_total{{path=\"deferred\"}} {}",

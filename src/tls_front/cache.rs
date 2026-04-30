@@ -3,8 +3,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::RwLock;
@@ -156,9 +156,7 @@ impl TlsFrontCache {
         let should_sweep = self
             .full_cert_sent_last_sweep_epoch_secs
             .fetch_update(Ordering::AcqRel, Ordering::Relaxed, |last_sweep| {
-                if now_epoch_secs.saturating_sub(last_sweep)
-                    >= FULL_CERT_SENT_SWEEP_INTERVAL_SECS
-                {
+                if now_epoch_secs.saturating_sub(last_sweep) >= FULL_CERT_SENT_SWEEP_INTERVAL_SECS {
                     Some(now_epoch_secs)
                 } else {
                     None

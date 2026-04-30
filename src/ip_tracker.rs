@@ -26,7 +26,6 @@ pub struct UserIpTracker {
     recent_entry_count: Arc<AtomicU64>,
     active_cap_rejects: Arc<AtomicU64>,
     recent_cap_rejects: Arc<AtomicU64>,
-    cleanup_direct_releases: Arc<AtomicU64>,
     cleanup_deferred_releases: Arc<AtomicU64>,
     max_ips: Arc<RwLock<HashMap<String, usize>>>,
     default_max_ips: Arc<RwLock<usize>>,
@@ -54,8 +53,6 @@ pub struct UserIpTrackerMemoryStats {
     pub active_cap_rejects: u64,
     /// Number of new connections rejected by the global recent-entry cap.
     pub recent_cap_rejects: u64,
-    /// Number of release cleanups completed without queueing.
-    pub cleanup_direct_releases: u64,
     /// Number of release cleanups deferred through the cleanup queue.
     pub cleanup_deferred_releases: u64,
 }
@@ -69,7 +66,6 @@ impl UserIpTracker {
             recent_entry_count: Arc::new(AtomicU64::new(0)),
             active_cap_rejects: Arc::new(AtomicU64::new(0)),
             recent_cap_rejects: Arc::new(AtomicU64::new(0)),
-            cleanup_direct_releases: Arc::new(AtomicU64::new(0)),
             cleanup_deferred_releases: Arc::new(AtomicU64::new(0)),
             max_ips: Arc::new(RwLock::new(HashMap::new())),
             default_max_ips: Arc::new(RwLock::new(0)),
@@ -117,24 +113,6 @@ impl UserIpTracker {
             active_ips.remove(user);
         }
         removed_active_entries
-    }
-
-    fn try_cleanup_active_ip(&self, user: &str, ip: IpAddr) -> bool {
-        let Ok(mut active_ips) = self.active_ips.try_write() else {
-            return false;
-        };
-        let removed_active_entries = Self::apply_active_cleanup(&mut active_ips, user, ip, 1);
-        Self::decrement_counter(&self.active_entry_count, removed_active_entries);
-        true
-    }
-
-    /// Releases an active IP reservation without waiting, falling back to deferred cleanup.
-    pub(crate) fn release_or_enqueue_cleanup(&self, user: String, ip: IpAddr) {
-        if self.try_cleanup_active_ip(&user, ip) {
-            self.cleanup_direct_releases.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        self.enqueue_cleanup(user, ip);
     }
 
     /// Queues a deferred active IP cleanup for a later async drain.
@@ -335,7 +313,6 @@ impl UserIpTracker {
             cleanup_queue_len,
             active_cap_rejects: self.active_cap_rejects.load(Ordering::Relaxed),
             recent_cap_rejects: self.recent_cap_rejects.load(Ordering::Relaxed),
-            cleanup_direct_releases: self.cleanup_direct_releases.load(Ordering::Relaxed),
             cleanup_deferred_releases: self.cleanup_deferred_releases.load(Ordering::Relaxed),
         }
     }
@@ -618,7 +595,10 @@ impl UserIpTracker {
         Self::decrement_counter(&self.active_entry_count, removed_active_entries);
 
         let mut recent_ips = self.recent_ips.write().await;
-        let removed_recent_entries = recent_ips.remove(username).map(|ips| ips.len()).unwrap_or(0);
+        let removed_recent_entries = recent_ips
+            .remove(username)
+            .map(|ips| ips.len())
+            .unwrap_or(0);
         Self::decrement_counter(&self.recent_entry_count, removed_recent_entries);
     }
 

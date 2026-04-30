@@ -88,10 +88,7 @@ impl BeobachtenStore {
 
         let mut grouped = BTreeMap::<String, Vec<(IpAddr, u64)>>::new();
         for (class, ip, tries) in entries {
-            grouped
-                .entry(class)
-                .or_default()
-                .push((ip, tries));
+            grouped.entry(class).or_default().push((ip, tries));
         }
 
         if grouped.is_empty() {
