@@ -102,6 +102,7 @@ set_language() {
             L_OUT_SUCC_H="УСТАНОВКА УСПЕШНО ЗАВЕРШЕНА"
             L_OUT_UNINST_H="УДАЛЕНИЕ ЗАВЕРШЕНО"
             L_OUT_LINK="Ваша ссылка для подключения к Telegram Proxy:\n"
+            L_ERR_INCORR_ROOT_LOGIN="Используйте 'su -' или 'sudo -i' для входа под пользователем root"
             ;;
         *)
             L_ERR_DOMAIN_REQ="requires a domain argument."
@@ -176,6 +177,7 @@ set_language() {
             L_OUT_SUCC_H="INSTALLATION SUCCESS"
             L_OUT_UNINST_H="UNINSTALLATION COMPLETE"
             L_OUT_LINK="Your Telegram Proxy connection link:\n"
+            L_ERR_INCORR_ROOT_LOGIN="Use 'su -' or 'sudo -i' to login under root"
             ;;
     esac
 }
@@ -388,6 +390,9 @@ verify_common() {
 
     if [ "$(id -u)" -eq 0 ]; then
         SUDO=""
+        if [ "$(id -u)" -ne 0 ]; then
+            die "$L_ERR_INCORR_ROOT_LOGIN"
+        fi
     else
         command -v sudo >/dev/null 2>&1 || die "$L_ERR_ROOT"
         SUDO="sudo"
