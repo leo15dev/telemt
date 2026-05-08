@@ -365,7 +365,10 @@ impl MePool {
         }
     }
 
-    pub async fn zero_downtime_reinit_after_map_change(self: &Arc<Self>, rng: &SecureRandom) {
+    pub async fn zero_downtime_reinit_after_map_change(
+        self: &Arc<Self>,
+        rng: &SecureRandom,
+    ) -> bool {
         let desired_by_dc = self.desired_dc_endpoints().await;
         let now_epoch_secs = Self::now_epoch_secs();
         let v4_suppressed = self.is_family_temporarily_suppressed(IpFamily::V4, now_epoch_secs);
@@ -380,7 +383,7 @@ impl MePool {
                 MeDrainGateReason::CoverageQuorum
             };
             self.set_last_drain_gate(false, false, reason, now_epoch_secs);
-            return;
+            return false;
         }
 
         let desired_map_hash = Self::desired_map_hash(&desired_by_dc);
@@ -490,7 +493,7 @@ impl MePool {
                 missing_dc = ?missing_dc,
                 "ME reinit coverage below threshold; keeping stale writers"
             );
-            return;
+            return false;
         }
 
         if hardswap {
@@ -520,7 +523,7 @@ impl MePool {
                     missing_dc = ?fresh_missing_dc,
                     "ME hardswap pending: fresh generation DC coverage incomplete"
                 );
-                return;
+                return false;
             }
         }
 
@@ -567,7 +570,7 @@ impl MePool {
                 self.clear_pending_hardswap_state();
             }
             debug!("ME reinit cycle completed with no stale writers");
-            return;
+            return true;
         }
 
         let drain_timeout = self.force_close_timeout();
@@ -606,10 +609,11 @@ impl MePool {
         if hardswap {
             self.clear_pending_hardswap_state();
         }
+        true
     }
 
-    pub async fn zero_downtime_reinit_periodic(self: &Arc<Self>, rng: &SecureRandom) {
-        self.zero_downtime_reinit_after_map_change(rng).await;
+    pub async fn zero_downtime_reinit_periodic(self: &Arc<Self>, rng: &SecureRandom) -> bool {
+        self.zero_downtime_reinit_after_map_change(rng).await
     }
 }
 

@@ -53,6 +53,7 @@ pub(crate) async fn spawn_runtime_tasks(
     api_config_tx: watch::Sender<Arc<ProxyConfig>>,
     me_pool_for_policy: Option<Arc<MePool>>,
     shared_state: Arc<ProxySharedState>,
+    me_ready_tx: watch::Sender<u64>,
 ) -> RuntimeWatches {
     let um_clone = upstream_manager.clone();
     let dc_overrides_for_health = config.dc_overrides.clone();
@@ -250,12 +251,14 @@ pub(crate) async fn spawn_runtime_tasks(
         let pool_clone_sched = pool.clone();
         let rng_clone_sched = rng.clone();
         let config_rx_clone_sched = config_rx.clone();
+        let me_ready_tx_sched = me_ready_tx.clone();
         tokio::spawn(async move {
             crate::transport::middle_proxy::me_reinit_scheduler(
                 pool_clone_sched,
                 rng_clone_sched,
                 config_rx_clone_sched,
                 reinit_rx,
+                me_ready_tx_sched,
             )
             .await;
         });

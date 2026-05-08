@@ -17,6 +17,7 @@ pub(crate) async fn configure_admission_gate(
     route_runtime: Arc<RouteRuntimeController>,
     admission_tx: &watch::Sender<bool>,
     config_rx: watch::Receiver<Arc<ProxyConfig>>,
+    me_ready_rx: watch::Receiver<u64>,
 ) {
     if config.general.use_middle_proxy {
         if let Some(pool) = me_pool.as_ref() {
@@ -52,6 +53,7 @@ pub(crate) async fn configure_admission_gate(
             let admission_tx_gate = admission_tx.clone();
             let route_runtime_gate = route_runtime.clone();
             let mut config_rx_gate = config_rx.clone();
+            let mut me_ready_rx_gate = me_ready_rx;
             let mut admission_poll_ms = config.general.me_admission_poll_ms.max(1);
             tokio::spawn(async move {
                 let mut gate_open = initial_gate_open;
@@ -73,6 +75,11 @@ pub(crate) async fn configure_admission_gate(
                             fallback_enabled = cfg.general.me2dc_fallback;
                             fast_fallback_enabled = cfg.general.me2dc_fallback && cfg.general.me2dc_fast;
                             continue;
+                        }
+                        changed = me_ready_rx_gate.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
                         }
                         _ = tokio::time::sleep(Duration::from_millis(admission_poll_ms)) => {}
                     }

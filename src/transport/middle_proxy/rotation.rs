@@ -47,6 +47,7 @@ pub async fn me_reinit_scheduler(
     rng: Arc<SecureRandom>,
     config_rx: watch::Receiver<Arc<ProxyConfig>>,
     mut trigger_rx: mpsc::Receiver<MeReinitTrigger>,
+    me_ready_tx: watch::Sender<u64>,
 ) {
     info!("ME reinit scheduler started");
     loop {
@@ -90,15 +91,25 @@ pub async fn me_reinit_scheduler(
 
         if cfg.general.me_reinit_singleflight {
             debug!(reason, "ME reinit scheduled (single-flight)");
-            pool.zero_downtime_reinit_periodic(rng.as_ref()).await;
+            if pool.zero_downtime_reinit_periodic(rng.as_ref()).await {
+                me_ready_tx.send_modify(|version| {
+                    *version = version.saturating_add(1);
+                });
+            }
         } else {
             debug!(reason, "ME reinit scheduled (concurrent mode)");
             let pool_clone = pool.clone();
             let rng_clone = rng.clone();
+            let me_ready_tx_clone = me_ready_tx.clone();
             tokio::spawn(async move {
-                pool_clone
+                if pool_clone
                     .zero_downtime_reinit_periodic(rng_clone.as_ref())
-                    .await;
+                    .await
+                {
+                    me_ready_tx_clone.send_modify(|version| {
+                        *version = version.saturating_add(1);
+                    });
+                }
             });
         }
     }

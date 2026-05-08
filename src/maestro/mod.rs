@@ -660,6 +660,8 @@ async fn run_telemt_core(
             .await;
     }
 
+    let (me_ready_tx, me_ready_rx) = watch::channel(0_u64);
+
     let me_pool: Option<Arc<MePool>> = me_startup::initialize_me_pool(
         use_middle_proxy,
         &config,
@@ -670,6 +672,7 @@ async fn run_telemt_core(
         rng.clone(),
         stats.clone(),
         api_me_pool.clone(),
+        me_ready_tx.clone(),
     )
     .await;
 
@@ -743,6 +746,7 @@ async fn run_telemt_core(
         api_config_tx.clone(),
         me_pool.clone(),
         shared_state.clone(),
+        me_ready_tx.clone(),
     )
     .await;
     let config_rx = runtime_watches.config_rx;
@@ -756,6 +760,7 @@ async fn run_telemt_core(
         route_runtime.clone(),
         &admission_tx,
         config_rx.clone(),
+        me_ready_rx,
     )
     .await;
     let _admission_tx_hold = admission_tx;

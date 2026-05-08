@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, watch};
 use tracing::{error, info, warn};
 
 use crate::config::ProxyConfig;
@@ -29,6 +29,7 @@ pub(crate) async fn initialize_me_pool(
     rng: Arc<SecureRandom>,
     stats: Arc<Stats>,
     api_me_pool: Arc<RwLock<Option<Arc<MePool>>>>,
+    me_ready_tx: watch::Sender<u64>,
 ) -> Option<Arc<MePool>> {
     if !use_middle_proxy {
         return None;
@@ -314,6 +315,7 @@ pub(crate) async fn initialize_me_pool(
                     let pool_bg = pool.clone();
                     let rng_bg = rng.clone();
                     let startup_tracker_bg = startup_tracker.clone();
+                    let me_ready_tx_bg = me_ready_tx.clone();
                     let retry_limit = if me_init_retry_attempts == 0 {
                         String::from("unlimited")
                     } else {
@@ -347,6 +349,9 @@ pub(crate) async fn initialize_me_pool(
                                         startup_tracker_bg
                                             .set_me_status(StartupMeStatus::Ready, "ready")
                                             .await;
+                                        me_ready_tx_bg.send_modify(|version| {
+                                            *version = version.saturating_add(1);
+                                        });
                                         info!(
                                             attempt = init_attempt,
                                             "Middle-End pool initialized successfully"
@@ -474,6 +479,9 @@ pub(crate) async fn initialize_me_pool(
                                 startup_tracker
                                     .set_me_status(StartupMeStatus::Ready, "ready")
                                     .await;
+                                me_ready_tx.send_modify(|version| {
+                                    *version = version.saturating_add(1);
+                                });
                                 info!(
                                     attempt = init_attempt,
                                     "Middle-End pool initialized successfully"
