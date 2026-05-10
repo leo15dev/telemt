@@ -59,24 +59,30 @@ impl UserConnectionReservation {
         }
     }
 
-    async fn release(mut self) {
+    fn mark_released(&mut self) -> bool {
         if self.state != SessionReservationState::Active {
+            return false;
+        }
+        self.state = SessionReservationState::Released;
+        true
+    }
+
+    async fn release(mut self) {
+        if !self.mark_released() {
             return;
         }
         if self.tracks_ip {
             self.ip_tracker.remove_ip(&self.user, self.ip).await;
         }
-        self.state = SessionReservationState::Released;
         self.stats.decrement_user_curr_connects(&self.user);
     }
 }
 
 impl Drop for UserConnectionReservation {
     fn drop(&mut self) {
-        if self.state != SessionReservationState::Active {
+        if !self.mark_released() {
             return;
         }
-        self.state = SessionReservationState::Released;
         self.stats.increment_session_drop_fallback_total();
         self.stats.decrement_user_curr_connects(&self.user);
         if self.tracks_ip {
