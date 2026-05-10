@@ -1,19 +1,19 @@
-# Telemt Config Parameters Reference
+# Справочник параметров конфигурации Telemt
 
-This document lists all configuration keys accepted by `config.toml`.
+В этом документе перечислены все ключи конфигурации, принимаемые `config.toml`.
 
 > [!NOTE]
 >
-> This reference was drafted with the help of AI and cross-checked against the codebase (config schema, defaults, and validation logic).
+> Этот справочник был составлен с помощью искусственного интеллекта и сверен с базой кода (схема конфигурации, значения по умолчанию и логика проверки).
 
 > [!WARNING]
 >
-> The configuration parameters detailed in this document are intended for advanced users and fine-tuning purposes. Modifying these settings without a clear understanding of their function may lead to application instability or other unexpected behavior. Please proceed with caution and at your own risk.
+> Параметры конфигурации, подробно описанные в этом документе, предназначены для опытных пользователей и для целей тонкой настройки. Изменение этих параметров без четкого понимания их функции может привести к нестабильности приложения или другому неожиданному поведению. Пожалуйста, действуйте осторожно и на свой страх и риск.
 
-> `Hot-Reload` marks whether a changed value is applied by the config watcher without restarting the process; `✘` means restart is required for runtime effect.
+> `Hot-Reload` показывает, применяет ли config watcher изменение без перезапуска процесса; `✘` означает, что для runtime-эффекта нужен перезапуск.
 
-# Table of contents
- - [Top-level keys](#top-level-keys)
+# Содержание
+ - [Ключи верхнего уровня](#top-level-keys)
  - [general](#general)
  - [general.modes](#generalmodes)
  - [general.links](#generallinks)
@@ -29,31 +29,31 @@ This document lists all configuration keys accepted by `config.toml`.
  - [access](#access)
  - [upstreams](#upstreams)
 
-# Top-level keys
+# Ключи верхнего уровня
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
-| [`include`](#include) | `String` (special directive) | — | `✔` |
+| [`include`](#include) | `String` (специальная директива) | — | `✔` |
 | [`show_link`](#show_link) | `"*"` or `String[]` | `[]` (`ShowLink::None`) | `✘` |
 | [`dc_overrides`](#dc_overrides) | `Map<String, String or String[]>` | `{}` | `✘` |
-| [`default_dc`](#default_dc) | `u8` | — (effective fallback: `2` in ME routing) | `✘` |
+| [`default_dc`](#default_dc) | `u8` | — (эффективный резервный вариант: `2` в ME маршрутизации) | `✘` |
 | [`beobachten`](#beobachten) | `bool` | `true` | `✘` |
 | [`beobachten_minutes`](#beobachten_minutes) | `u64` | `10` | `✘` |
 | [`beobachten_flush_secs`](#beobachten_flush_secs) | `u64` | `15` | `✘` |
 | [`beobachten_file`](#beobachten_file) | `String` | `"cache/beobachten.txt"` | `✘` |
 
 ## include
-  - **Constraints / validation**: Must be a single-line directive in the form `include = "path/to/file.toml"`. Includes are expanded before TOML parsing. Maximum include depth is 10.
-  - **Description**: Includes another TOML file with `include = "relative/or/absolute/path.toml"`; includes are processed recursively before parsing.
-  - **Example**:
+  - **Ограничения / валидация**: значение должно быть одной строкой в виде `include = "path/to/file.toml"`. Значения параметра обрабатываются перед анализом TOML. Максимальное количество - 10.
+  - **Описание**: Включает еще один файл TOML с помощью `include = "relative/or/absolute/path.toml"`; добавленные файлы обрабатываются рекурсивно.
+  - **Пример**:
 
     ```toml
     include = "secrets.toml"
     ```
 ## show_link
-  - **Constraints / validation**: Accepts `"*"` or an array of usernames. Empty array means "show none".
-  - **Description**: Legacy top-level link visibility selector (`"*"` for all users or explicit usernames list).
-  - **Example**:
+  - **Ограничения / валидация**: принимает `"*"` или массив имен пользователей. Пустой массив означает «не показывать никому».
+  - **Описание**: Устаревший селектор видимости ссылок (`«*»` для всех пользователей или списка имен пользователей).
+  - **Пример**:
 
     ```toml
     # show links for all configured users
@@ -63,9 +63,9 @@ This document lists all configuration keys accepted by `config.toml`.
     # show_link = ["alice", "bob"]
     ```
 ## dc_overrides
-  - **Constraints / validation**: Key must be a positive integer DC index encoded as string (e.g. `"203"`). Values must parse as `SocketAddr` (`ip:port`). Empty strings are ignored.
-  - **Description**: Overrides DC endpoints for non-standard DCs; key is DC index string, value is one or more `ip:port` addresses.
-  - **Example**:
+  - **Ограничения / валидация**: значение должно быть положительным целым числом в формате строки (например, `"203"`). Значения разбираются как `SocketAddr` (`ip:port`). Пустые строки игнорируются.
+  - **Описание**: Переопределяет DC эндпоинты для запросов с нестандартными DC; задается в виде строки с индексом DC, значение — один или несколько адресов `ip:port`.
+  - **Пример**:
 
     ```toml
     [dc_overrides]
@@ -73,9 +73,9 @@ This document lists all configuration keys accepted by `config.toml`.
     "203" = ["149.154.175.100:443", "91.105.192.100:443"]
     ```
 ## default_dc
-  - **Constraints / validation**: Intended range is `1..=5`. If set out of range, runtime falls back to DC1 behavior in direct relay; Middle-End routing falls back to `2` when not set.
-  - **Description**: Default DC index used for unmapped non-standard DCs.
-  - **Example**:
+  - **Ограничения / валидация**: целочисленное значение в диапазоне `1..=5`. Если значение выходит за пределы диапазона, клиент направляется к DC1; Middle-end маршрутизация направляет клиента к DC2, если DC1 не задан.
+  - **Описание**: DC по умолчанию, используемый для нестандартных DC. Когда клиент запрашивает неизвестный/нестандартный DC без переопределения, telemt направляет его в этот кластер по умолчанию.
+  - **Пример**:
 
     ```toml
     # When a client requests an unknown/non-standard DC with no override,
@@ -85,7 +85,7 @@ This document lists all configuration keys accepted by `config.toml`.
 
 # [general]
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`data_path`](#data_path) | `String` | — | `✘` |
 | [`quota_state_path`](#quota_state_path) | `Path` | `"telemt.limit.json"` | `✘` |
@@ -229,110 +229,110 @@ This document lists all configuration keys accepted by `config.toml`.
 | [`ntp_servers`](#ntp_servers) | `String[]` | `["pool.ntp.org"]` | `✘` |
 | [`auto_degradation_enabled`](#auto_degradation_enabled) | `bool` | `true` | `✘` |
 | [`degradation_min_unavailable_dc_groups`](#degradation_min_unavailable_dc_groups) | `u8` | `2` | `✘` |
-| [`rst_on_close`](#rst_on_close) | `"off"`, `"errors"`, or `"always"` | `"off"` | `✘` |
+| [`rst_on_close`](#rst_on_close) | `"off"`, `"errors"` или `"always"` | `"off"` | `✘` |
 
 ## data_path
-  - **Constraints / validation**: `String` (optional).
-  - **Description**: Optional runtime data directory path.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр).
+  - **Описание**: Необязательный путь к каталогу данных состояния telemt.
+  - **Пример**:
 
     ```toml
     [general]
     data_path = "/var/lib/telemt"
     ```
 ## quota_state_path
-  - **Constraints / validation**: `Path`. Relative paths are resolved from the process working directory.
-  - **Description**: JSON state file used to persist runtime per-user quota consumption.
-  - **Example**:
+  - **Ограничения / валидация**: `Path`. Относительные пути разрешаются от рабочего каталога процесса.
+  - **Описание**: JSON-файл состояния для сохранения runtime-расхода квот по пользователям.
+  - **Пример**:
 
     ```toml
     [general]
     quota_state_path = "telemt.limit.json"
     ```
 ## config_strict
-  - **Constraints / validation**: `bool`.
-  - **Description**: Rejects unknown TOML keys during config load. Startup fails fast; hot-reload rejects the new snapshot and keeps the current config.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Отклоняет неизвестные TOML-ключи во время загрузки конфигурации. При запуске процесс завершается с ошибкой; при hot-reload новый снимок отклоняется, а текущая конфигурация сохраняется.
+  - **Пример**:
 
     ```toml
     [general]
     config_strict = true
     ```
 ## prefer_ipv6
-  - **Constraints / validation**: Deprecated. Use `network.prefer`.
-  - **Description**: Deprecated legacy IPv6 preference flag migrated to `network.prefer`.
-  - **Example**:
+  - **Ограничения / валидация**: Устарело. Используйте `network.prefer`.
+  - **Описание**: Устаревший флаг предпочтения IPv6 перенесен в `network.prefer`.
+  - **Пример**:
 
     ```toml
     [network]
     prefer = 6
     ```
 ## fast_mode
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables fast-path optimizations for traffic processing.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает оптимизированные маршруты для обработки трафика.
+  - **Пример**:
 
     ```toml
     [general]
     fast_mode = true
     ```
 ## use_middle_proxy
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables ME transport mode; if `false`, runtime falls back to direct DC routing.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает режим ME; если значение `false`, telemt возвращается к прямой DC-маршрутизации.
+  - **Пример**:
 
     ```toml
     [general]
     use_middle_proxy = true
     ```
 ## proxy_secret_path
-  - **Constraints / validation**: `String`. When omitted, the default path is `"proxy-secret"`. Empty values are accepted by TOML/serde but will likely fail at runtime (invalid file path).
-  - **Description**: Path to Telegram infrastructure `proxy-secret` cache file used by ME handshake/RPC auth. Telemt always tries a fresh download from `https://core.telegram.org/getProxySecret` first (unless `proxy_secret_url` is set) , caches it to this path on success, and falls back to reading the cached file (any age) on download failure.
-  - **Example**:
+  - **Ограничения / валидация**: `String`. Если этот параметр не указан, используется путь по умолчанию — «proxy-secret». Пустые значения принимаются TOML/serde, но во время выполнения произойдет ошибка (invalid file path).
+  - **Описание**: Путь к файлу кэша `proxy-secret` инфраструктуры Telegram, используемому ME-handshake/аутентификацией RPC. Telemt всегда сначала пытается выполнить новую загрузку с https://core.telegram.org/getProxySecret (если не установлен `proxy_secret_url`), в случае успеха кэширует ее по этому пути и возвращается к чтению кэшированного файла в случае сбоя загрузки.
+  - **Пример**:
 
     ```toml
     [general]
     proxy_secret_path = "proxy-secret"
     ```
 ## proxy_secret_url
-  - **Constraints / validation**: `String`. When omitted, the `"https://core.telegram.org/getProxySecret"` is used.
-  - **Description**: Optional URL to obtain `proxy-secret` file used by ME handshake/RPC auth. Telemt always tries a fresh download from this URL first (with fallback to `https://core.telegram.org/getProxySecret` if absent). 
-  - **Example**:
+  - **Ограничения / валидация**: `String`. Если не указан, используется `"https://core.telegram.org/getProxySecret"`.
+  - **Описание**: Необязательный URL для получения файла `proxy-secret` используемого ME-handshake/аутентификацией RPC. Telemt всегда сначала пытается выполнить новую загрузку с этого URL (если не задан, используется https://core.telegram.org/getProxySecret).
+  - **Пример**:
 
     ```toml
     [general]
     proxy_secret_url = "https://core.telegram.org/getProxySecret"
     ```
 ## proxy_config_v4_cache_path
-  - **Constraints / validation**: `String`. When set, must not be empty/whitespace-only.
-  - **Description**: Optional disk cache path for raw `getProxyConfig` (IPv4) snapshot. At startup Telemt tries to fetch a fresh snapshot first; on fetch failure or empty snapshot it falls back to this cache file when present and non-empty.
-  - **Example**:
+  - **Ограничения / валидация**: `String`. Если используется, значение не должно быть пустым или содержать только пробелы.
+  - **Описание**: Необязательный путь к кэшу для необработанного (raw) снимка getProxyConfig (IPv4). При запуске Telemt сначала пытается получить свежий снимок; в случае сбоя выборки или пустого снимка он возвращается к этому файлу кэша, если он присутствует и не пуст.
+  - **Пример**:
 
     ```toml
     [general]
     proxy_config_v4_cache_path = "cache/proxy-config-v4.txt"
     ```
 ## proxy_config_v4_url
-- **Constraints / validation**: `String`. When omitted, the `"https://core.telegram.org/getProxyConfig"` is used.
-- **Description**: Optional URL to obtain raw `getProxyConfig` (IPv4). Telemt always tries a fresh download from this URL first (with fallback to `https://core.telegram.org/getProxyConfig` if absent).
-- **Example**:
-
-  ```toml
-  [general]
-  proxy_config_v4_url = "https://core.telegram.org/getProxyConfig"
-  ```
-## proxy_config_v6_cache_path
-  - **Constraints / validation**: `String`. When set, must not be empty/whitespace-only.
-  - **Description**: Optional disk cache path for raw `getProxyConfigV6` (IPv6) snapshot. At startup Telemt tries to fetch a fresh snapshot first; on fetch failure or empty snapshot it falls back to this cache file when present and non-empty.
+  - **Ограничения / валидация**: `String`. Если не указан, используется `"https://core.telegram.org/getProxyConfig"`.
+  - **Описание**: Необязательный URL для получения `getProxyConfig` (IPv4). Telemt при всегда пытается выполнить новую загрузку с этого URL (и если не задан, использует `https://core.telegram.org/getProxyConfig`).
   - **Example**:
+  
+    ```toml
+    [general]
+    proxy_config_v4_url = "https://core.telegram.org/getProxyConfig"
+    ```
+## proxy_config_v6_cache_path
+  - **Ограничения / валидация**: `String`. Если используется, значение не должно быть пустым или содержать только пробелы.
+  - **Описание**: Необязательный путь к кэшу для необработанного (raw) снимка getProxyConfigV6 (IPv6). При запуске Telemt сначала пытается получить свежий снимок; в случае сбоя выборки или пустого снимка он возвращается к этому файлу кэша, если он присутствует и не пуст.
+  - **Пример**:
 
     ```toml
     [general]
     proxy_config_v6_cache_path = "cache/proxy-config-v6.txt"
     ```
 ## proxy_config_v6_url
-- **Constraints / validation**: `String`. When omitted, the `"https://core.telegram.org/getProxyConfigV6"` is used.
-- **Description**: Optional URL to obtain raw `getProxyConfigV6` (IPv6). Telemt always tries a fresh download from this URL first (with fallback to `https://core.telegram.org/getProxyConfigV6` if absent).
+- **Ограничения / валидация**: `String`. Если не указан, используется `"https://core.telegram.org/getProxyConfigV6"`.
+- **Описание**: Необязательный URL для получения `getProxyConfigV6` (IPv6). Telemt при всегда пытается выполнить новую загрузку с этого URL (и если не задан, использует `https://core.telegram.org/getProxyConfigV6`).
 - **Example**:
 
   ```toml
@@ -340,99 +340,99 @@ This document lists all configuration keys accepted by `config.toml`.
   proxy_config_v6_url = "https://core.telegram.org/getProxyConfigV6"
   ```
 ## ad_tag
-  - **Constraints / validation**: `String` (optional). When set, must be exactly 32 hex characters; invalid values are disabled during config load.
-  - **Description**: Global fallback sponsored-channel `ad_tag` (used when user has no override in `access.user_ad_tags`). An all-zero tag is accepted but has no effect (and is warned about) until replaced with a real tag from `@MTProxybot`.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Если используется, значение должно быть ровно 32 символа в шестнадцатеричной системе; недопустимые значения отключаются во время загрузки конфигурации.
+  - **Описание**: Глобальный резервный спонсируемый канал `ad_tag` (используется, когда у пользователя нет переопределения в `access.user_ad_tags`). Тег со всеми нулями принимается, но не имеет никакого эффекта, пока не будет заменен реальным тегом от `@MTProxybot`.
+  - **Пример**:
 
     ```toml
     [general]
     ad_tag = "00112233445566778899aabbccddeeff"
     ```
 ## middle_proxy_nat_ip
-  - **Constraints / validation**: `IpAddr` (optional).
-  - **Description**: Manual public NAT IP override used as ME address material when set.
-  - **Example**:
+  - **Ограничения / валидация**: `IpAddr` (необязательный параметр).
+  - **Описание**: При установке этого параметра указанное значение публичного IP-адреса NAT используется в качестве адреса ME.
+  - **Пример**:
 
     ```toml
     [general]
     middle_proxy_nat_ip = "203.0.113.10"
     ```
 ## middle_proxy_nat_probe
-  - **Constraints / validation**: `bool`. Effective probing is gated by `network.stun_use` (when `network.stun_use = false`, STUN probing is disabled even if this flag is `true`).
-  - **Description**: Enables STUN-based NAT probing to discover public IP:port used by ME key derivation in NAT environments.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`. Возможность проверки ограничивается значением параметра `network.stun_use` (когда `network.stun_use = false`, STUN-проверка отключается, даже если этот флаг имеет значение `true`).
+  - **Описание**: Позволяет проверить NAT на основе STUN для обнаружения общедоступного IP, используемого при получении ключа ME в средах NAT.
+  - **Пример**:
 
     ```toml
     [general]
     middle_proxy_nat_probe = true
     ```
 ## middle_proxy_nat_stun
-  - **Constraints / validation**: Deprecated. Use `network.stun_servers`.
-  - **Description**: Deprecated legacy single STUN server for NAT probing. During config load it is merged into `network.stun_servers` unless `network.stun_servers` is explicitly set.
-  - **Example**:
+  - **Ограничения / валидация**: Устарело. Используйте `network.stun_servers`.
+  - **Описание**: Устаревший сервер STUN для проверки NAT. Во время загрузки конфигурации он объединяется с `network.stun_servers`, если `network.stun_servers` не задан явно.
+  - **Пример**:
 
     ```toml
     [network]
     stun_servers = ["stun.l.google.com:19302"]
     ```
 ## middle_proxy_nat_stun_servers
-  - **Constraints / validation**: Deprecated. Use `network.stun_servers`.
-  - **Description**: Deprecated legacy STUN list for NAT probing fallback. During config load it is merged into `network.stun_servers` unless `network.stun_servers` is explicitly set.
-  - **Example**:
+  - **Ограничения / валидация**: Устарело. Используйте `network.stun_servers`.
+  - **Описание**: Устаревший список STUN серверов для проверки NAT-fallback. Во время загрузки конфигурации значение параметра объединяется с `network.stun_servers`, если `network.stun_servers` не задан явно.
+  - **Пример**:
 
     ```toml
     [network]
     stun_servers = ["stun.l.google.com:19302"]
     ```
 ## stun_nat_probe_concurrency
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Maximum number of parallel STUN probes during NAT/public endpoint discovery.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Максимальное количество параллельных тестов STUN для обнаружения NAT/публичного эндпоинта.
+  - **Пример**:
 
     ```toml
     [general]
     stun_nat_probe_concurrency = 8
     ```
 ## middle_proxy_pool_size
-  - **Constraints / validation**: `usize`. Effective value is `max(value, 1)` at runtime (so `0` behaves as `1`).
-  - **Description**: Target size of active ME writer pool.
-  - **Example**:
+  - **Ограничения / валидация**: `usize`.
+  - **Описание**: Размер пула записи ME.
+  - **Пример**:
 
     ```toml
     [general]
     middle_proxy_pool_size = 8
     ```
 ## middle_proxy_warm_standby
-  - **Constraints / validation**: `usize`.
-  - **Description**: Number of warm standby ME connections kept pre-initialized.
-  - **Example**:
+  - **Ограничения / валидация**: `usize`.
+  - **Описание**: Количество предварительно инициализированных резервных подключений ME.
+  - **Пример**:
 
     ```toml
     [general]
     middle_proxy_warm_standby = 16
     ```
 ## me_init_retry_attempts
-  - **Constraints / validation**: `0..=1_000_000` (`0` means unlimited retries).
-  - **Description**: Startup retries for ME pool initialization.
-  - **Example**:
+  - **Ограничения / валидация**: `0..=1_000_000` (`0` означает неограниченное количество повторов).
+  - **Описание**: Количество повторных попыток инициализации пула ME.
+  - **Пример**:
 
     ```toml
     [general]
     me_init_retry_attempts = 0
     ```
 ## me2dc_fallback
-  - **Constraints / validation**: `bool`.
-  - **Description**: Allows fallback from ME mode to direct DC when ME startup fails.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Перейти из режима ME в режим прямого соединения (DC) в случае сбоя запуска ME.
+  - **Пример**:
 
     ```toml
     [general]
     me2dc_fallback = true
     ```
 ## me2dc_fast
-  - **Constraints / validation**: `bool`. Active only when `use_middle_proxy = true` and `me2dc_fallback = true`.
-  - **Description**: Fast ME->Direct fallback mode for new sessions.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`. Используется только, когда `use_middle_proxy = true` и `me2dc_fallback = true`.
+  - **Описание**: Режим для быстрого перехода между режимами ME->DC для новых сеансов.
+  - **Пример**:
 
     ```toml
     [general]
@@ -441,584 +441,584 @@ This document lists all configuration keys accepted by `config.toml`.
     me2dc_fast = false
     ```
 ## me_keepalive_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables periodic ME keepalive padding frames.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает периодическое добавление дополнительных кадров для ME keepalive-сообщений.
+  - **Пример**:
 
     ```toml
     [general]
     me_keepalive_enabled = true
     ```
 ## me_keepalive_interval_secs
-  - **Constraints / validation**: `u64` (seconds).
-  - **Description**: Base ME keepalive interval in seconds.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунд).
+  - **Описание**: Базовый интервал ME keepalive-сообщений в секундах.
+  - **Пример**:
 
     ```toml
     [general]
     me_keepalive_interval_secs = 8
     ```
 ## me_keepalive_jitter_secs
-  - **Constraints / validation**: `u64` (seconds).
-  - **Description**: Keepalive jitter in seconds to reduce synchronized bursts.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунд).
+  - **Описание**: Случайная задержка (джиттер) keepalive-сообщений в секундах, которая используется для уменьшения синхронных "всплесков" нагрузки.
+  - **Пример**:
 
     ```toml
     [general]
     me_keepalive_jitter_secs = 2
     ```
 ## me_keepalive_payload_random
-  - **Constraints / validation**: `bool`.
-  - **Description**: Randomizes keepalive payload bytes instead of fixed zero payload.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Заполняет данные (payload) keepalive-пакетов случайными байтами вместо фиксированных нулей.
+  - **Пример**:
 
     ```toml
     [general]
     me_keepalive_payload_random = true
     ```
 ## rpc_proxy_req_every
-  - **Constraints / validation**: `0` or within `10..=300` (seconds).
-  - **Description**: Interval for service `RPC_PROXY_REQ` activity signals to ME (`0` disables).
-  - **Example**:
+  - **Ограничения / валидация**: `0` или в пределах `10..=300` (секунд).
+  - **Описание**: Интервал для отправки сигналов активности службы `RPC_PROXY_REQ` для ME (`0` отключает).
+  - **Пример**:
 
     ```toml
     [general]
     rpc_proxy_req_every = 0
     ```
 ## me_writer_cmd_channel_capacity
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Capacity of per-writer command channel.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Ёмкость (размер) канала команд для каждого отправителя.
+  - **Пример**:
 
     ```toml
     [general]
     me_writer_cmd_channel_capacity = 4096
     ```
 ## me_route_channel_capacity
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Capacity of per-connection ME response route channel.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Количество ответов от ME, которое может одновременно находиться “в пути” или в очереди для одного соединения.
+  - **Пример**:
 
     ```toml
     [general]
     me_route_channel_capacity = 768
     ```
 ## me_c2me_channel_capacity
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Capacity of per-client command queue (client reader -> ME sender).
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Емкость очереди команд для каждого клиента (client reader -> ME sender).
+  - **Пример**:
 
     ```toml
     [general]
     me_c2me_channel_capacity = 1024
     ```
 ## me_c2me_send_timeout_ms
-  - **Constraints / validation**: `0..=60000` (milliseconds).
-  - **Description**: Maximum wait for enqueueing client->ME commands when the per-client queue is full (`0` keeps legacy unbounded wait).
-  - **Example**:
+  - **Ограничения / валидация**: `0..=60000` (миллисекунд).
+  - **Описание**: Максимальное ожидание постановки в очередь команд client->ME, если очередь для каждого клиента заполнена (`0` сохраняет устаревшее неограниченное ожидание).
+  - **Пример**:
 
     ```toml
     [general]
     me_c2me_send_timeout_ms = 4000
     ```
 ## me_reader_route_data_wait_ms
-  - **Constraints / validation**: `0..=20` (milliseconds).
-  - **Description**: Bounded wait for routing ME DATA to per-connection queue (`0` = no wait).
-  - **Example**:
+  - **Ограничения / валидация**: `0..=20` (миллисекунд).
+  - **Описание**: Ограничение времени ожидания при маршрутизации данных ME в очереди конкретного соединения (0 = без ожидания).
+  - **Пример**:
 
     ```toml
     [general]
     me_reader_route_data_wait_ms = 2
     ```
 ## me_d2c_flush_batch_max_frames
-  - **Constraints / validation**: Must be within `1..=512`.
-  - **Description**: Max ME->client frames coalesced before flush.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `1..=512`.
+  - **Описание**: Максимальное количество кадров (фреймов) от ME к клиенту, объединяемых перед отправкой.
+  - **Пример**:
 
     ```toml
     [general]
     me_d2c_flush_batch_max_frames = 32
     ```
 ## me_d2c_flush_batch_max_bytes
-  - **Constraints / validation**: Must be within `4096..=2097152` (bytes).
-  - **Description**: Max ME->client payload bytes coalesced before flush.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `4096..=2097152` (байт).
+  - **Описание**: Максимальный объём данных (в байтах) от ME к клиенту, который можно объединить перед отправкой.
+  - **Пример**:
 
     ```toml
     [general]
     me_d2c_flush_batch_max_bytes = 131072
     ```
 ## me_d2c_flush_batch_max_delay_us
-  - **Constraints / validation**: `0..=5000` (microseconds).
-  - **Description**: Max microsecond wait for coalescing more ME->client frames (`0` disables timed coalescing).
-  - **Example**:
+  - **Ограничения / валидация**: `0..=5000` (миллисекунд).
+  - **Описание**: Максимальное время ожидания (в миллисекундах) для накопления дополнительных фреймов от ME к клиенту перед отправкой (0 = без ожидания).
+  - **Пример**:
 
     ```toml
     [general]
     me_d2c_flush_batch_max_delay_us = 500
     ```
 ## me_d2c_ack_flush_immediate
-  - **Constraints / validation**: `bool`.
-  - **Description**: Flushes client writer immediately after quick-ack write.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Сбрасывать буфер записи клиента сразу после быстрой отправки подтверждения (quick-ack).
+  - **Пример**:
 
     ```toml
     [general]
     me_d2c_ack_flush_immediate = true
     ```
 ## me_quota_soft_overshoot_bytes
-  - **Constraints / validation**: `0..=16777216` (bytes).
-  - **Description**: Extra per-route quota allowance (bytes) tolerated before writer-side quota enforcement drops route data.
-  - **Example**:
+  - **Ограничения / валидация**: `0..=16777216` (байт).
+  - **Описание**: Дополнительный допустимый объём (в байтах) на маршрут, который разрешён сверх квоты, прежде чем механизм записи начнёт принудительно отбрасывать данные этого маршрута.
+  - **Пример**:
 
     ```toml
     [general]
     me_quota_soft_overshoot_bytes = 65536
     ```
 ## me_d2c_frame_buf_shrink_threshold_bytes
-  - **Constraints / validation**: Must be within `4096..=16777216` (bytes).
-  - **Description**: Threshold for shrinking oversized ME->client frame-aggregation buffers after flush.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `4096..=16777216` (байт).
+  - **Описание**: Порог, при котором слишком большие буферы агрегации фреймов ME>client уменьшаются (сжимаются) после отправки.
+  - **Пример**:
 
     ```toml
     [general]
     me_d2c_frame_buf_shrink_threshold_bytes = 262144
     ```
 ## direct_relay_copy_buf_c2s_bytes
-  - **Constraints / validation**: Must be within `4096..=1048576` (bytes).
-  - **Description**: Copy buffer size for client->DC direction in direct relay.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `4096..=1048576` (байт).
+  - **Описание**: Размер буфера копирования для направления client > DC в режиме прямой пересылки (direct relay).
+  - **Пример**:
 
     ```toml
     [general]
     direct_relay_copy_buf_c2s_bytes = 65536
     ```
 ## direct_relay_copy_buf_s2c_bytes
-  - **Constraints / validation**: Must be within `8192..=2097152` (bytes).
-  - **Description**: Copy buffer size for DC->client direction in direct relay.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `8192..=2097152` (байт).
+  - **Описание**: CoРазмер буфера копирования для направления DC > клиент в режиме прямой пересылки (direct relay).
+  - **Пример**:
 
     ```toml
     [general]
     direct_relay_copy_buf_s2c_bytes = 262144
     ```
 ## crypto_pending_buffer
-  - **Constraints / validation**: `usize` (bytes).
-  - **Description**: Max pending ciphertext buffer per client writer (bytes).
-  - **Example**:
+  - **Ограничения / валидация**: `usize` (байт).
+  - **Описание**:Максимальный объём ожидающих (неотправленных) зашифрованных данных в буфере client writer (в байтах).
+  - **Пример**:
 
     ```toml
     [general]
     crypto_pending_buffer = 262144
     ```
 ## max_client_frame
-  - **Constraints / validation**: `usize` (bytes).
-  - **Description**: Maximum allowed client MTProto frame size (bytes).
-  - **Example**:
+  - **Ограничения / валидация**: `usize` (байт).
+  - **Описание**: Максимально допустимый размер кадра MTProto клиента (в байтах).
+  - **Пример**:
 
     ```toml
     [general]
     max_client_frame = 16777216
     ```
 ## desync_all_full
-  - **Constraints / validation**: `bool`.
-  - **Description**: Emits full crypto-desync forensic logs for every event.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Создавать полные журналы крипто-рассинхронизации для каждого события
+  - **Пример**:
 
     ```toml
     [general]
     desync_all_full = false
     ```
 ## beobachten
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables per-IP forensic observation buckets.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает "криминалистическое" наблюдения для каждого IP-адреса. Анализирует поведение всех подключений и записывает возможные типы клиентов, которые посылают active-probing запросы.
+  - **Пример**:
 
     ```toml
     [general]
     beobachten = true
     ```
 ## beobachten_minutes
-  - **Constraints / validation**: Must be `> 0` (minutes).
-  - **Description**: Retention window (minutes) for per-IP observation buckets.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (минут).
+  - **Описание**: Время хранения (минуты) для сегментов наблюдения по каждому IP-адресу.
+  - **Пример**:
 
     ```toml
     [general]
     beobachten_minutes = 10
     ```
 ## beobachten_flush_secs
-  - **Constraints / validation**: Must be `> 0` (seconds).
-  - **Description**: Snapshot flush interval (seconds) for observation output file.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (секунд).
+  - **Описание**: Время удаления моментального снимка (в секундах) для файла наблюдения.
+  - **Пример**:
 
     ```toml
     [general]
     beobachten_flush_secs = 15
     ```
 ## beobachten_file
-  - **Constraints / validation**: Must not be empty/whitespace-only.
-  - **Description**: Observation snapshot output file path.
-  - **Example**:
+  - **Ограничения / валидация**: Не должно быть пустым или содержать только пробелы.
+  - **Описание**: Путь к выходному снэпшоту наблюдения.
+  - **Пример**:
 
     ```toml
     [general]
     beobachten_file = "cache/beobachten.txt"
     ```
 ## hardswap
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables generation-based ME hardswap strategy.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включить стратегию ME-hardswap на основе генерации.
+  - **Пример**:
 
     ```toml
     [general]
     hardswap = true
     ```
 ## me_warmup_stagger_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Staggers extra ME warmup dials to avoid connection spikes.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Распределить во времени дополнительные стадии "прогрева" ME, чтобы избежать всплесков нагрузки на соединения.
+  - **Пример**:
 
     ```toml
     [general]
     me_warmup_stagger_enabled = true
     ```
 ## me_warmup_step_delay_ms
-  - **Constraints / validation**: `u64` (milliseconds).
-  - **Description**: Base delay in milliseconds between warmup dial steps.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунд).
+  - **Описание**: Базовая задержка в миллисекундах между этапами "прогрева".
+  - **Пример**:
 
     ```toml
     [general]
     me_warmup_step_delay_ms = 500
     ```
 ## me_warmup_step_jitter_ms
-  - **Constraints / validation**: `u64` (milliseconds).
-  - **Description**: Additional random delay in milliseconds for warmup steps.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунд).
+  - **Описание**: Дополнительная случайная задержка (джиттер) в миллисекундах для шагов "прогрева".
+  - **Пример**:
 
     ```toml
     [general]
     me_warmup_step_jitter_ms = 300
     ```
 ## me_reconnect_max_concurrent_per_dc
-  - **Constraints / validation**: `u32`. Effective value is `max(value, 1)` at runtime (so `0` behaves as `1`).
-  - **Description**: Limits concurrent reconnect workers per DC during health recovery.
-  - **Example**:
+  - **Ограничения / валидация**: `u32`.
+  - **Описание**: Ограничить количество одновременно работающих процессов переподключения (reconnect workers) к DC во время восстановления работоспособности.
+  - **Пример**:
 
     ```toml
     [general]
     me_reconnect_max_concurrent_per_dc = 8
     ```
 ## me_reconnect_backoff_base_ms
-  - **Constraints / validation**: `u64` (milliseconds).
-  - **Description**: Initial reconnect backoff in milliseconds.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунд).
+  - **Описание**: Базовая задержка повторного подключения в миллисекундах.
+  - **Пример**:
 
     ```toml
     [general]
     me_reconnect_backoff_base_ms = 500
     ```
 ## me_reconnect_backoff_cap_ms
-  - **Constraints / validation**: `u64` (milliseconds).
-  - **Description**: Maximum reconnect backoff cap in milliseconds.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунд).
+  - **Описание**: Максимальная задержка повторного подключения в миллисекундах.
+  - **Пример**:
 
     ```toml
     [general]
     me_reconnect_backoff_cap_ms = 30000
     ```
 ## me_reconnect_fast_retry_count
-  - **Constraints / validation**: `u32`. Effective value is `max(value, 1)` at runtime (so `0` behaves as `1`).
-  - **Description**: Immediate retry budget before long backoff behavior applies.
-  - **Example**:
+  - **Ограничения / валидация**: `u32`.
+  - **Описание**: Лимит немедленных повторных попыток подключения перед тем, как включается долгий backoff (увеличивающаяся задержка между попытками).
+  - **Пример**:
 
     ```toml
     [general]
     me_reconnect_fast_retry_count = 16
     ```
 ## me_single_endpoint_shadow_writers
-  - **Constraints / validation**: Must be within `0..=32`.
-  - **Description**: Additional reserve writers for DC groups with exactly one endpoint.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `0..=32`.
+  - **Описание**: Количество дополнительных резервных writer-процессов для групп DC, у которых есть только один конечный узел (endpoint).
+  - **Пример**:
 
     ```toml
     [general]
     me_single_endpoint_shadow_writers = 2
     ```
 ## me_single_endpoint_outage_mode_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables aggressive outage recovery mode for DC groups with exactly one endpoint.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает агрессивный режим восстановления после сбоя для групп DC, когда доступен только один endpoint.
+  - **Пример**:
 
     ```toml
     [general]
     me_single_endpoint_outage_mode_enabled = true
     ```
 ## me_single_endpoint_outage_disable_quarantine
-  - **Constraints / validation**: `bool`.
-  - **Description**: Ignores endpoint quarantine while in single-endpoint outage mode.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Игнорировать карантин endpoint’а в режиме сбоя, когда доступен только один endpoint.
+  - **Пример**:
 
     ```toml
     [general]
     me_single_endpoint_outage_disable_quarantine = true
     ```
 ## me_single_endpoint_outage_backoff_min_ms
-  - **Constraints / validation**: Must be `> 0` (milliseconds) and `<= me_single_endpoint_outage_backoff_max_ms`.
-  - **Description**: Minimum reconnect backoff in single-endpoint outage mode.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд) и меньше или равно `me_single_endpoint_outage_backoff_max_ms`.
+  - **Описание**: Минимальная задержка между повторными попытками переподключения (reconnect backoff) в режиме сбоя с единственным endpoint’ом.
+  - **Пример**:
 
     ```toml
     [general]
     me_single_endpoint_outage_backoff_min_ms = 250
     ```
 ## me_single_endpoint_outage_backoff_max_ms
-  - **Constraints / validation**: Must be `> 0` (milliseconds) and `>= me_single_endpoint_outage_backoff_min_ms`.
-  - **Description**: Maximum reconnect backoff in single-endpoint outage mode.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд) и больше или равно  `me_single_endpoint_outage_backoff_min_ms`.
+  - **Описание**: Максимальная задержка между попытками переподключения (reconnect backoff) в режиме сбоя с единственным endpoint’ом.
+  - **Пример**:
 
     ```toml
     [general]
     me_single_endpoint_outage_backoff_max_ms = 3000
     ```
 ## me_single_endpoint_shadow_rotate_every_secs
-  - **Constraints / validation**: `u64` (seconds). `0` disables periodic shadow rotation.
-  - **Description**: Periodic shadow writer rotation interval for single-endpoint DC groups.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунды). `0` отключает периодическую ротацию.
+  - **Описание**: Интервал периодической ротации резервного (shadow) writer’а для DC-групп с единственным endpoint’ом
+  - **Пример**:
 
     ```toml
     [general]
     me_single_endpoint_shadow_rotate_every_secs = 900
     ```
 ## me_floor_mode
-  - **Constraints / validation**: `"static"` or `"adaptive"`.
-  - **Description**: Floor policy mode for ME writer targets.
-  - **Example**:
+  - **Ограничения / валидация**: `"static"` или `"adaptive"`.
+  - **Описание**: Режим политики нижнего порога (минимального ограничения) для целевых узлов/получателей ME writer’а.
+  - **Пример**:
 
     ```toml
     [general]
     me_floor_mode = "adaptive"
     ```
 ## me_adaptive_floor_idle_secs
-  - **Constraints / validation**: `u64` (seconds).
-  - **Description**: Idle time before adaptive floor may reduce the single-endpoint writer target.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунды).
+  - **Описание**: Время простоя, после которого адаптивный нижний порог (adaptive floor) может уменьшить целевой лимит writer’а для единственного endpoint’а.
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_idle_secs = 90
     ```
 ## me_adaptive_floor_min_writers_single_endpoint
-  - **Constraints / validation**: Must be within `1..=32`.
-  - **Description**: Minimum writer target for single-endpoint DC groups in adaptive floor mode.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `1..=32`.
+  - **Описание**: Минимально допустимое количество writer’ов в DC-группах с одним endpoint’ом в режиме адаптивного нижнего порога (adaptive floor).
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_min_writers_single_endpoint = 1
     ```
 ## me_adaptive_floor_min_writers_multi_endpoint
-  - **Constraints / validation**: Must be within `1..=32`.
-  - **Description**: Minimum writer target for multi-endpoint DC groups in adaptive floor mode.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `1..=32`.
+  - **Описание**: Минимально допустимое количество writer’ов в DC-группах с несколькими endpoint’ами в режиме адаптивного нижнего порога (adaptive floor).
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_min_writers_multi_endpoint = 1
     ```
 ## me_adaptive_floor_recover_grace_secs
-  - **Constraints / validation**: `u64` (seconds).
-  - **Description**: Grace period to hold static floor after activity in adaptive mode.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунды).
+  - **Описание**: Период “льготного ожидания”, в течение которого сохраняется фиксированный (static) нижний порог после появления активности в адаптивном режиме
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_recover_grace_secs = 180
     ```
 ## me_adaptive_floor_writers_per_core_total
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Global ME writer budget per logical CPU core in adaptive mode.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Глобальный лимит записи ME writer’а на каждое логическое CPU-ядро в адаптивном режиме.
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_writers_per_core_total = 48
     ```
 ## me_adaptive_floor_cpu_cores_override
-  - **Constraints / validation**: `u16`. `0` uses runtime auto-detection.
-  - **Description**: Override logical CPU core count used for adaptive floor calculations.
-  - **Example**:
+  - **Ограничения / валидация**: `u16`. `0` - использовать автоматическое обнаружение во время выполнения.
+  - **Описание**: Переопределить количество логических CPU-ядер, используемых при расчёте адаптивного нижнего порога (adaptive floor).
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_cpu_cores_override = 0
     ```
 ## me_adaptive_floor_max_extra_writers_single_per_core
-  - **Constraints / validation**: `u16`.
-  - **Description**: Per-core max extra writers above base required floor for single-endpoint DC groups.
-  - **Example**:
+  - **Ограничения / валидация**: `u16`.
+  - **Описание**: Максимальное количество дополнительных writer-процессов на одно CPU-ядро сверх базового требуемого уровня для DC-групп с единственным endpoint’ом.
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_max_extra_writers_single_per_core = 1
     ```
 ## me_adaptive_floor_max_extra_writers_multi_per_core
-  - **Constraints / validation**: `u16`.
-  - **Description**: Per-core max extra writers above base required floor for multi-endpoint DC groups.
-  - **Example**:
+  - **Ограничения / валидация**: `u16`.
+  - **Описание**: Максимальное количество дополнительных writer-процессов на одно CPU-ядро сверх базового требуемого уровня для DC-групп с несколькими endpoint’ами.
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_max_extra_writers_multi_per_core = 2
     ```
 ## me_adaptive_floor_max_active_writers_per_core
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Hard cap for active ME writers per logical CPU core.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Лимит количества ME writer-процессов на одно логическое CPU-ядро.
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_max_active_writers_per_core = 64
     ```
 ## me_adaptive_floor_max_warm_writers_per_core
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Hard cap for warm ME writers per logical CPU core.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Лимит количества “разогретых” (warm) ME writer-процессов на одно логическое CPU-ядро.
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_max_warm_writers_per_core = 64
     ```
 ## me_adaptive_floor_max_active_writers_global
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Hard global cap for active ME writers.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Глобальный лимит количества ME writer-процессов.
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_max_active_writers_global = 256
     ```
 ## me_adaptive_floor_max_warm_writers_global
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Hard global cap for warm ME writers.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Глобальный лимит количества “разогретых” (warm) ME writer-процессов.
+  - **Пример**:
 
     ```toml
     [general]
     me_adaptive_floor_max_warm_writers_global = 256
     ```
 ## upstream_connect_retry_attempts
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Connect attempts for the selected upstream before returning error/fallback.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Количество попыток подключения к выбранному upstream'у перед тем, как вернуть ошибку или перейти к fallback.
+  - **Пример**:
 
     ```toml
     [general]
     upstream_connect_retry_attempts = 2
     ```
 ## upstream_connect_retry_backoff_ms
-  - **Constraints / validation**: `u64` (milliseconds). `0` disables backoff delay (retries become immediate).
-  - **Description**: Delay in milliseconds between upstream connect attempts.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунды). `0` - отключает задержку отсрочки (повторные попытки становятся немедленными).
+  - **Описание**: Задержка в миллисекундах между попытками подключения к upstream.
+  - **Пример**:
 
     ```toml
     [general]
     upstream_connect_retry_backoff_ms = 100
     ```
 ## upstream_connect_budget_ms
-  - **Constraints / validation**: Must be `> 0` (milliseconds).
-  - **Description**: Total wall-clock budget in milliseconds for one upstream connect request across retries.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд).
+  - **Описание**: Общий лимит времени (в миллисекундах), измеряемый по реальному времени (wall-clock), на одну попытку подключения к upstream с учётом всех повторных попыток.
+  - **Пример**:
 
     ```toml
     [general]
     upstream_connect_budget_ms = 3000
     ```
 ## tg_connect
-  - **Constraints / validation**: Must be `> 0` (seconds).
-  - **Description**: Upstream Telegram connect timeout.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (секунды).
+  - **Описание**: Таймаут подключения к upstream-серверам Telegram.
+  - **Пример**:
 
     ```toml
     [general]
     tg_connect = 10
     ```
 ## upstream_unhealthy_fail_threshold
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Consecutive failed requests before upstream is marked unhealthy.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Количество неудачных запросов подряд, после которого upstream помечается, как неработоспособный.
+  - **Пример**:
 
     ```toml
     [general]
     upstream_unhealthy_fail_threshold = 5
     ```
 ## upstream_connect_failfast_hard_errors
-  - **Constraints / validation**: `bool`.
-  - **Description**: When true, skips additional retries for hard non-transient upstream connect errors.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Если включено (true), telemt пропускает дополнительные повторные попытки для постоянных ошибок подключения к upstream.
+  - **Пример**:
 
     ```toml
     [general]
     upstream_connect_failfast_hard_errors = false
     ```
 ## stun_iface_mismatch_ignore
-  - **Constraints / validation**: `bool`.
-  - **Description**: Compatibility flag reserved for future use. Currently this key is parsed but not used by the runtime.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Флаг совместимости, зарезервированный для будущего использования. Сейчас этот параметр читается (парсится), но не используется средой выполнения.
+  - **Пример**:
 
     ```toml
     [general]
     stun_iface_mismatch_ignore = false
     ```
 ## unknown_dc_log_path
-  - **Constraints / validation**: `String` (optional). Must be a safe path (no `..` components, parent directory must exist); unsafe paths are rejected at runtime.
-  - **Description**: Log file path for unknown (non-standard) DC requests when `unknown_dc_file_log_enabled = true`. Omit this key to disable file logging.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Путь должен быть без `..` и с существующим родительским каталогом, иначе он будет отклонён во время выполнения.
+  - **Описание**: Путь к файлу логов для неизвестных (нестандартных) DC-запросов, который используется только если `unknown_dc_file_log_enabled = true`. Чтобы отключить файловое логирование, не указывйте этот параметр.
+  - **Пример**:
 
     ```toml
     [general]
     unknown_dc_log_path = "unknown-dc.txt"
     ```
 ## unknown_dc_file_log_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables unknown-DC file logging (writes `dc_idx=<N>` lines). Requires `unknown_dc_log_path` to be set and, on non-Unix platforms, may be unsupported. Logging is deduplicated and capped (only the first ~1024 distinct unknown DC indices are recorded).
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включить файловое логирование неизвестных DC (записывает строки вида `dc_idx=<N>`). Требует, чтобы был задан `unknown_dc_log_path`. На не-Unix платформах может не поддерживаться. Логирование очищается от дубликатов и имеет ограничения: записываются только первые ~1024 уникальных неизвестных DC-индексов.
+  - **Пример**:
 
     ```toml
     [general]
     unknown_dc_file_log_enabled = false
     ```
 ## log_level
-  - **Constraints / validation**: `"debug"`, `"verbose"`, `"normal"`, or `"silent"`.
-  - **Description**: Runtime logging verbosity level (used when `RUST_LOG` is not set). If `RUST_LOG` is set in the environment, it takes precedence over this setting.
-  - **Example**:
+  - **Ограничения / валидация**: `"debug"`, `"verbose"`, `"normal"`, или `"silent"`.
+  - **Описание**: Уровень детализации логов во время работы системы, который используется только если переменная окружения `RUST_LOG` не задана. Если `RUST_LOG` задана, она имеет приоритет и переопределяет этот параметр.
+  - **Пример**:
 
     ```toml
     [general]
     log_level = "normal"
     ```
 ## disable_colors
-  - **Constraints / validation**: `bool`.
-  - **Description**: Disables ANSI colors in logs (useful for files/systemd). This affects log formatting only and does not change the log level/filtering.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Отключает ANSI-цвета в логах. Это влияет только на форматирование вывода и не меняет уровень логирования и фильтрацию сообщений..
+  - **Пример**:
 
     ```toml
     [general]
     disable_colors = false
     ```
 ## me_socks_kdf_policy
-  - **Constraints / validation**: `"strict"` or `"compat"`.
-  - **Description**: SOCKS-bound KDF fallback policy for Middle-End handshake.
-  - **Example**:
+  - **Ограничения / валидация**: `"strict"` или `"compat"`.
+  - **Описание**: Политика fallback-поведения KDF, привязанная к SOCKS, для Middle-End-handshake.
+  - **Пример**:
 
     ```toml
     [general]
     me_socks_kdf_policy = "strict"
     ```
 ## me_route_backpressure_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables channel-pressure-aware route send timeouts.
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает адаптивные таймауты записи маршрута в зависимости от заполнения канала.
   - **Example**:
 
     ```toml
@@ -1026,8 +1026,8 @@ This document lists all configuration keys accepted by `config.toml`.
     me_route_backpressure_enabled = false
     ```
 ## me_route_fairshare_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables fair-share routing admission across writer workers.
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает справедливое распределение нагрузки маршрутизации между writer-потоками.
   - **Example**:
 
     ```toml
@@ -1035,171 +1035,171 @@ This document lists all configuration keys accepted by `config.toml`.
     me_route_fairshare_enabled = false
     ```
 ## me_route_backpressure_base_timeout_ms
-  - **Constraints / validation**: Must be within `1..=5000` (milliseconds).
-  - **Description**: Base backpressure timeout in milliseconds for ME route-channel send.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `1..=5000` (миллисекунд).
+  - **Описание**: Базовый таймаут (в миллисекундах) ожидания при режиме **backpressure** (ситуация, при которой данные обрабатываются медленне, чем получаются) для отправки через ME route-channel.
+  - **Пример**:
 
     ```toml
     [general]
     me_route_backpressure_base_timeout_ms = 25
     ```
 ## me_route_backpressure_high_timeout_ms
-  - **Constraints / validation**: Must be within `1..=5000` (milliseconds) and `>= me_route_backpressure_base_timeout_ms`.
-  - **Description**: High backpressure timeout in milliseconds when queue occupancy is above watermark.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `1..=5000` (миллисекунд) и больше или равно `me_route_backpressure_base_timeout_ms`.
+  - **Описание**: Увеличенный таймаут ожидания (в миллисекундах) при режиме **backpressure**, когда заполненность очереди превышает порог.
+  - **Пример**:
 
     ```toml
     [general]
     me_route_backpressure_high_timeout_ms = 120
     ```
 ## me_route_backpressure_high_watermark_pct
-  - **Constraints / validation**: Must be within `1..=100` (percent).
-  - **Description**: Queue occupancy percent threshold for switching to high backpressure timeout.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `1..=100` (процентов).
+  - **Описание**: Порог заполненности очереди (в процентах), при превышении которого система переключается на увеличенный таймаут **backpressure**.
+  - **Пример**:
 
     ```toml
     [general]
     me_route_backpressure_high_watermark_pct = 80
     ```
 ## me_health_interval_ms_unhealthy
-  - **Constraints / validation**: Must be `> 0` (milliseconds).
-  - **Description**: Health monitor interval while ME writer coverage is degraded.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд).
+  - **Описание**: Интервал проверки состояния (health monitoring), который используется, когда покрытие ME-writer’ов ухудшено (деградировало).
+  - **Пример**:
 
     ```toml
     [general]
     me_health_interval_ms_unhealthy = 1000
     ```
 ## me_health_interval_ms_healthy
-  - **Constraints / validation**: Must be `> 0` (milliseconds).
-  - **Description**: Health monitor interval while ME writer coverage is stable/healthy.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд).
+  - **Описание**: Интервал проверки состояния (health monitoring), который используется, когда покрытие ME-writer’ов стабильно.
+  - **Пример**:
 
     ```toml
     [general]
     me_health_interval_ms_healthy = 3000
     ```
 ## me_admission_poll_ms
-  - **Constraints / validation**: Must be `> 0` (milliseconds).
-  - **Description**: Poll interval for conditional-admission state checks.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд).
+  - **Описание**: Интервал опроса (polling interval) для проверки состояния приема при выполнении условий (conditional admission).
+  - **Пример**:
 
     ```toml
     [general]
     me_admission_poll_ms = 1000
     ```
 ## me_warn_rate_limit_ms
-  - **Constraints / validation**: Must be `> 0` (milliseconds).
-  - **Description**: Cooldown for repetitive ME warning logs.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд).
+  - **Описание**: Период "затухания" (cooldown) для повторяющихся предупреждающих логов ME, чтобы ограничить их частоту.
+  - **Пример**:
 
     ```toml
     [general]
     me_warn_rate_limit_ms = 5000
     ```
 ## me_route_no_writer_mode
-  - **Constraints / validation**: `"async_recovery_failfast"`, `"inline_recovery_legacy"`, or `"hybrid_async_persistent"`.
-  - **Description**: ME route behavior when no writer is immediately available.
-  - **Example**:
+  - **Ограничения / валидация**: `"async_recovery_failfast"`, `"inline_recovery_legacy"`, or `"hybrid_async_persistent"`.
+  - **Описание**: Поведение ME-маршрута, когда ни один writer не доступен.
+  - **Пример**:
 
     ```toml
     [general]
     me_route_no_writer_mode = "hybrid_async_persistent"
     ```
 ## me_route_no_writer_wait_ms
-  - **Constraints / validation**: Must be within `10..=5000` (milliseconds).
-  - **Description**: Max wait time used by async-recovery failfast mode before falling back.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `10..=5000` (миллисекунды).
+  - **Описание**: Максимальное время ожидания, используемое в режиме **async-recovery failfast** перед переходом к fallback.
+  - **Пример**:
 
     ```toml
     [general]
     me_route_no_writer_wait_ms = 250
     ```
 ## me_route_hybrid_max_wait_ms
-  - **Constraints / validation**: Must be within `50..=60000` (milliseconds).
-  - **Description**: Maximum cumulative wait in hybrid no-writer mode before failfast fallback.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `50..=60000` (миллисекунд).
+  - **Описание**: Максимальное суммарное время ожидания в гибридном режиме без writer’а перед failfast fallback.
+  - **Пример**:
 
     ```toml
     [general]
     me_route_hybrid_max_wait_ms = 3000
     ```
 ## me_route_blocking_send_timeout_ms
-  - **Constraints / validation**: Must be within `0..=5000` (milliseconds). `0` keeps legacy unbounded wait behavior.
-  - **Description**: Maximum wait for blocking route-channel send fallback.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `0..=5000` (миллисекунд). `0` - неограниченное время ожидания.
+  - **Описание**: Максимальное время ожидания для блокировки отправки через канал маршрутизации при fallback.
+  - **Пример**:
 
     ```toml
     [general]
     me_route_blocking_send_timeout_ms = 250
     ```
 ## me_route_inline_recovery_attempts
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Number of inline recovery attempts in legacy mode.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Количество попыток inline-восстановления в legacy-режиме
+  - **Пример**:
 
     ```toml
     [general]
     me_route_inline_recovery_attempts = 3
     ```
 ## me_route_inline_recovery_wait_ms
-  - **Constraints / validation**: Must be within `10..=30000` (milliseconds).
-  - **Description**: Max inline recovery wait in legacy mode.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `10..=30000` (миллисекунд).
+  - **Описание**: Максимальное время ожидания inline-восстановления в legacy-режиме.
+  - **Пример**:
 
     ```toml
     [general]
     me_route_inline_recovery_wait_ms = 3000
     ```
 ## fast_mode_min_tls_record
-  - **Constraints / validation**: `usize` (bytes). `0` disables the limit.
-  - **Description**: Minimum TLS record size when fast-mode coalescing is enabled.
-  - **Example**:
+  - **Ограничения / валидация**: `usize` (bytes). `0` disables the limit.
+  - **Описание**: Минимальный размер TLS-записи при включённой агрегации fast-mode.
+  - **Пример**:
 
     ```toml
     [general]
     fast_mode_min_tls_record = 0
     ```
 ## update_every
-  - **Constraints / validation**: `u64` (seconds). If set, must be `> 0`. If this key is not explicitly set, legacy `proxy_secret_auto_reload_secs` and `proxy_config_auto_reload_secs` may be used (their effective minimum must be `> 0`).
-  - **Description**: Unified refresh interval for ME updater tasks (`getProxyConfig`, `getProxyConfigV6`, `getProxySecret`). When set, it overrides legacy proxy reload intervals.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунд). Должно быть `> 0`. Если этот ключ не задан явно, могут использоваться устаревшие параметры `proxy_secret_auto_reload_secs` и `proxy_config_auto_reload_secs` (их эффективное минимальное значение должно быть `> 0`).
+  - **Описание**: Унифицированный интервал обновления задач ME-updater’а (getProxyConfig, getProxyConfigV6, getProxySecret). При установке переопределяет устаревшие интервалы автообновления прокси-сервера.
+  - **Пример**:
 
     ```toml
     [general]
     update_every = 300
     ```
 ## me_reinit_every_secs
-  - **Constraints / validation**: Must be `> 0` (seconds).
-  - **Description**: Periodic interval for zero-downtime ME reinit cycle.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (секунд).
+  - **Описание**: Интервал для выполнения цикла повторной инициализации ME с нулевым временем простоя.
+  - **Пример**:
 
     ```toml
     [general]
     me_reinit_every_secs = 900
     ```
 ## me_hardswap_warmup_delay_min_ms
-  - **Constraints / validation**: `u64` (milliseconds). Must be `<= me_hardswap_warmup_delay_max_ms`.
-  - **Description**: Lower bound for hardswap warmup dial spacing.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунд). Должно быть `<= me_hardswap_warmup_delay_max_ms`.
+  - **Описание**: Нижняя граница задержки между шагами "прогрева" при "принудительном" изменении состояния.
+  - **Пример**:
 
     ```toml
     [general]
     me_hardswap_warmup_delay_min_ms = 1000
     ```
 ## me_hardswap_warmup_delay_max_ms
-  - **Constraints / validation**: Must be `> 0` (milliseconds).
-  - **Description**: Upper bound for hardswap warmup dial spacing.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд).
+  - **Описание**: Верхняя граница задержки между шагами "прогрева" при "принудительном" изменении состояния.
+  - **Пример**:
 
     ```toml
     [general]
     me_hardswap_warmup_delay_max_ms = 2000
     ```
 ## me_hardswap_warmup_extra_passes
-  - **Constraints / validation**: Must be within `[0, 10]`.
-  - **Description**: Additional warmup passes after the base pass in one hardswap cycle.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `[0, 10]`.
+  - **Описание**: Количество дополнительных циклов "прогрева" сверх базового при "принудительном" изменении состояния.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1207,9 +1207,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_hardswap_warmup_extra_passes = 3
     ```
 ## me_hardswap_warmup_pass_backoff_base_ms
-  - **Constraints / validation**: `u64` (milliseconds). Must be `> 0`.
-  - **Description**: Base backoff between extra hardswap warmup passes when the floor is still incomplete.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунд). Должно быть `> 0`.
+  - **Описание**: Базовая задержка повторной попытки между дополнительными проходами "прогрева" при "принудительном" изменении состояния, если нижний порог ещё не достигнут.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1217,9 +1217,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_hardswap_warmup_pass_backoff_base_ms = 500
     ```
 ## me_config_stable_snapshots
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Number of identical ME config snapshots required before apply.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Количество одинаковых подряд снимков конфигурации ME, необходимых для применения изменений.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1227,9 +1227,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_config_stable_snapshots = 3
     ```
 ## me_config_apply_cooldown_secs
-  - **Constraints / validation**: `u64`.
-  - **Description**: Cooldown between applied ME endpoint-map updates. `0` disables the cooldown.
-  - **Example**:
+  - **Ограничения / валидация**: `u64`.
+  - **Описание**: Время восстановления между примененными обновлениями карты конечных точек ME. `0` отключает время восстановления.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1237,9 +1237,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_config_apply_cooldown_secs = 0
     ```
 ## me_snapshot_require_http_2xx
-  - **Constraints / validation**: `bool`.
-  - **Description**: Requires 2xx HTTP responses for applying ME config snapshots. When `false`, non-2xx responses may still be parsed/considered by the updater.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Требовать HTTP-ответы **2xx** для применения снимков конфигурации ME. Если `false`, **не-2xx** ответы также могут быть проанализированы/учтены программой обновления.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1247,9 +1247,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_snapshot_require_http_2xx = false
     ```
 ## me_snapshot_reject_empty_map
-  - **Constraints / validation**: `bool`.
-  - **Description**: Rejects empty ME config snapshots (no endpoints). When `false`, an empty snapshot can be applied (subject to other gates), which may temporarily reduce/clear the ME map.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Отклоняет пустые snapshot-конфигурации ME (без endpoint’ов). Если установлено значение `false`, пустой snapshot может быть применён (при выполнении других условий), что может временно очистить или уменьшить карту ME.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1257,9 +1257,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_snapshot_reject_empty_map = false
     ```
 ## me_snapshot_min_proxy_for_lines
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Minimum parsed `proxy_for` rows required to accept snapshot.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Минимальное количество проанализированных строк `proxy_for`, необходимое для принятия снимка.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1267,9 +1267,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_snapshot_min_proxy_for_lines = 10
     ```
 ## proxy_secret_stable_snapshots
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Number of identical proxy-secret snapshots required before rotation.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Количество идентичных снимков с секретом прокси-сервера, необходимых для ротации.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1277,9 +1277,9 @@ This document lists all configuration keys accepted by `config.toml`.
     proxy_secret_stable_snapshots = 2
     ```
 ## proxy_secret_rotate_runtime
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables runtime proxy-secret rotation from updater snapshots.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает ротацию proxy-secret на основе снапшотов, получаемых от обновляющего компонента.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1287,9 +1287,9 @@ This document lists all configuration keys accepted by `config.toml`.
     proxy_secret_rotate_runtime = false
     ```
 ## me_secret_atomic_snapshot
-  - **Constraints / validation**: `bool`.
-  - **Description**: Keeps selector and secret bytes from the same snapshot atomically. When `general.use_middle_proxy = true`, this is auto-enabled during config load to keep ME KDF material coherent.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Сохраняет селекторные и секретные байты из одного и того же снимка атомарно. Если `general.use_middle_proxy = true`, автоматически включается при загрузке конфигурации для согласованности KDF-данных ME.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1297,9 +1297,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_secret_atomic_snapshot = false
     ```
 ## proxy_secret_len_max
-  - **Constraints / validation**: Must be within `[32, 4096]`.
-  - **Description**: Upper length limit (bytes) for accepted proxy-secret during startup and runtime refresh.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `[32, 4096]`.
+  - **Описание**: Верхний предел длины (в байтах) принимаемого proxy-secret во время запуска и обновления.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1307,9 +1307,9 @@ This document lists all configuration keys accepted by `config.toml`.
     proxy_secret_len_max = 256
     ```
 ## me_pool_drain_ttl_secs
-  - **Constraints / validation**: `u64` (seconds). `0` disables the drain-TTL window (and suppresses drain-TTL warnings for non-empty draining writers).
-  - **Description**: Drain-TTL time window for stale ME writers after endpoint map changes. During the TTL, stale writers may be used only as fallback for new bindings (depending on bind policy).
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунды). `0` - отключает период drain-TTL и подавляет предупреждения drain-TTL для ненулевых (непустых) writer’ов, находящихся в состоянии **draining**.
+  - **Описание**: Временной интервал Drain-TTL для устаревших ME writer’ов после изменения карты endpoint’ов. В течение TTL устаревшие writer’ы могут использоваться только как fallback для новых биндов (в зависимости от политики биндов).
+  - **Пример**:
 
     ```toml
     [general]
@@ -1317,9 +1317,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_pool_drain_ttl_secs = 0
     ```
 ## me_instadrain
-  - **Constraints / validation**: `bool`.
-  - **Description**: Forces draining stale writers to be removed on the next cleanup tick, bypassing TTL/deadline waiting.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Принудительно удаляет устаревшие writer’ы на следующем цикле очистки, обходя TTL и таймаут ожидания.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1327,9 +1327,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_instadrain = false
     ```
 ## me_pool_drain_threshold
-  - **Constraints / validation**: `u64`. Set to `0` to disable threshold-based cleanup.
-  - **Description**: Maximum number of draining stale writers before oldest ones are force-closed in batches.
-  - **Example**:
+  - **Ограничения / валидация**: `u64`. Установите значение `0`, чтобы отключить очистку на основе пороговых значений.
+  - **Описание**: Максимальное количество устаревших writer’ов, после которого самые старые принудительно закрываются в пакетном режиме.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1337,9 +1337,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_pool_drain_threshold = 32
     ```
 ## me_pool_drain_soft_evict_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables gradual soft-eviction of stale writers during drain/reinit instead of immediate hard close.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает постепенное удаление устаревших writer’ов во время очистки/повторной инициализации вместо их немедленного закрытия.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1347,9 +1347,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_pool_drain_soft_evict_enabled = true
     ```
 ## me_pool_drain_soft_evict_grace_secs
-  - **Constraints / validation**: `u64` (seconds). Must be within `[0, 3600]`.
-  - **Description**: Extra grace (after drain TTL) before soft-eviction stage starts.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунд). Должно быть в пределах `[0, 3600]`.
+  - **Описание**: Дополнительный период ожидания после TTL перед началом этапа мягкого удаления.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1357,9 +1357,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_pool_drain_soft_evict_grace_secs = 10
     ```
 ## me_pool_drain_soft_evict_per_writer
-  - **Constraints / validation**: `1..=16`.
-  - **Description**: Maximum stale routes soft-evicted per writer in one eviction pass.
-  - **Example**:
+  - **Ограничения / валидация**: `1..=16`.
+  - **Описание**: Максимальное количество устаревших маршрутов, вытесняемых за один проход мягкого удаления на один writer.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1367,9 +1367,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_pool_drain_soft_evict_per_writer = 2
     ```
 ## me_pool_drain_soft_evict_budget_per_core
-  - **Constraints / validation**: `1..=64`.
-  - **Description**: Per-core budget limiting aggregate soft-eviction work per pass.
-  - **Example**:
+  - **Ограничения / валидация**: `1..=64`.
+  - **Описание**: Лимиты работы мягкого удаления на одно CPU-ядро за один проход.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1377,9 +1377,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_pool_drain_soft_evict_budget_per_core = 16
     ```
 ## me_pool_drain_soft_evict_cooldown_ms
-  - **Constraints / validation**: `u64` (milliseconds). Must be `> 0`.
-  - **Description**: Cooldown between repetitive soft-eviction on the same writer.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунд). Должно быть `> 0`.
+  - **Описание**: Время восстановления между повторяющимися мягкими удалениями одного и того же writer’а.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1387,9 +1387,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_pool_drain_soft_evict_cooldown_ms = 1000
     ```
 ## me_bind_stale_mode
-  - **Constraints / validation**: `"never"`, `"ttl"`, or `"always"`.
-  - **Description**: Policy for new binds on stale draining writers.
-  - **Example**:
+  - **Ограничения / валидация**: `"never"`, `"ttl"` или `"always"`.
+  - **Описание**: Политика разрешения новых биндов к устаревшим writer’ам.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1397,9 +1397,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_bind_stale_mode = "ttl"
     ```
 ## me_bind_stale_ttl_secs
-  - **Constraints / validation**: `u64`.
-  - **Description**: TTL for stale bind allowance when stale mode is `ttl`.
-  - **Example**:
+  - **Ограничения / валидация**: `u64`.
+  - **Описание**: TTL для разрешения биндов к устаревшим writer’ам при режиме `ttl`.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1407,9 +1407,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_bind_stale_ttl_secs = 90
     ```
 ## me_pool_min_fresh_ratio
-  - **Constraints / validation**: Must be within `[0.0, 1.0]`.
-  - **Description**: Minimum fresh desired-DC coverage ratio before stale writers are drained.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `[0.0, 1.0]`.
+  - **Описание**: Минимальный коэффициент актуального (fresh) покрытия DC перед началом удаления устаревших writer’ов.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1417,9 +1417,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_pool_min_fresh_ratio = 0.9
     ```
 ## me_reinit_drain_timeout_secs
-  - **Constraints / validation**: `u64`. `0` uses the runtime safety fallback force-close timeout. If `> 0` and `< me_pool_drain_ttl_secs`, runtime bumps it to TTL.
-  - **Description**: Force-close timeout for draining stale writers. When set to `0`, the effective timeout is the runtime safety fallback (300 seconds).
-  - **Example**:
+  - **Ограничения / валидация**: `u64`. `0` - используется безопасный системный fallback. Если значение `> 0` и `< me_pool_drain_ttl_secs`, повышает его до значения TTL.
+  - **Описание**: Таймаут принудительного закрытия устаревших writer’ов при очистке/повторной инициализации. При `0` используется безопасный системный fallback (300 секунд).
+  - **Пример**:
 
     ```toml
     [general]
@@ -1427,9 +1427,9 @@ This document lists all configuration keys accepted by `config.toml`.
     me_reinit_drain_timeout_secs = 0
     ```
 ## proxy_secret_auto_reload_secs
-  - **Constraints / validation**: Deprecated. Use `general.update_every`. When `general.update_every` is not explicitly set, the effective legacy refresh interval is `min(proxy_secret_auto_reload_secs, proxy_config_auto_reload_secs)` and must be `> 0`.
-  - **Description**: Deprecated legacy proxy-secret refresh interval. Used only when `general.update_every` is not set.
-  - **Example**:
+  - **Ограничения / валидация**: Устарело. Используйте `general.update_every`. Если `general.update_every` не задан, эффективный интервал обновления равен `min(proxy_secret_auto_reload_secs, proxy_config_auto_reload_secs)` и должен быть `> 0`.
+  - **Описание**: Интервал обновления устаревшего секрета прокси-сервера. Используется только, если `general.update_every` не задан.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1439,9 +1439,9 @@ This document lists all configuration keys accepted by `config.toml`.
     # effective updater interval = min(600, 120) = 120 seconds
     ```
 ## proxy_config_auto_reload_secs
-  - **Constraints / validation**: Deprecated. Use `general.update_every`. When `general.update_every` is not explicitly set, the effective legacy refresh interval is `min(proxy_secret_auto_reload_secs, proxy_config_auto_reload_secs)` and must be `> 0`.
-  - **Description**: Deprecated legacy ME config refresh interval. Used only when `general.update_every` is not set.
-  - **Example**:
+  - **Ограничения / валидация**: Устарело. Используйте `general.update_every`. Если `general.update_every` не задан, эффективный устаревший интервал обновления равен `min(proxy_secret_auto_reload_secs, proxy_config_auto_reload_secs)` и должен быть `> 0`.
+  - **Описание**: Интервал обновления устаревшей конфигурации ME. Используется только, если `general.update_every` не задан.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1451,54 +1451,54 @@ This document lists all configuration keys accepted by `config.toml`.
     # effective updater interval = min(600, 120) = 120 seconds
     ```
 ## me_reinit_singleflight
-  - **Constraints / validation**: `bool`.
-  - **Description**: Serializes ME reinit cycles across trigger sources.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Упорядочивать циклы повторной инициализации ME, поступающие от разных источников триггеров.
+  - **Пример**:
 
     ```toml
     [general]
     me_reinit_singleflight = true
     ```
 ## me_reinit_trigger_channel
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Trigger queue capacity for reinit scheduler.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Емкость очереди триггеров для планировщика повторной инициализации.
+  - **Пример**:
 
     ```toml
     [general]
     me_reinit_trigger_channel = 64
     ```
 ## me_reinit_coalesce_window_ms
-  - **Constraints / validation**: `u64`.
-  - **Description**: Trigger coalescing window before starting reinit (ms).
-  - **Example**:
+  - **Ограничения / валидация**: `u64`.
+  - **Описание**: Время объединения (coalescing) триггеров перед запуском переинициализации (в мс).
+  - **Пример**:
 
     ```toml
     [general]
     me_reinit_coalesce_window_ms = 200
     ```
 ## me_deterministic_writer_sort
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables deterministic candidate sort for writer binding path.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включить детерминированную сортировку кандидатов при выборе writer’а.
+  - **Пример**:
 
     ```toml
     [general]
     me_deterministic_writer_sort = true
     ```
 ## me_writer_pick_mode
-  - **Constraints / validation**: `"sorted_rr"` or `"p2c"`.
-  - **Description**: Writer selection mode for route bind path.
-  - **Example**:
+  - **Ограничения / валидация**: `"sorted_rr"` or `"p2c"`.
+  - **Описание**: Режим выбора writer’а для бинда маршрута.
+  - **Пример**:
 
     ```toml
     [general]
     me_writer_pick_mode = "p2c"
     ```
 ## me_writer_pick_sample_size
-  - **Constraints / validation**: `2..=4`.
-  - **Description**: Number of candidates sampled by picker in `p2c` mode.
-  - **Example**:
+  - **Ограничения / валидация**: `2..=4`.
+  - **Описание**: Количество кандидатов, отобранных сборщиком в режиме p2c.
+  - **Пример**:
 
     ```toml
     [general]
@@ -1506,87 +1506,89 @@ This document lists all configuration keys accepted by `config.toml`.
     me_writer_pick_sample_size = 3
     ```
 ## ntp_check
-  - **Constraints / validation**: `bool`.
-  - **Description**: Reserved for future use. Currently this key is parsed but not used by the runtime.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Зарезервировано для будущего использования. Сейчас параметр читается, но не используется системой.
+  - **Пример**:
 
     ```toml
     [general]
     ntp_check = true
     ```
 ## ntp_servers
-  - **Constraints / validation**: `String[]`.
-  - **Description**: Reserved for future use. Currently this key is parsed but not used by the runtime.
-  - **Example**:
+  - **Ограничения / валидация**: `String[]`.
+  - **Описание**: Зарезервировано для будущего использования. Сейчас параметр читается, но не используется системой.
+  - **Пример**:
 
     ```toml
     [general]
     ntp_servers = ["pool.ntp.org"]
     ```
 ## auto_degradation_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Reserved for future use. Currently this key is parsed but not used by the runtime.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Зарезервировано для будущего использования. Сейчас параметр читается, но не используется системой.
+  - **Пример**:
 
     ```toml
     [general]
     auto_degradation_enabled = true
     ```
 ## degradation_min_unavailable_dc_groups
-  - **Constraints / validation**: `u8`.
-  - **Description**: Reserved for future use. Currently this key is parsed but not used by the runtime.
-  - **Example**:
+  - **Ограничения / валидация**: `u8`.
+  - **Описание**: Зарезервировано для будущего использования. Сейчас параметр читается, но не используется системой.
+  - **Пример**:
 
     ```toml
     [general]
     degradation_min_unavailable_dc_groups = 2
     ```
+
 ## rst_on_close
-  - **Constraints / validation**: one of `"off"`, `"errors"`, `"always"`.
-  - **Description**: Controls `SO_LINGER(0)` behaviour on accepted client TCP sockets.
-    High-traffic proxy servers accumulate `FIN-WAIT-1` and orphaned sockets from connections that never complete the Telegram handshake (scanners, DPI probes, bots).
-    This option allows sending an immediate `RST` instead of a graceful `FIN` for such connections, freeing kernel resources instantly.
-    - `"off"` — default. Normal `FIN` on all closes; no behaviour change.
-    - `"errors"` — `SO_LINGER(0)` is set on `accept()`. If the client successfully completes authentication, linger is cleared and the relay session closes gracefully with `FIN`. Connections closed before handshake completion (timeouts, bad crypto, scanners) send `RST`.
-    - `"always"` — `SO_LINGER(0)` is set on `accept()` and never cleared. All closes send `RST` regardless of handshake outcome.
-  - **Example**:
+  - **Ограничения / валидация**: `"off"`, `"errors"`, `"always"`.
+  - **Описание**: Управляет поведением `SO_LINGER(0)` на принятых клиентских TCP-сокетах.
+    На высоконагруженных прокси-серверах накапливаются `FIN-WAIT-1` и осиротевшие (orphan) сокеты от соединений, которые не завершают Telegram-рукопожатие (сканеры, DPI-зонды, боты).
+    Эта опция позволяет отправлять немедленный `RST` вместо корректного `FIN` для таких соединений, мгновенно освобождая ресурсы ядра.
+    - `"off"` — по умолчанию. Обычный `FIN` при закрытии всех соединений; поведение не меняется.
+    - `"errors"` — `SO_LINGER(0)` устанавливается при `accept()`. Если клиент успешно проходит аутентификацию, linger сбрасывается и relay-сессия закрывается корректно через `FIN`. Соединения, закрытые до завершения рукопожатия (таймауты, ошибки крипто, сканеры), отправляют `RST`.
+    - `"always"` — `SO_LINGER(0)` устанавливается при `accept()` и никогда не сбрасывается. Все закрытия отправляют `RST` независимо от результата рукопожатия.
+  - **Пример**:
 
     ```toml
     [general]
     rst_on_close = "errors"
     ```
 
+
 # [general.modes]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`classic`](#classic) | `bool` | `false` | `✘` |
 | [`secure`](#secure) | `bool` | `false` | `✘` |
 | [`tls`](#tls) | `bool` | `true` | `✘` |
 
 ## classic
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables classic MTProxy mode.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает классический режим MTProxy.
+  - **Пример**:
 
     ```toml
     [general.modes]
     classic = true
     ```
 ## secure
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables secure mode.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает защищённый режим (dd-ссылки).
+  - **Пример**:
 
     ```toml
     [general.modes]
     secure = true
     ```
 ## tls
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables TLS mode.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает режим TLS (ee-ссылки).
+  - **Пример**:
 
     ```toml
     [general.modes]
@@ -1597,16 +1599,16 @@ This document lists all configuration keys accepted by `config.toml`.
 # [general.links]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`show`](#show) | `"*"` or `String[]` | `"*"` | `✘` |
 | [`public_host`](#public_host) | `String` | — | `✘` |
 | [`public_port`](#public_port) | `u16` | — | `✘` |
 
 ## show
-  - **Constraints / validation**: `"*"` or `String[]`. An empty array means "show none".
-  - **Description**: Selects users whose `tg://` proxy links are shown at startup.
-  - **Example**:
+  - **Ограничения / валидация**: `"*"` или `String[]`. Пустое значение означает, что нельзя показывать никому.
+  - **Описание**: Определяет пользователей, для которых показываются proxy-ссылки tg:// при запуске.
+  - **Пример**:
 
     ```toml
     [general.links]
@@ -1615,18 +1617,18 @@ This document lists all configuration keys accepted by `config.toml`.
     # show = ["alice", "bob"]
     ```
 ## public_host
-  - **Constraints / validation**: `String` (optional).
-  - **Description**: Public hostname/IP override used for generated `tg://` links (overrides detected IP).
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр).
+  - **Описание**: Переопределение общедоступного имени хоста/IP-адреса, используемое для сгенерированных ссылок `tg://` (перезаписывает автоматически определённый IP).
+  - **Пример**:
 
     ```toml
     [general.links]
     public_host = "proxy.example.com"
     ```
 ## public_port
-  - **Constraints / validation**: `u16` (optional).
-  - **Description**: Public port override used for generated `tg://` links (overrides `server.port`).
-  - **Example**:
+  - **Ограничения / валидация**: `u16` (необязательный параметр).
+  - **Описание**: Публичный порт для генерации tg:// ссылок (перезаписывает server.port).
+  - **Пример**:
 
     ```toml
     [general.links]
@@ -1637,34 +1639,34 @@ This document lists all configuration keys accepted by `config.toml`.
 # [general.telemetry]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`core_enabled`](#core_enabled) | `bool` | `true` | `✔` |
 | [`user_enabled`](#user_enabled) | `bool` | `true` | `✔` |
 | [`me_level`](#me_level) | `"silent"`, `"normal"`, or `"debug"` | `"normal"` | `✔` |
 
 ## core_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables core hot-path telemetry counters.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает метрики ядра (hot-path telemetry counters).
+  - **Пример**:
 
     ```toml
     [general.telemetry]
     core_enabled = true
     ```
 ## user_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables per-user telemetry counters.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает счетчики телеметрии для каждого пользователя.
+  - **Пример**:
 
     ```toml
     [general.telemetry]
     user_enabled = true
     ```
 ## me_level
-  - **Constraints / validation**: `"silent"`, `"normal"`, or `"debug"`.
-  - **Description**: Middle-End telemetry verbosity level.
-  - **Example**:
+  - **Ограничения / валидация**: `"silent"`, `"normal"`или `"debug"`.
+  - **Описание**: Уровень детализации телеметрии Middle-End.
+  - **Пример**:
 
     ```toml
     [general.telemetry]
@@ -1675,32 +1677,32 @@ This document lists all configuration keys accepted by `config.toml`.
 # [network]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`ipv4`](#ipv4) | `bool` | `true` | `✘` |
 | [`ipv6`](#ipv6) | `bool` | `false` | `✘` |
 | [`prefer`](#prefer) | `u8` | `4` | `✘` |
 | [`multipath`](#multipath) | `bool` | `false` | `✘` |
 | [`stun_use`](#stun_use) | `bool` | `true` | `✘` |
-| [`stun_servers`](#stun_servers) | `String[]` | Built-in STUN list (13 hosts) | `✘` |
+| [`stun_servers`](#stun_servers) | `String[]` | Встроенный STUN-лист (13 записей) | `✘` |
 | [`stun_tcp_fallback`](#stun_tcp_fallback) | `bool` | `true` | `✘` |
 | [`http_ip_detect_urls`](#http_ip_detect_urls) | `String[]` | `["https://ifconfig.me/ip", "https://api.ipify.org"]` | `✘` |
 | [`cache_public_ip_path`](#cache_public_ip_path) | `String` | `"cache/public_ip.txt"` | `✘` |
 | [`dns_overrides`](#dns_overrides) | `String[]` | `[]` | `✔` |
 
 ## ipv4
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables IPv4 networking.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает возможность подключения по IPv4.
+  - **Пример**:
 
     ```toml
     [network]
     ipv4 = true
     ```
 ## ipv6
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables/disables IPv6 networking. When omitted, defaults to `false`.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает возможность подключения по IPv6. Если не задан - используется значение `false`.
+  - **Пример**:
 
     ```toml
     [network]
@@ -1711,36 +1713,36 @@ This document lists all configuration keys accepted by `config.toml`.
     # ipv6 = false
     ```
 ## prefer
-  - **Constraints / validation**: Must be `4` or `6`. If `prefer = 4` while `ipv4 = false`, Telemt forces `prefer = 6`. If `prefer = 6` while `ipv6 = false`, Telemt forces `prefer = 4`.
-  - **Description**: Preferred IP family for selection when both families are available.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `4` или `6`. Если `prefer = 4`, а `ipv4 = false`, Telemt принудительно использует `prefer = 6`. Если `prefer = 6`, а `ipv6 = false`, Telemt принудительно использует `prefer = 4`.
+  - **Описание**: Предпочтительный IP-протокол (IPv4 или IPv6) при выборе, если доступны оба.
+  - **Пример**:
 
     ```toml
     [network]
     prefer = 6
     ```
 ## multipath
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables multipath behavior where supported by the platform and runtime.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает многопоточное (multipath) сетевое поведение, если оно поддерживается платформой и средой выполняния.
+  - **Пример**:
 
     ```toml
     [network]
     multipath = true
     ```
 ## stun_use
-  - **Constraints / validation**: `bool`.
-  - **Description**: Global STUN switch; when `false`, STUN probing is disabled and only non-STUN detection remains.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Глобальный переключатель STUN; если установлено значение «false», проверка STUN отключается и остается только обнаружение без STUN.
+  - **Пример**:
 
     ```toml
     [network]
     stun_use = false
     ```
 ## stun_servers
-  - **Constraints / validation**: `String[]`. Values are trimmed; empty values are removed; list is deduplicated. If this key is **not** explicitly set, Telemt keeps the built-in default STUN list.
-  - **Description**: STUN servers list for public IP discovery.
-  - **Example**:
+  - **Ограничения / валидация**: `String[]`. Значения обрезаются; пустые значения удаляются; список очищается от дубликатов. Если этот ключ **не** задан явно, Telemt использует встроенный список STUN по умолчанию.
+  - **Описание**: Список STUN-серверов для определения публичного IP-адреса.
+  - **Пример**:
 
     ```toml
     [network]
@@ -1750,39 +1752,39 @@ This document lists all configuration keys accepted by `config.toml`.
     ]
     ```
 ## stun_tcp_fallback
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables TCP fallback for STUN when the UDP path is blocked/unavailable.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает резервный TCP для STUN в случае недоступности UDP-соединения.
+  - **Пример**:
 
     ```toml
     [network]
     stun_tcp_fallback = true
     ```
 ## http_ip_detect_urls
-  - **Constraints / validation**: `String[]`.
-  - **Description**: HTTP endpoints used for public IP detection (fallback after STUN).
-  - **Example**:
+  - **Ограничения / валидация**: `String[]`.
+  - **Описание**: HTTP-эндпоинты, используемые для определения публичного IP (резервный вариант после STUN).
+  - **Пример**:
 
     ```toml
     [network]
     http_ip_detect_urls = ["https://ifconfig.me/ip", "https://api.ipify.org"]
     ```
 ## cache_public_ip_path
-  - **Constraints / validation**: `String`.
-  - **Description**: File path used to cache the detected public IP.
-  - **Example**:
+  - **Ограничения / валидация**: `String`.
+  - **Описание**: Путь к файлу, в котором кэшируется определённый публичный IP.
+  - **Пример**:
 
     ```toml
     [network]
     cache_public_ip_path = "cache/public_ip.txt"
     ```
 ## dns_overrides
-  - **Constraints / validation**: `String[]`. Each entry must use `host:port:ip` format.
-    - `host`: domain name (must be non-empty and must not contain `:`)
+  - **Ограничения / валидация**: `String[]`. Каждая запись должна использовать формат `host:port:ip`.
+    - `host`: доменное имя (не должно быть пустым и не должно содержать `:`)
     - `port`: `u16`
-    - `ip`: IPv4 (`1.2.3.4`) or bracketed IPv6 (`[2001:db8::1]`). **Unbracketed IPv6 is rejected**.
-  - **Description**: Runtime DNS overrides for `host:port` targets. Useful for forcing specific IPs for given upstream domains without touching system DNS.
-  - **Example**:
+    - `ip`: IPv4 (`1.2.3.4`) или IPv6 в квадратных скобках (`[2001:db8::1]`). **Значения IPv6 без скобок отклоняются!**
+  - **Описание**: Переопределение DNS во время работы для `host:port`-соединений. Позволяет принудительно задавать IP для указанных доменов, не изменяя системный DNS.
+  - **Пример**:
 
     ```toml
     [network]
@@ -1796,7 +1798,7 @@ This document lists all configuration keys accepted by `config.toml`.
 # [server]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`port`](#port) | `u16` | `443` | `✘` |
 | [`listen_addr_ipv4`](#listen_addr_ipv4) | `String` | `"0.0.0.0"` | `✘` |
@@ -1810,26 +1812,26 @@ This document lists all configuration keys accepted by `config.toml`.
 | [`metrics_port`](#metrics_port) | `u16` | — | `✘` |
 | [`metrics_listen`](#metrics_listen) | `String` | — | `✘` |
 | [`metrics_whitelist`](#metrics_whitelist) | `IpNetwork[]` | `["127.0.0.1/32", "::1/128"]` | `✘` |
-| [`api`](#serverapi) | `Table` | built-in defaults | `✘` |
-| [`admin_api`](#serverapi) | `Table` | alias for `api` | `✘` |
-| [`listeners`](#serverlisteners) | `Table[]` | derived from legacy listener fields | `✘` |
+| [`api`](#serverapi) | `Table` | встроенные значения | `✘` |
+| [`admin_api`](#serverapi) | `Table` | алиас для `api` | `✘` |
+| [`listeners`](#serverlisteners) | `Table[]` | выводится из legacy listener-полей | `✘` |
 | [`max_connections`](#max_connections) | `u32` | `10000` | `✘` |
 | [`accept_permit_timeout_ms`](#accept_permit_timeout_ms) | `u64` | `250` | `✘` |
 | [`listen_backlog`](#listen_backlog) | `u32` | `1024` | `✘` |
-| [`conntrack_control`](#serverconntrack_control) | `Table` | built-in defaults | `✘` |
+| [`conntrack_control`](#serverconntrack_control) | `Table` | встроенные значения | `✘` |
 
 ## port
-  - **Constraints / validation**: `u16`.
-  - **Description**: Main proxy listen port (TCP).
-  - **Example**:
+  - **Ограничения / валидация**: `u16`.
+  - **Описание**: Main proxy listen port (TCP).
+  - **Пример**:
 
     ```toml
     [server]
     port = 443
     ```
 ## listen_backlog
-  - **Constraints / validation**: `u32`. `0` uses the OS default backlog behavior.
-  - **Description**: Listen backlog passed to `listen(2)` for TCP sockets.
+  - **Ограничения / валидация**: `u32`. `0` использует системный backlog по умолчанию.
+  - **Описание**: Значение backlog, передаваемое в `listen(2)` для TCP-сокетов.
   - **Example**:
 
     ```toml
@@ -1837,36 +1839,36 @@ This document lists all configuration keys accepted by `config.toml`.
     listen_backlog = 1024
     ```
 ## listen_addr_ipv4
-  - **Constraints / validation**: `String` (optional). When set, must be a valid IPv4 address string.
-  - **Description**: IPv4 bind address for TCP listener (omit this key to disable IPv4 bind).
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Если задан, должен содержать валидный IPv4-адрес в формате строки.
+  - **Описание**: Прослушиваемый адрес в формате IPv4 (не задавайте этот параметр, если необходимо отключить прослушивание по IPv4).
+  - **Пример**:
 
     ```toml
     [server]
     listen_addr_ipv4 = "0.0.0.0"
     ```
 ## listen_addr_ipv6
-  - **Constraints / validation**: `String` (optional). When set, must be a valid IPv6 address string.
-  - **Description**: IPv6 bind address for TCP listener (omit this key to disable IPv6 bind).
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Если задан, должен содержать валидный IPv6-адрес в формате строки.
+  - **Описание**: Прослушиваемый адрес в формате  IPv6 (не задавайте этот параметр, если необходимо отключить прослушивание по IPv6).
+  - **Пример**:
 
     ```toml
     [server]
     listen_addr_ipv6 = "::"
     ```
 ## listen_unix_sock
-  - **Constraints / validation**: `String` (optional). Must not be empty when set. Unix only.
-  - **Description**: Unix socket path for listener. When set, `server.listen_tcp` defaults to `false` (unless explicitly overridden).
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Не должен быть пустым, если задан. Unix only.
+  - **Описание**: Путь к Unix-сокету для прослушивания. Если этот параметр задан, `server.listen_tcp` по умолчанию устанавливается в `false` (если только не переопределён явно).
+  - **Пример**:
 
     ```toml
     [server]
     listen_unix_sock = "/run/telemt.sock"
     ```
 ## listen_unix_sock_perm
-  - **Constraints / validation**: `String` (optional). When set, should be an octal permission string like `"0666"` or `"0777"`.
-  - **Description**: Optional Unix socket file permissions applied after bind (chmod). When omitted, permissions are not changed (inherits umask).
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Если задан, должен содержать восьмеричную строку со значением прав, например `"0666"` или `"0777"`.
+  - **Описание**: Необязательные права доступа для Unix-сокета, применяемые после биндинга через chmod. Если параметр не указан, права не изменяются и используются настройки umask.
+  - **Пример**:
 
     ```toml
     [server]
@@ -1874,11 +1876,11 @@ This document lists all configuration keys accepted by `config.toml`.
     listen_unix_sock_perm = "0666"
     ```
 ## listen_tcp
-  - **Constraints / validation**: `bool` (optional). When omitted, Telemt auto-detects:
-    - `true` when `listen_unix_sock` is not set
-    - `false` when `listen_unix_sock` is set
-  - **Description**: Explicit TCP listener enable/disable override.
-  - **Example**:
+  - **Ограничения / валидация**: `bool` (необязательный параметр). Если этот параметр не задан, Telemt автоматически использует:
+- `true`, если `listen_unix_sock` не задан;
+- `false`, если задан `listen_unix_sock`.
+  - **Описание**: Явное переопределение включения или отключения TCP-прослушивания.
+  - **Пример**:
 
     ```toml
     [server]
@@ -1887,18 +1889,18 @@ This document lists all configuration keys accepted by `config.toml`.
     listen_tcp = true
     ```
 ## proxy_protocol
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables HAProxy PROXY protocol parsing on incoming connections (PROXY v1/v2). When enabled, client source address is taken from the PROXY header.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает поддержку разбора PROXY protocol от HAProxy (v1/v2) на входящих соединениях. При включении исходный IP клиента берётся из PROXY-заголовка.
+  - **Пример**:
 
     ```toml
     [server]
     proxy_protocol = true
     ```
 ## proxy_protocol_header_timeout_ms
-  - **Constraints / validation**: Must be `> 0` (milliseconds).
-  - **Description**: Timeout for reading and parsing PROXY protocol headers (ms).
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд).
+  - **Описание**: Таймаут чтения и анализа заголовков протокола PROXY (мс).
+  - **Пример**:
 
     ```toml
     [server]
@@ -1906,12 +1908,11 @@ This document lists all configuration keys accepted by `config.toml`.
     proxy_protocol_header_timeout_ms = 500
     ```
 ## proxy_protocol_trusted_cidrs
-  - **Constraints / validation**: `IpNetwork[]`.
-    - If omitted, defaults to trust-all CIDRs (`0.0.0.0/0` and `::/0`). 
-      > In production behind HAProxy/nginx, prefer setting explicit trusted CIDRs instead of relying on this fallback.
-    - If explicitly set to an empty array, all PROXY headers are rejected.
-  - **Description**: Trusted source CIDRs allowed to provide PROXY protocol headers (security control).
-  - **Example**:
+  - **Ограничения / валидация**: `IpNetwork[]`.
+    - Если этот параметр не задан, по умолчанию в качестве доверенных используются доверительные все CIDR (`0.0.0.0/0` и `::/0`).
+    - Если явно задан пустой массив, все заголовки PROXY отклоняются.
+  - **Описание**: Список доверенных CIDR-диапазонов, которым разрешено передавать PROXY protocol-заголовки (механизм безопасности).
+  - **Пример**:
 
     ```toml
     [server]
@@ -1919,27 +1920,27 @@ This document lists all configuration keys accepted by `config.toml`.
     proxy_protocol_trusted_cidrs = ["127.0.0.1/32", "10.0.0.0/8"]
     ```
 ## metrics_port
-  - **Constraints / validation**: `u16` (optional).
-  - **Description**: Prometheus-compatible metrics endpoint port. When set, enables the metrics listener (bind behavior can be overridden by `metrics_listen`).
-  - **Example**:
+  - **Ограничения / валидация**: `u16` (необязательный параметр).
+  - **Описание**: Порт для Prometheus-совместимого endpoint’а метрик. При задании включает прослушивание метрик (поведение прослушивания может быть переопределено через `metrics_listen`).
+  - **Пример**:
 
     ```toml
     [server]
     metrics_port = 9090
     ```
 ## metrics_listen
-  - **Constraints / validation**: `String` (optional). When set, must be in `IP:PORT` format.
-  - **Description**: Full metrics bind address (`IP:PORT`), overrides `metrics_port` and binds on the specified address only.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Если задан, значение должно быть в формате `IP:PORT`.
+  - **Описание**: Полный адрес привязки метрик (`IP:PORT`), переопределяет `metrics_port` и запускает прослушивание только на указанном адресе..
+  - **Пример**:
 
     ```toml
     [server]
     metrics_listen = "127.0.0.1:9090"
     ```
 ## metrics_whitelist
-  - **Constraints / validation**: `IpNetwork[]`.
-  - **Description**: CIDR whitelist for metrics endpoint access.
-  - **Example**:
+  - **Ограничения / валидация**: `IpNetwork[]`.
+  - **Описание**: Белый список CIDR для доступа к endpoint’у метрик.
+  - **Пример**:
 
     ```toml
     [server]
@@ -1947,18 +1948,18 @@ This document lists all configuration keys accepted by `config.toml`.
     metrics_whitelist = ["127.0.0.1/32", "::1/128"]
     ```
 ## max_connections
-  - **Constraints / validation**: `u32`. `0` means unlimited.
-  - **Description**: Maximum number of concurrent client connections.
-  - **Example**:
+  - **Ограничения / валидация**: `u32`. `0` - без ограничений.
+  - **Описание**: Максимальное количество одновременных клиентских соединений.
+  - **Пример**:
 
     ```toml
     [server]
     max_connections = 10000
     ```
 ## accept_permit_timeout_ms
-  - **Constraints / validation**: `0..=60000` (milliseconds). `0` keeps legacy unbounded wait behavior.
-  - **Description**: Maximum wait for acquiring a connection-slot permit before the accepted connection is dropped.
-  - **Example**:
+  - **Ограничения / валидация**: `0..=60000` (milliseconds). `0` - неограниченное время ожидания.
+  - **Описание**: Максимальное время ожидания получения разрешения на подключение, прежде чем принятое соединение будет разорвано.
+  - **Пример**:
 
     ```toml
     [server]
@@ -1966,14 +1967,14 @@ This document lists all configuration keys accepted by `config.toml`.
     ```
 
 
-Note: When `server.proxy_protocol` is enabled, incoming PROXY protocol headers are parsed from the first bytes of the connection and the client source address is replaced with `src_addr` from the header. For security, the peer source IP (the direct connection address) is verified against `server.proxy_protocol_trusted_cidrs`; if this list is empty, PROXY headers are rejected and the connection is considered untrusted.
+Примечание. Когда `server.proxy_protocol` включен, входящие заголовки протокола PROXY анализируются с первых байтов соединения, а исходный адрес клиента заменяется на `src_addr` из заголовка. В целях безопасности IP-адрес прямого соединения проверяется по `server.proxy_protocol_trusted_cidrs`; если этот список пуст, заголовки PROXY отклоняются и соединение считается ненадежным.
 
 # [server.conntrack_control]
 
-Note: The conntrack-control worker runs **only on Linux**. On other operating systems it is not started; if `inline_conntrack_control` is `true`, a warning is logged. Effective operation also requires **CAP_NET_ADMIN** and a usable backend (`nft` or `iptables` / `ip6tables` on `PATH`). The `conntrack` utility is used for optional table entry deletes under pressure.
+Примечание. Рабочий процесс `conntrack-control` работает **только в Linux**. В других операционных системах не запускается; если inline_conntrack_control имеет значение `true`, в логи записывается предупреждение. Для эффективной работы также требуется **CAP_NET_ADMIN** и пригодный к использованию бэкенд (nft или iptables/ip6tables в PATH). Утилита `conntrack` используется для удаления необязательных записей таблицы под нагрузкой.
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`inline_conntrack_control`](#inline_conntrack_control) | `bool` | `true` | `✘` |
 | [`mode`](#mode) | `String` | `"tracked"` | `✘` |
@@ -1985,45 +1986,50 @@ Note: The conntrack-control worker runs **only on Linux**. On other operating sy
 | [`delete_budget_per_sec`](#delete_budget_per_sec) | `u64` | `4096` | `✘` |
 
 ## inline_conntrack_control
-  - **Constraints / validation**: `bool`.
-  - **Description**: Master switch for the runtime conntrack-control task: reconciles **raw/notrack** netfilter rules for listener ingress (see `mode`), samples load every second, and may run **`conntrack -D`** deletes for qualifying close events while **pressure mode** is active (see `delete_budget_per_sec`). When `false`, notrack rules are cleared and pressure-driven deletes are disabled.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Главный переключатель для задачи conntrack-control: согласовывает правила сетевого фильтра **raw/notrack** для входяшего трафика (см. `mode`), раз в секунду измеряет нагрузку и при активном режиме нагрузки может выполнять удаления через **`conntrack -D`** для подходящих событий закрытия соединений (см. `delete_budget_per_sec`). Если отключён (`false`), notrack-правила удаляются, а удаление при нагрузке отключается.
+  - **Пример**:
 
     ```toml
     [server.conntrack_control]
     inline_conntrack_control = true
     ```
 ## mode
-  - **Constraints / validation**: One of `tracked`, `notrack`, `hybrid` (case-insensitive; serialized lowercase).
-  - **Description**: **`tracked`**: do not install telemt notrack rules (connections stay in conntrack). **`notrack`**: mark matching ingress TCP to `server.port` as notrack — targets are derived from `[[server.listeners]]` if any, otherwise from `server.listen_addr_ipv4` / `server.listen_addr_ipv6` (unspecified addresses mean “any” for that family). **`hybrid`**: notrack only for addresses listed in `hybrid_listener_ips` (must be non-empty; validated at load).
-  - **Example**:
+  - **Ограничения / валидация**: `tracked`, `notrack` или `hybrid` (чувствителен к регистру, используется нижний регистр).
+  - **Описание**: 
+    - **`tracked`**: не устанавливать notrack-правила, соединения полностью отслеживаются conntrack.
+    - **`notrack`**: помечает входящий TCP-трафик к server.port как notrack; цели берутся из `[server.listeners]`, либо из `server.listen_addr_ipv4 / server.listen_addr_ipv6` (неуказанные адреса означают «любой» для этого семейства).
+    - **`hybrid`**: notrack применяется только к адресам из `hybrid_listener_ips` (не должно быть пустым, проверяется при загрузке), остальные соединения отслеживаются обычным образом.
+  - **Пример**:
 
     ```toml
     [server.conntrack_control]
     mode = "notrack"
     ```
 ## backend
-  - **Constraints / validation**: One of `auto`, `nftables`, `iptables` (case-insensitive; serialized lowercase).
-  - **Description**: Which command set applies notrack rules. **`auto`**: use `nft` if present on `PATH`, else `iptables`/`ip6tables` if present. **`nftables`** / **`iptables`**: force that backend; missing binary means rules cannot be applied. The nft path uses table `inet telemt_conntrack` and a prerouting raw hook; iptables uses chain `TELEMT_NOTRACK` in the `raw` table.
-  - **Example**:
+  - **Ограничения / валидация**: `auto`, `nftables`или `iptables` (чувствителен к регистру, используется нижний регистр).
+  - **Описание**: Выбор набора инструментов для применения notrack-правил. 
+    - **`auto`**: использует `nft`, если доступен, иначе - `iptables`/`ip6tables`.
+    - **`nftables / iptables`**: принудительно выбирает соответствующий backend; при отсутствии бинарника правила не применяются. В nft-режиме используется таблица `inet telemt_conntrack`, в `iptables` — цепочка TELEMT_NOTRACK в таблице raw.
+  - **Пример**:
 
     ```toml
     [server.conntrack_control]
     backend = "auto"
     ```
 ## profile
-  - **Constraints / validation**: One of `conservative`, `balanced`, `aggressive` (case-insensitive; serialized lowercase).
-  - **Description**: When **conntrack pressure mode** is active (`pressure_*` watermarks), caps idle and activity timeouts to reduce conntrack churn: e.g. **client first-byte idle** (`client.rs`), **direct relay activity timeout** (`direct_relay.rs`), and **middle-relay idle policy** caps (`middle_relay.rs` via `ConntrackPressureProfile::*_cap_secs` / `direct_activity_timeout_secs`). More aggressive profiles use shorter caps.
-  - **Example**:
+  - **Ограничения / валидация**: `conservative`, `balanced`или `aggressive` (чувствителен к регистру, используется нижний регистр).
+  - **Описание**: При активном режиме **conntrack pressure mode** граничивает таймауты для снижения нагрузки: idle-время клиента, таймауты активности direct relay и политики idle middle relay. Более агрессивные профили используют более короткие ограничения.
+  - **Пример**:
 
     ```toml
     [server.conntrack_control]
     profile = "balanced"
     ```
 ## hybrid_listener_ips
-  - **Constraints / validation**: `IpAddr[]`. Required to be **non-empty** when `mode = "hybrid"`. Ignored for `tracked` / `notrack`.
-  - **Description**: Explicit listener addresses that receive notrack rules in hybrid mode (split into IPv4 vs IPv6 rules by the implementation).
-  - **Example**:
+  - **Ограничения / валидация**: `IpAddr[]`. Значение не должно быть пустым, если `mode = "hybrid"`. Игнорируется для режимов `tracked` / `notrack`.
+  - **Описание**: Явный список прослушиваемых IP-адресов, к которым применяется notrack в hybrid-режиме (разделяется на IPv4 и IPv6 правила).
+  - **Пример**:
 
     ```toml
     [server.conntrack_control]
@@ -2031,27 +2037,27 @@ Note: The conntrack-control worker runs **only on Linux**. On other operating sy
     hybrid_listener_ips = ["203.0.113.10", "2001:db8::1"]
     ```
 ## pressure_high_watermark_pct
-  - **Constraints / validation**: Must be within `[1, 100]`.
-  - **Description**: Pressure mode **enters** when any of: connection fill vs `server.max_connections` (percentage, if `max_connections > 0`), **file-descriptor** usage vs process soft `RLIMIT_NOFILE`, **non-zero** `accept_permit_timeout` events in the last sample window, or **ME c2me send-full** counter delta. Entry compares relevant percentages against this high watermark (see `update_pressure_state` in `conntrack_control.rs`).
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `[1, 100]`.
+  - **Описание**: Порог входа в **conntrack pressure mode**. Переход происходит при любом из следующих условий: заполненность соединений относительно `server.max_connections` (в процентах, если `max_connections > 0`), **использование файловых дескрипторов** относительно мягкого лимита `RLIMIT_NOFILE`, **ненулевое** значение `accept_permit_timeout` или дельта относитель счетчика **ME c2me send-full**. Сравниваются соответствующие проценты с верхней отметкой указанных параметров (см. update_pressure_state в conntrack_control.rs).
+  - **Пример**:
 
     ```toml
     [server.conntrack_control]
     pressure_high_watermark_pct = 85
     ```
 ## pressure_low_watermark_pct
-  - **Constraints / validation**: Must be **strictly less than** `pressure_high_watermark_pct`.
-  - **Description**: Pressure mode **clears** only after **three** consecutive one-second samples where all signals are at or below this low watermark and the accept-timeout / ME-queue deltas are zero (hysteresis).
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть **сторого ниже** значения `pressure_high_watermark_pct`.
+  - **Описание**: Режим **conntrack pressure mode** отключается только после **трех** последовательных односекундных выборок, когда все сигналы находятся на уровне этой нижней границы или ниже, а дельты времени ожидания приема/ME-очереди равны нулю (гистерезис).
+  - **Пример**:
 
     ```toml
     [server.conntrack_control]
     pressure_low_watermark_pct = 70
     ```
 ## delete_budget_per_sec
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Maximum number of **`conntrack -D`** attempts **per second** while pressure mode is active (token bucket refilled each second). Deletes run only for close events with reasons **timeout**, **pressure**, or **reset**; each attempt consumes a token regardless of outcome.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Максимальное количество попыток удаления через `conntrack -D` в секунду во время режима **conntrack pressure mode**. Ограничение реализовано через токен-бакет; применяется только к событиям закрытия с причинами **timeout**, **pressure** или **reset**.
+  - **Пример**:
 
     ```toml
     [server.conntrack_control]
@@ -2061,10 +2067,10 @@ Note: The conntrack-control worker runs **only on Linux**. On other operating sy
 
 # [server.api]
 
-Note: This section also accepts the legacy alias `[server.admin_api]` (same schema as `[server.api]`).
+Примечание: В этом разделе также задается устаревший параметр `[server.admin_api]` (аналогично `[server.api]`).
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`enabled`](#enabled) | `bool` | `true` | `✘` |
 | [`listen`](#listen) | `String` | `"0.0.0.0:9091"` | `✘` |
@@ -2081,17 +2087,17 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
 | [`gray_action`](#gray_action) | `"drop"`, `"api"`, or `"200"` | `"drop"` | `✘` |
 
 ## enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables control-plane REST API.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает возможность управления через REST API.
+  - **Пример**:
 
     ```toml
     [server.api]
     enabled = true
     ```
 ## gray_action
-  - **Constraints / validation**: `"drop"`, `"api"`, or `"200"`.
-  - **Description**: API response policy for gray/limited states: drop request, serve normal API response, or force `200 OK`.
+  - **Ограничения / валидация**: `"drop"`, `"api"` или `"200"`.
+  - **Описание**: Политика ответа API в «серых» (ограниченных) состояниях: сброс, обычный API-ответ, либо `200 OK`.
   - **Example**:
 
     ```toml
@@ -2099,99 +2105,99 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     gray_action = "drop"
     ```
 ## listen
-  - **Constraints / validation**: `String`. Must be in `IP:PORT` format.
-  - **Description**: API bind address in `IP:PORT` format.
-  - **Example**:
+  - **Ограничения / валидация**: `String`. Должно быть в формате `IP:PORT`.
+  - **Описание**: Адрес биндинга API в формате `IP:PORT`.
+  - **Пример**:
 
     ```toml
     [server.api]
     listen = "0.0.0.0:9091"
     ```
 ## whitelist
-  - **Constraints / validation**: `IpNetwork[]`.
-  - **Description**: CIDR whitelist allowed to access API.
-  - **Example**:
+  - **Ограничения / валидация**: `IpNetwork[]`.
+  - **Описание**: Список CIDR-адресов, которым разрешён доступ к API.
+  - **Пример**:
 
     ```toml
     [server.api]
     whitelist = ["127.0.0.0/8"]
     ```
 ## auth_header
-  - **Constraints / validation**: `String`. Empty string disables auth-header validation.
-  - **Description**: Exact expected `Authorization` header value (static shared secret).
-  - **Example**:
+  - **Ограничения / валидация**: `String`. Пустая строка отключает проверку заголовка аутентификации.
+  - **Описание**: Точное ожидаемое значение заголовка `Authorization` (static shared secret).
+  - **Пример**:
 
     ```toml
     [server.api]
     auth_header = "Bearer MY_TOKEN"
     ```
 ## request_body_limit_bytes
-  - **Constraints / validation**: Must be `> 0` (bytes).
-  - **Description**: Maximum accepted HTTP request body size (bytes).
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (байт).
+  - **Описание**: Максимальный принимаемый размер тела HTTP-запроса (в байтах).
+  - **Пример**:
 
     ```toml
     [server.api]
     request_body_limit_bytes = 65536
     ```
 ## minimal_runtime_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables minimal runtime snapshots endpoint logic.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает логику минимальных runtime-снимков endpoint’а.
+  - **Пример**:
 
     ```toml
     [server.api]
     minimal_runtime_enabled = true
     ```
 ## minimal_runtime_cache_ttl_ms
-  - **Constraints / validation**: `0..=60000` (milliseconds). `0` disables cache.
-  - **Description**: Cache TTL for minimal runtime snapshots (ms).
-  - **Example**:
+  - **Ограничения / валидация**: `0..=60000` (миллисекунд). `0` - отключает кэширование.
+  - **Описание**: Время жизни минимальных runtime-снимков (в мс).
+  - **Пример**:
 
     ```toml
     [server.api]
     minimal_runtime_cache_ttl_ms = 1000
     ```
 ## runtime_edge_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables runtime edge endpoints.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает runtime endpoint’ы для edge-данных (статистики/метрик).
+  - **Пример**:
 
     ```toml
     [server.api]
     runtime_edge_enabled = false
     ```
 ## runtime_edge_cache_ttl_ms
-  - **Constraints / validation**: `0..=60000` (milliseconds).
-  - **Description**: Cache TTL for runtime edge aggregation payloads (ms).
-  - **Example**:
+  - **Ограничения / валидация**: `0..=60000` (миллисекунд).
+  - **Описание**: Время жизни кэша (в миллисекундах) для агрегированных данных (payload’ов) runtime edge.
+  - **Пример**:
 
     ```toml
     [server.api]
     runtime_edge_cache_ttl_ms = 1000
     ```
 ## runtime_edge_top_n
-  - **Constraints / validation**: `1..=1000`.
-  - **Description**: Top-N size for edge connection leaderboard.
-  - **Example**:
+  - **Ограничения / валидация**: `1..=1000`.
+  - **Описание**: Размер выборки Top-N для рейтинга (leaderboard) edge-соединений.
+  - **Пример**:
 
     ```toml
     [server.api]
     runtime_edge_top_n = 10
     ```
 ## runtime_edge_events_capacity
-  - **Constraints / validation**: `16..=4096`.
-  - **Description**: Ring-buffer capacity for runtime edge events.
-  - **Example**:
+  - **Ограничения / валидация**: `16..=4096`.
+  - **Описание**: Ёмкость кольцевого буфера для runtime edge-событий.
+  - **Пример**:
 
     ```toml
     [server.api]
     runtime_edge_events_capacity = 256
     ```
 ## read_only
-  - **Constraints / validation**: `bool`.
-  - **Description**: Rejects mutating API endpoints when enabled.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Переводит API в режим "только чтение".
+  - **Пример**:
 
     ```toml
     [server.api]
@@ -2202,7 +2208,7 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
 # [[server.listeners]]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`ip`](#ip) | `IpAddr` | — | `✘` |
 | [`port`](#port-serverlisteners) | `u16` | `server.port` | `✘` |
@@ -2212,18 +2218,18 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
 | [`reuse_allow`](#reuse_allow) | `bool` | `false` | `✘` |
 
 ## ip
-  - **Constraints / validation**: Required field. Must be an `IpAddr`.
-  - **Description**: Listener bind IP.
-  - **Example**:
+  - **Ограничения / валидация**: Обязательный параметр. Значение должно содержать IP-адрес в формате строки.
+  - **Описание**: Адрес для listener’а.
+  - **Пример**:
 
     ```toml
     [[server.listeners]]
     ip = "0.0.0.0"
     ```
 ## port (server.listeners)
-  - **Constraints / validation**: `u16` (optional). When omitted, falls back to `server.port`.
-  - **Description**: Per-listener TCP port.
-  - **Example**:
+  - **Ограничения / валидация**: `u16` (необязательный параметр). Если не задан, используется `server.port`.
+  - **Описание**: TCP-порт для конкретного listener’а.
+  - **Пример**:
 
     ```toml
     [[server.listeners]]
@@ -2231,9 +2237,9 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     port = 443
     ```
 ## announce
-  - **Constraints / validation**: `String` (optional). Must not be empty when set.
-  - **Description**: Public IP/domain announced in proxy links for this listener. Takes precedence over `announce_ip`.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Не должен быть пустым, если задан.
+  - **Описание**: Публичный IP-адрес или домен, объявляемый в proxy-ссылках для данного listener’а. Имеет приоритет над `announce_ip`.
+  - **Пример**:
 
     ```toml
     [[server.listeners]]
@@ -2241,9 +2247,9 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     announce = "proxy.example.com"
     ```
 ## announce_ip
-  - **Constraints / validation**: `IpAddr` (optional). Deprecated. Use `announce`.
-  - **Description**: Deprecated legacy announce IP. During config load it is migrated to `announce` when `announce` is not set.
-  - **Example**:
+  - **Ограничения / валидация**: `IpAddr` (необязательный параметр). Устарел. Используйте `announce`.
+  - **Описание**: Устаревший параметр для анонсирования IP. Во время загрузки конфигурации он переносится в `announce` если `announce` не задан.
+  - **Пример**:
 
     ```toml
     [[server.listeners]]
@@ -2251,9 +2257,9 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     announce_ip = "203.0.113.10"
     ```
 ## proxy_protocol
-  - **Constraints / validation**: `bool` (optional). When set, overrides `server.proxy_protocol` for this listener.
-  - **Description**: Per-listener PROXY protocol override.
-  - **Example**:
+  - **Ограничения / валидация**: `bool` (необязательный параметр). Если задан, перезаписывает значение `server.proxy_protocol` для этого listener’а.
+  - **Описание**: Переопределение протокола PROXY для каждого listener’а.
+  - **Пример**:
 
     ```toml
     [server]
@@ -2264,9 +2270,9 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     proxy_protocol = true
     ```
 ## reuse_allow
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables `SO_REUSEPORT` for multi-instance bind sharing (allows multiple telemt instances to listen on the same `ip:port`).
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает `SO_REUSEPORT` для совместного использования привязки нескольких экземпляров (позволяет нескольким экземплярам telemt прослушивать один и тот же `ip:port`).
+  - **Пример**:
 
     ```toml
     [[server.listeners]]
@@ -2278,7 +2284,7 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
 # [timeouts]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`client_first_byte_idle_secs`](#client_first_byte_idle_secs) | `u64` | `300` | `✘` |
 | [`client_handshake`](#client_handshake) | `u64` | `30` | `✘` |
@@ -2292,17 +2298,17 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
 | [`me_one_timeout_ms`](#me_one_timeout_ms) | `u64` | `1200` | `✘` |
 
 ## client_handshake
-  - **Constraints / validation**: Must be `> 0`. Value is in seconds. Also used as an upper bound for some TLS emulation delays (see `censorship.server_hello_delay_max_ms`).
-  - **Description**: Client handshake timeout (seconds).
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`. Значение указано в секундах. Также используется в качестве верхней границы некоторых задержек эмуляции TLS (см. `censorship.server_hello_delay_max_ms`).
+  - **Описание**: Таймаут выполнения "рукопожатия" для клиента (в секундах).
+  - **Пример**:
 
     ```toml
     [timeouts]
     client_handshake = 30
     ```
 ## client_first_byte_idle_secs
-  - **Constraints / validation**: `u64` (seconds). `0` disables first-byte idle enforcement.
-  - **Description**: Maximum idle time to wait for the first client payload byte after session setup.
+  - **Ограничения / валидация**: `u64` (секунды). `0` отключает проверку простоя до первого байта.
+  - **Описание**: Максимальное время ожидания первого байта полезной нагрузки от клиента после установления сессии.
   - **Example**:
 
     ```toml
@@ -2310,72 +2316,72 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     client_first_byte_idle_secs = 300
     ```
 ## relay_idle_policy_v2_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables soft/hard middle-relay client idle policy.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает политику простоя клиента для промежуточного узла.
+  - **Пример**:
 
     ```toml
     [timeouts]
     relay_idle_policy_v2_enabled = true
     ```
 ## relay_client_idle_soft_secs
-  - **Constraints / validation**: Must be `> 0`; must be `<= relay_client_idle_hard_secs`.
-  - **Description**: Soft idle threshold (seconds) for middle-relay client uplink inactivity. Hitting this threshold marks the session as an idle-candidate (it may be eligible for cleanup depending on policy).
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`; Должно быть меньше или равно `relay_client_idle_hard_secs`.
+  - **Описание**: Мягкий порог простоя (в секундах) для неактивности uplink клиента в промежуточном узле. При достижении этого порога сессия помечается как кандидат на простой и может быть удалена в зависимости от политики.
+  - **Пример**:
 
     ```toml
     [timeouts]
     relay_client_idle_soft_secs = 120
     ```
 ## relay_client_idle_hard_secs
-  - **Constraints / validation**: Must be `> 0`; must be `>= relay_client_idle_soft_secs`.
-  - **Description**: Hard idle threshold (seconds) for middle-relay client uplink inactivity. Hitting this threshold closes the session.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`; Должно быть больше или равно`relay_client_idle_soft_secs`.
+  - **Описание**: Жёсткий порог простоя (в секундах) для неактивности uplink клиента в промежуточном узле. При достижении этого порога сессия принудительно закрывается.
+  - **Пример**:
 
     ```toml
     [timeouts]
     relay_client_idle_hard_secs = 360
     ```
 ## relay_idle_grace_after_downstream_activity_secs
-  - **Constraints / validation**: Must be `<= relay_client_idle_hard_secs`.
-  - **Description**: Extra hard-idle grace period (seconds) added after recent downstream activity.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `<= relay_client_idle_hard_secs`.
+  - **Описание**: Дополнительный период отсрочки жёсткого простоя (в секундах), добавляемый после недавней активности downstream.
+  - **Пример**:
 
     ```toml
     [timeouts]
     relay_idle_grace_after_downstream_activity_secs = 30
     ```
 ## client_keepalive
-  - **Constraints / validation**: `u64`. Value is in seconds.
-  - **Description**: Client keepalive timeout (seconds).
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунд).
+  - **Описание**: Таймаут keepalive для клиента..
+  - **Пример**:
 
     ```toml
     [timeouts]
     client_keepalive = 15
     ```
 ## client_ack
-  - **Constraints / validation**: `u64`. Value is in seconds.
-  - **Description**: Client ACK timeout (seconds).
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунд).
+  - **Описание**: Таймаут подтверждения (ACK) от клиента в секундах.
+  - **Пример**:
 
     ```toml
     [timeouts]
     client_ack = 90
     ```
 ## me_one_retry
-  - **Constraints / validation**: `u8`.
-  - **Description**: Fast reconnect attempts budget for single-endpoint DC scenarios.
-  - **Example**:
+  - **Ограничения / валидация**: `u8`.
+  - **Описание**: Лимит быстрых попыток переподключения в сценариях DC с единственным endpoint'ом.
+  - **Пример**:
 
     ```toml
     [timeouts]
     me_one_retry = 12
     ```
 ## me_one_timeout_ms
-  - **Constraints / validation**: `u64`. Value is in milliseconds.
-  - **Description**: Timeout per quick attempt (ms) for single-endpoint DC reconnect logic.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунд).
+  - **Описание**: Таймаут на одну быструю попытку переподключения (в миллисекундах) в логике reconnect для DC с единственным endpoint'ом.
+  - **Пример**:
 
     ```toml
     [timeouts]
@@ -2386,7 +2392,7 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
 # [censorship]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`tls_domain`](#tls_domain) | `String` | `"petrovich.ru"` | `✘` |
 | [`tls_domains`](#tls_domains) | `String[]` | `[]` | `✘` |
@@ -2414,27 +2420,26 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
 | [`mask_shape_above_cap_blur`](#mask_shape_above_cap_blur) | `bool` | `false` | `✘` |
 | [`mask_shape_above_cap_blur_max_bytes`](#mask_shape_above_cap_blur_max_bytes) | `usize` | `512` | `✘` |
 | [`mask_relay_max_bytes`](#mask_relay_max_bytes) | `usize` | `5242880` | `✘` |
-| [`mask_relay_timeout_ms`](#mask_relay_timeout_ms) | `u64` | `60_000` | `✘` |
-| [`mask_relay_idle_timeout_ms`](#mask_relay_idle_timeout_ms) | `u64` | `5_000` | `✘` |
+| [`mask_relay_timeout_ms`](mask_relay_timeout_ms) | `u64` | `60_000` | `✘` |
+| [`mask_relay_idle_timeout_ms`](mask_relay_idle_timeout_ms) | `u64` | `5_000` | `✘` |
 | [`mask_classifier_prefetch_timeout_ms`](#mask_classifier_prefetch_timeout_ms) | `u64` | `5` | `✘` |
 | [`mask_timing_normalization_enabled`](#mask_timing_normalization_enabled) | `bool` | `false` | `✘` |
 | [`mask_timing_normalization_floor_ms`](#mask_timing_normalization_floor_ms) | `u64` | `0` | `✘` |
 | [`mask_timing_normalization_ceiling_ms`](#mask_timing_normalization_ceiling_ms) | `u64` | `0` | `✘` |
 
 ## tls_domain
-  - **Constraints / validation**: Must be a non-empty domain name. Must not contain spaces or `/`.
-  - **Description**: Primary domain used for Fake-TLS masking / fronting profile and as the default SNI domain presented to clients. 
-    This value becomes part of generated `ee` links, and changing it invalidates previously generated links.
-  - **Example**:
+  - **Ограничения / валидация**: Не должно быть пустым. Не должно содержать пробелы или `/`.
+  - **Описание**: Основной TLS-домен, используемый в профиле FakeTLS handshake и как домен SNI по умолчанию.
+  - **Пример**:
 
     ```toml
     [censorship]
     tls_domain = "example.com"
     ```
 ## tls_domains
-  - **Constraints / validation**: `String[]`. When set, values are merged with `tls_domain` and deduplicated (primary `tls_domain` always stays first).
-  - **Description**: Additional TLS domains for generating multiple proxy links.
-  - **Example**:
+  - **Ограничения / валидация**: `String[]`. Когда задан, значение объединяется с `tls_domain` и очищается от дубликатов (первичный tls_domain всегда остается первым).
+  - **Описание**: Дополнительные домены TLS для создания нескольких прокси-ссылок.
+  - **Пример**:
 
     ```toml
     [censorship]
@@ -2442,31 +2447,31 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     tls_domains = ["example.net", "example.org"]
     ```
 ## unknown_sni_action
-  - **Constraints / validation**: `"drop"`, `"mask"`, `"accept"` or `"reject_handshake"`.
-  - **Description**: Action for TLS ClientHello with unknown / non-configured SNI.
-    - `drop` — close the connection without any response (silent FIN after `server_hello_delay` is applied). Timing-indistinguishable from the Success branch, but wire-quieter than what a real web server would do.
-    - `mask` — transparently proxy the connection to `mask_host:mask_port` (TLS fronting). The client receives a real ServerHello from the backend with its real certificate. Maximum camouflage, but opens an outbound connection for every misdirected request.
-    - `accept` — pretend the SNI is valid and continue on the auth path. Weakens active-probing resistance; only meaningful in narrow scenarios.
-    - `reject_handshake` — emit a fatal TLS `unrecognized_name` alert (RFC 6066, AlertDescription = 112) and close the connection. Identical on the wire to a modern nginx with `ssl_reject_handshake on;` on its default vhost: looks like an ordinary HTTPS server that simply does not host the requested name. Recommended when the goal is maximal parity with a stock web server rather than TLS fronting. `server_hello_delay` is intentionally **not** applied to this branch, so the alert is emitted "instantly" the way a reference nginx would.
-  - **Example**:
+  - **Ограничения / валидация**: `"drop"`, `"mask"`, `"accept"` или `"reject_handshake"`.
+  - **Описание**: Действие для TLS ClientHello с неизвестным/ненастроенным SNI.
+    - `drop` — закрыть соединение без ответа (молчаливый FIN после применения `server_hello_delay`). Поведение, неотличимое по таймингу от Success-ветки, но более «тихое», чем у обычного веб-сервера.
+    - `mask` — прозрачно проксировать соединение на `mask_host:mask_port` (TLS-fronting). Клиент получает настоящий ServerHello от реального бэкенда с его сертификатом. Максимальный камуфляж, но порождает исходящее соединение на каждый чужой запрос.
+    - `accept` — притвориться, что SNI валиден, и продолжить auth-путь. Снижает защиту от активного пробинга; осмысленно только в узких сценариях.
+    - `reject_handshake` — отправить фатальный TLS-alert `unrecognized_name` (RFC 6066, AlertDescription = 112) и закрыть соединение. Поведение, идентичное современному nginx с `ssl_reject_handshake on;` на дефолтном vhost'е: на wire-уровне выглядит как обычный HTTPS-сервер, у которого просто нет такого домена. Рекомендуется, если цель — максимальная похожесть на стоковый веб-сервер, а не tls-fronting. `server_hello_delay` на эту ветку не применяется, чтобы alert улетал «мгновенно», как у эталонного nginx.
+  - **Пример**:
 
     ```toml
     [censorship]
     unknown_sni_action = "reject_handshake"
     ```
 ## tls_fetch_scope
-  - **Constraints / validation**: `String`. Value is trimmed during load; whitespace-only becomes empty.
-  - **Description**: Upstream scope tag used for TLS-front metadata fetches. Empty value keeps default upstream routing behavior.
-  - **Example**:
+  - **Ограничения / валидация**: `String`. Значение обрезается во время загрузки; значение, состоящее только из пробелов, становится пустым.
+  - **Описание**: Тег области upstream, используемый для TLS-front метаданных при их получении. Пустое значение сохраняет стандартное поведение маршрутизации upstream.
+  - **Пример**:
 
     ```toml
     [censorship]
     tls_fetch_scope = "fetch"
     ```
-## tls_fetch
-  - **Constraints / validation**: Table. See `[censorship.tls_fetch]` section below.
-  - **Description**: TLS-front metadata fetch strategy settings (bootstrap + refresh behavior for TLS emulation data).
-  - **Example**:
+# censorship.tls_fetch
+  - **Ограничения / валидация**: Таблица, см. секцию `[censorship.tls_fetch]` ниже.
+  - **Описание**: Настройки стратегии получения TLS-front метаданных (поведение загрузки и обновления bootstrap и данных эмуляции TLS)..
+  - **Пример**:
 
     ```toml
     [censorship.tls_fetch]
@@ -2475,87 +2480,87 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     total_budget_ms = 15000
     ```
 ## mask
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables masking / fronting relay mode.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает режим маскировки/верхнего уровня. Принимаются все SNI, которые похожи на заданный в `tls_domain`.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask = true
     ```
 ## mask_host
-  - **Constraints / validation**: `String` (optional).
-    - If `mask_unix_sock` is set, `mask_host` must be omitted (mutually exclusive).
-    - If `mask_host` is not set and `mask_unix_sock` is not set, Telemt defaults `mask_host` to `tls_domain`.
-  - **Description**: Upstream mask host for TLS fronting relay.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр).
+    - Если задан параметр `mask_unix_sock`, `mask_host` не должен быть задан.
+    - Если не задан параметр `mask_host` и `mask_unix_sock` не задан, Telemt по умолчанию устанавливает для `mask_host` значение `tls_domain`.
+  - **Описание**: Хост, используемый для маскировки при TLS-fronting.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_host = "www.cloudflare.com"
     ```
 ## mask_port
-  - **Constraints / validation**: `u16`.
-  - **Description**: Upstream mask port for TLS fronting relay.
-  - **Example**:
+  - **Ограничения / валидация**: `u16`.
+  - **Описание**: Порт маскирующего upstream для TLS fronting.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_port = 443
     ```
 ## mask_unix_sock
-  - **Constraints / validation**: `String` (optional).
-    - Must not be empty when set.
-    - Unix only; rejected on non-Unix platforms.
-    - On Unix, must be \(\le 107\) bytes (path length limit).
-    - Mutually exclusive with `mask_host`.
-  - **Description**: Unix socket path for mask backend instead of TCP `mask_host`/`mask_port`.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (optional).
+    - Значение не должно быть пустым, если задан.
+    - Unix only;
+    - На Unix системах, должно быть \(\le 107\) байт (ограничение длины пути).
+    - Взаимоисключающий с `mask_host`.
+  - **Описание**: Путь к Unix-сокету для mask-бэкенда вместо использования TCP `mask_host`/`mask_port`.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_unix_sock = "/run/telemt/mask.sock"
     ```
 ## fake_cert_len
-  - **Constraints / validation**: `usize`. When `tls_emulation = false` and the default value is in use, Telemt may randomize this at startup for variability.
-  - **Description**: Length of synthetic certificate payload when emulation data is unavailable.
-  - **Example**:
+  - **Ограничения / валидация**: `usize`. Когда `tls_emulation = false` и используется значение по умолчанию, Telemt может рандомизировать его при запуске для обеспечения вариативности.
+  - **Описание**: Длина синтетического сертификатного payload’а, используемого при отсутствии данных для эмуляции.
+  - **Пример**:
 
     ```toml
     [censorship]
     fake_cert_len = 2048
     ```
 ## tls_emulation
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables certificate/TLS behavior emulation from cached real fronts.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает эмуляцию поведения сертификата/TLS из кэшированных реальных сайтов.
+  - **Пример**:
 
     ```toml
     [censorship]
     tls_emulation = true
     ```
 ## tls_front_dir
-  - **Constraints / validation**: `String`.
-  - **Description**: Directory path for TLS front cache storage.
-  - **Example**:
+  - **Ограничения / валидация**: `String`.
+  - **Описание**: Путь к директории для хранения кэша сайтов.
+  - **Пример**:
 
     ```toml
     [censorship]
     tls_front_dir = "tlsfront"
     ```
 ## server_hello_delay_min_ms
-  - **Constraints / validation**: `u64` (milliseconds).
-  - **Description**: Minimum `server_hello` delay for anti-fingerprint behavior (ms).
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунд).
+  - **Описание**: Минимальная задержка `server_hello` (в миллисекундах) для защиты от идентификации по fingerprint'у.
+  - **Пример**:
 
     ```toml
     [censorship]
     server_hello_delay_min_ms = 0
     ```
 ## server_hello_delay_max_ms
-  - **Constraints / validation**: `u64` (milliseconds). Must be \(<\) `timeouts.client_handshake * 1000`.
-  - **Description**: Maximum `server_hello` delay for anti-fingerprint behavior (ms).
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (миллисекунд). Должно быть \(<\) `timeouts.client_handshake * 1000`.
+  - **Описание**: Максимальная задержка `server_hello` (в миллисекундах) для защиты от идентификации по fingerprint'у.
+  - **Пример**:
 
     ```toml
     [timeouts]
@@ -2565,26 +2570,26 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     server_hello_delay_max_ms = 0
     ```
 ## tls_new_session_tickets
-  - **Constraints / validation**: `u8`.
-  - **Description**: Number of `NewSessionTicket` messages to emit after handshake.
-  - **Example**:
+  - **Ограничения / валидация**: `u8`.
+  - **Описание**: Количество сообщений `NewSessionTicket`, отправляемых после рукопожатия.
+  - **Пример**:
 
     ```toml
     [censorship]
     tls_new_session_tickets = 0
     ```
 ## tls_full_cert_ttl_secs
-  - **Constraints / validation**: `u64` (seconds).
-  - **Description**: TTL for sending full cert payload per (domain, client IP) tuple.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунд).
+  - **Описание**: TTL для отправки полного сертификатного payload’а для каждой пары (домен, IP клиента).
+  - **Пример**:
 
     ```toml
     [censorship]
     tls_full_cert_ttl_secs = 90
     ```
 ## serverhello_compact
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables compact ServerHello/Fake-TLS profile to reduce response-size signature.
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает компактный профиль ServerHello/Fake-TLS для снижения сигнатуры размера ответа.
   - **Example**:
 
     ```toml
@@ -2592,36 +2597,36 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     serverhello_compact = false
     ```
 ## alpn_enforce
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enforces ALPN echo behavior based on client preference.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Принудительно изменяет поведение возврата ALPN в соответствии с предпочтениями клиента.
+  - **Пример**:
 
     ```toml
     [censorship]
     alpn_enforce = true
     ```
 ## mask_proxy_protocol
-  - **Constraints / validation**: `u8`. `0` = disabled, `1` = v1 (text), `2` = v2 (binary).
-  - **Description**: Sends PROXY protocol header when connecting to mask backend, allowing the backend to see the real client IP.
-  - **Example**:
+  - **Ограничения / валидация**: `u8`. `0` = выключен, `1` = v1 (текстовый), `2` = v2 (бинарный).
+  - **Описание**: Отправляет заголовок PROXY protocol при подключении к mask-бэкенду, позволяя бэкенду видеть реальный IP клиента.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_proxy_protocol = 0
     ```
 ## mask_shape_hardening
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables client->mask shape-channel hardening by applying controlled tail padding to bucket boundaries on mask relay shutdown.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Усиливает защиту канала формирования/маскировки (shape-channel) трафика client->mask за счёт контролируемого добавления хвостового padding'а к границам групп данных при завершении работы mask relay.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_shape_hardening = true
     ```
 ## mask_shape_hardening_aggressive_mode
-  - **Constraints / validation**: Requires `mask_shape_hardening = true`.
-  - **Description**: Opt-in aggressive shaping profile (stronger anti-classifier behavior with different shaping semantics).
-  - **Example**:
+  - **Ограничения / валидация**: Требует, чтобы `mask_shape_hardening = true`.
+  - **Описание**: Опциональный агрессивный профиль формирования трафика (более сильное противодействие классификаторам с изменённой логикой шейпинга).
+  - **Пример**:
 
     ```toml
     [censorship]
@@ -2629,27 +2634,27 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     mask_shape_hardening_aggressive_mode = false
     ```
 ## mask_shape_bucket_floor_bytes
-  - **Constraints / validation**: Must be `> 0`; must be `<= mask_shape_bucket_cap_bytes`.
-  - **Description**: Minimum bucket size used by shape-channel hardening.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`; должно быть меньше или равно`mask_shape_bucket_cap_bytes`.
+  - **Описание**: Минимальный размер группы данных, используемый при усилении канала формирования/маскировки трафика (shape-channel).
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_shape_bucket_floor_bytes = 512
     ```
 ## mask_shape_bucket_cap_bytes
-  - **Constraints / validation**: Must be `>= mask_shape_bucket_floor_bytes`.
-  - **Description**: Maximum bucket size used by shape-channel hardening; traffic above cap is not bucket-padded further.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `>= mask_shape_bucket_floor_bytes`.
+  - **Описание**: Максимальный размер группы данных, используемого для усиления канала формирования/маскировки трафика (shape-channel); трафик, превышающий этот лимит, больше не подвергается bucket-padding'у.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_shape_bucket_cap_bytes = 4096
     ```
 ## mask_shape_above_cap_blur
-  - **Constraints / validation**: Requires `mask_shape_hardening = true`.
-  - **Description**: Adds bounded randomized tail bytes even when forwarded size already exceeds cap.
-  - **Example**:
+  - **Ограничения / валидация**: Требует, чтобы  `mask_shape_hardening = true`.
+  - **Описание**: Добавляет ограниченное количество случайных байтов в конец данных (tail), даже если передаваемый размер уже превышает лимит.
+  - **Пример**:
 
     ```toml
     [censorship]
@@ -2657,9 +2662,9 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     mask_shape_above_cap_blur = false
     ```
 ## mask_shape_above_cap_blur_max_bytes
-  - **Constraints / validation**: Must be `<= 1048576`. Must be `> 0` when `mask_shape_above_cap_blur = true`.
-  - **Description**: Maximum randomized extra bytes appended above cap when above-cap blur is enabled.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `<= 1048576`. Должно быть `> 0`, если `mask_shape_above_cap_blur = true`.
+  - **Описание**: Максимальное количество случайных дополнительных байтов, добавляемых сверх лимита, когда включено размытие данных(blur).
+  - **Пример**:
 
     ```toml
     [censorship]
@@ -2667,17 +2672,18 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     mask_shape_above_cap_blur_max_bytes = 64
     ```
 ## mask_relay_max_bytes
-  - **Constraints / validation**: Must be `> 0`; must be `<= 67108864`.
-  - **Description**: Maximum relayed bytes per direction on unauthenticated masking fallback path.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`; Должно быть меньше или равно `67108864`.
+  - **Описание**: Максимальное количество байт, передаваемых в каждом направлении, на неаутентифицированной fallback маскировке.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_relay_max_bytes = 5242880
     ```
+
 ## mask_relay_timeout_ms
-  - **Constraints / validation**: Should be `>= mask_relay_idle_timeout_ms`.
-  - **Description**: Wall-clock cap for the full masking relay on non-MTProto fallback paths. Raise when the mask target is a long-lived service (e.g. WebSocket). Default: 60 000 ms (1 minute).
+  - **Constraints / validation**: Должно быть больше или равно  `mask_relay_idle_timeout_ms`.
+  - **Description**: Жёсткий лимит по реальному времени (wall-clock) для полного маскирующего проксирования на fallback-путях без MTProto. Увеличивайте значение, если целевой сервис маскирования является долгоживущим (например, WebSocket-соединение). Значение по умолчанию: 60 000 мс (1 минута).
   - **Example**:
 
     ```toml
@@ -2685,163 +2691,164 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     mask_relay_timeout_ms = 60000
     ```
 ## mask_relay_idle_timeout_ms
-  - **Constraints / validation**: Should be `<= mask_relay_timeout_ms`.
-  - **Description**: Per-read idle timeout on masking relay and drain paths. Limits resource consumption by slow-loris attacks and port scanners. A read call stalling beyond this value is treated as an abandoned connection. Default: 5 000 ms (5 s).
+  - **Constraints / validation**: Должно быть меньше или равно `mask_relay_timeout_ms`.
+  - **Description**: Тайм-аут простоя на каждую операцию чтения (per-read idle timeout) в маскирующем прокси и drain-пайплайнах. Ограничивает потребление ресурсов при атаках типа slow-loris и сканировании портов. Если операция чтения блокируется дольше заданного времени, соединение считается заброшенным и закрывается. Значение по умолчанию: 5 000 мс (5 с).
   - **Example**:
 
     ```toml
     [censorship]
     mask_relay_idle_timeout_ms = 5000
     ```
+
 ## mask_classifier_prefetch_timeout_ms
-  - **Constraints / validation**: Must be within `[5, 50]` (milliseconds).
-  - **Description**: Timeout budget (ms) for extending fragmented initial classifier window on masking fallback.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть в пределах `[5, 50]` (миллисекунд).
+  - **Описание**: Лимит времени ожидания (в миллисекундах) для расширения первых входящих данных в режиме fallback-маскировки.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_classifier_prefetch_timeout_ms = 5
     ```
 ## mask_timing_normalization_enabled
-  - **Constraints / validation**: When `true`, requires `mask_timing_normalization_floor_ms > 0` and `mask_timing_normalization_ceiling_ms >= mask_timing_normalization_floor_ms`. Ceiling must be `<= 60000`.
-  - **Description**: Enables timing envelope normalization on masking outcomes.
-  - **Example**:
+  - **Ограничения / валидация**: Когда `true`, требует, чтобы  `mask_timing_normalization_floor_ms > 0` и `mask_timing_normalization_ceiling_ms` был больше или равен `mask_timing_normalization_floor_ms`. Значение должно быть меньше или равно `60000`.
+  - **Описание**: Включает выравнивание и сглаживание временных паттернов (таймингов) трафика после применения маскировки.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_timing_normalization_enabled = false
     ```
 ## mask_timing_normalization_floor_ms
-  - **Constraints / validation**: Must be `> 0` when timing normalization is enabled; must be `<= mask_timing_normalization_ceiling_ms`.
-  - **Description**: Lower bound (ms) for masking outcome normalization target.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`, если `mask_timing_normalization_enabled = true`; Должно быть меньше или равно `mask_timing_normalization_ceiling_ms`.
+  - **Описание**: Lower bound (ms) for masking outcome normalization target.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_timing_normalization_floor_ms = 0
     ```
 ## mask_timing_normalization_ceiling_ms
-  - **Constraints / validation**: Must be `>= mask_timing_normalization_floor_ms`; must be `<= 60000`.
-  - **Description**: Upper bound (ms) for masking outcome normalization target.
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `>= mask_timing_normalization_floor_ms`; Должно быть `<= 60000`.
+  - **Описание**: Минимально допустимое значение таймингов/задержек, к которому система “приводит” (нормализует) поведение маскированного трафика.
+  - **Пример**:
 
     ```toml
     [censorship]
     mask_timing_normalization_ceiling_ms = 0
     ```
 
-## Shape-channel hardening notes (`[censorship]`)
+## Примечания по усилению shape-channel (`[censorship]`)
 
-These parameters are designed to reduce one specific fingerprint source during masking: the exact number of bytes sent from proxy to `mask_host` for invalid or probing traffic.
+Эти параметры предназначены для снижения одного конкретного источника fingerprinting при маскировке: точного количества байт, отправляемых от прокси к `mask_host` при невалидном или зондирующем (probe) трафике.
 
-Without hardening, a censor can often correlate probe input length with backend-observed length very precisely (for example: `5 + body_sent` on early TLS reject paths). That creates a length-based classifier signal.
+Без усиления защиты цензор часто может очень точно сопоставить длину входящего пробного запроса с длиной, наблюдаемой на стороне бэкенда (например, `5 + body_sent` на ранних этапах отклонения TLS). Это является сигналом для классификации на основе длины.
 
-When `mask_shape_hardening = true`, Telemt pads the **client->mask** stream tail to a bucket boundary at relay shutdown:
+Когда `mask_shape_hardening = true`, Telemt дополняет (padding) хвост потока **client → mask** до границы группы данных при завершении работы промежуточного звена:
 
-- Total bytes sent to mask are first measured.
-- A bucket is selected using powers of two starting from `mask_shape_bucket_floor_bytes`.
-- Padding is added only if total bytes are below `mask_shape_bucket_cap_bytes`.
-- If bytes already exceed cap, no extra padding is added.
+- Сначала измеряется общее количество байт, отправленных в mask.
+- Затем выбирается bucket (группа данных), используя степени двойки, начиная с `mask_shape_bucket_floor_bytes`.
+- Padding добавляется только если общее количество байт меньше`mask_shape_bucket_cap_bytes`.
+- Если количество байт уже превышает cap, дополнительные данные не добавляются
 
-This means multiple nearby probe sizes collapse into the same backend-observed size class, making active classification harder.
+Это означает, что несколько близких по размеру пробных запросов (probe) объединяются в одну и ту же группу данных, наблюдаемых на стороне backend'а, что усложняет активную классификацию.
 
-What each parameter changes in practice:
+Что каждый параметр меняет на практике:
 
 - `mask_shape_hardening`
-  Enables or disables this entire length-shaping stage on the fallback path.
-  When `false`, backend-observed length stays close to the real forwarded probe length.
-  When `true`, clean relay shutdown can append random padding bytes to move the total into a bucket.
+  Включает или отключает весь этап формирования (shaping) длины на fallback'е.
+Если `false`, наблюдаемая на backend длина остаётся близкой к реальной длине переданного probe-запроса.
+Если `true`, при быстром завершении соединения промежуточное звено может добавлять случайные padding-байты, чтобы итоговый размер попадал в заданную группу данных.
 - `mask_shape_bucket_floor_bytes`
-  Sets the first bucket boundary used for small probes.
-  Example: with floor `512`, a malformed probe that would otherwise forward `37` bytes can be expanded to `512` bytes on clean EOF.
-  Larger floor values hide very small probes better, but increase egress cost.
+Устанавливает первую границу bucket’а, используемого для небольших probe-запросов.
+Например: при значении 512 некорректный probe-запрос, который в обычном случае передал бы 37 байт, может быть дополнен до 512 байт при корректном завершении соединения (clean EOF).
+Более высокие значения `mask_shape_bucket_floor_bytes` лучше скрывают очень маленькие probe-запросы, но увеличивают объём исходящего трафика.
 - `mask_shape_bucket_cap_bytes`
-  Sets the largest bucket Telemt will pad up to with bucket logic.
-  Example: with cap `4096`, a forwarded total of `1800` bytes may be padded to `2048` or `4096` depending on the bucket ladder, but a total already above `4096` will not be bucket-padded further.
-  Larger cap values increase the range over which size classes are collapsed, but also increase worst-case overhead.
-- Clean EOF matters in conservative mode
-  In the default profile, shape padding is intentionally conservative: it is applied on clean relay shutdown, not on every timeout/drip path.
-  This avoids introducing new timeout-tail artifacts that some backends or tests interpret as a separate fingerprint.
+Устанавливает наибольший bucket, до которого Telemt может выполнять padding по bucket-логике.
+Например: при значении cap = `4096` итоговые `1800` байт могут быть дополнены до `2048` или `4096` в зависимости от "лестницы" bucket’ов, но если объём уже превышает `4096` байт, дальнейшее bucket-дополнение не выполняется.
+Более высокие значения cap расширяют диапазон, в котором размеры объединяются в классы, но также увеличивают максимальные накладные расходы.
+- Clean EOF имеет значение в conservative режиме
+В профиле по умолчанию padding формы трафика намеренно реализован консервативно: он применяется только при корректном завершении соединения (clean relay shutdown), а не при каждом таймауте или "капельной" (drip) передаче.
+Это позволяет избежать появления новых артефактов тайм-аута, которые некоторые серверные части или тесты интерпретируют как отдельные fingerprint'ы.
 
-Practical trade-offs:
+Практические компромиссы:
 
-- Better anti-fingerprinting on size/shape channel.
-- Slightly higher egress overhead for small probes due to padding.
-- Behavior is intentionally conservative and enabled by default.
+- Улучшенная защита от fingerprinting'a для канала формирования/маскировки трафика.
+- Немного выше выходные накладные расходы для небольших зондов из-за padding'а.
+- Система намеренно использует "консервативный" режим и это поведение включено по умолчанию.
 
-Recommended starting profile:
+Рекомендуемые начальные настройки:
 
 - `mask_shape_hardening = true` (default)
 - `mask_shape_bucket_floor_bytes = 512`
 - `mask_shape_bucket_cap_bytes = 4096`
 
-## Aggressive mode notes (`[censorship]`)
+## Уточнения по агрессивным режимам работы (`[censorship]`)
 
-`mask_shape_hardening_aggressive_mode` is an opt-in profile for higher anti-classifier pressure.
+`mask_shape_hardening_aggressive_mode` - это параметр, который включается вручную и предназначен для более сильного противодействия классификаторам.
 
-- Default is `false` to preserve conservative timeout/no-tail behavior.
-- Requires `mask_shape_hardening = true`.
-- When enabled, backend-silent non-EOF masking paths may be shaped.
-- When enabled together with above-cap blur, the random extra tail uses `[1, max]` instead of `[0, max]`.
+- Значение по умолчанию - `false`, чтобы сохранить консервативное поведение по тайм-ауту.
+- Требует, чтобы `mask_shape_hardening = true`.
+- Когда включено, не завершающиеся (non-EOF) запросы для маскировки, не передающие данные на backend, могут подвергаться shaping’у (формированию трафика).
+- Когда включено вместе с "размытием" трафика выше порога cap, случайный дополнительный tail использует `[1, max]` instead of `[0, max]`.
 
-What changes when aggressive mode is enabled:
+Что меняется при включении агрессивного режима:
 
-- Backend-silent timeout paths can be shaped
-  In default mode, a client that keeps the socket half-open and times out will usually not receive shape padding on that path.
-  In aggressive mode, Telemt may still shape that backend-silent session if no backend bytes were returned.
-  This is specifically aimed at active probes that try to avoid EOF in order to preserve an exact backend-observed length.
-- Above-cap blur always adds at least one byte
-  In default mode, above-cap blur may choose `0`, so some oversized probes still land on their exact base forwarded length.
-  In aggressive mode, that exact-base sample is removed by construction.
-- Tradeoff
-  Aggressive mode improves resistance to active length classifiers, but it is more opinionated and less conservative.
-  If your deployment prioritizes strict compatibility with timeout/no-tail semantics, leave it disabled.
-  If your threat model includes repeated active probing by a censor, this mode is the stronger profile.
+- Могут быть сформированы пути тайм-аута, не требующие бэкенда.
+В режиме по умолчанию клиент, который держит сокет полуоткрытым и имеет тайм-аут, обычно не будет получать заполнение формы по этому пути.
+В агрессивном режиме Telemt все равно может применять shaping к такому backend-silent соединению, если от backend не было получено ответа.
+Это специально предназначено для активных зондов, которые пытаются избежать EOF, чтобы сохранить точную наблюдаемую длину.
+- "Размытие" трафика выше порога cap всегда добавляет как минимум один байт.
+В режиме по умолчанию для размытия трафика (blur) над максимальным пределом может быть выбрано значение «0», поэтому некоторые зонды слишком большого размера по-прежнему попадают на точную базовую длину пересылки.
+В агрессивном режиме эта базовая выборка удаляется автоматически.
+- Компромисс
+Агрессивный режим повышает устойчивость к активным классификаторам на основе длины, но он более жесткие ограничения и менее консервативен.
+Если вам важна строгая совместимость с логикой таймаутов и no-tail semantics, лучше оставить его выключенным.
+Если же ваша модель угроз включает повторяющееся активное зондирование со стороны цензора, этот режим является более сильным вариантом защиты.
 
-Use this mode only when your threat model prioritizes classifier resistance over strict compatibility with conservative masking semantics.
+Используйте этот режим только в том случае, если ваша модель угроз отдает приоритет устойчивости классификатора над строгой совместимостью с консервативной семантикой маскировки.
 
-## Above-cap blur notes (`[censorship]`)
+## О "размытии" трафика (`[censorship]`)
 
-`mask_shape_above_cap_blur` adds a second-stage blur for very large probes that are already above `mask_shape_bucket_cap_bytes`.
+`mask_shape_above_cap_blur` Добавляет второй этап blur (размытия) для очень больших probe-запросов, которые уже превышают `mask_shape_bucket_cap_bytes`.
 
-- A random tail in `[0, mask_shape_above_cap_blur_max_bytes]` is appended in default mode.
-- In aggressive mode, the random tail becomes strictly positive: `[1, mask_shape_above_cap_blur_max_bytes]`.
-- This reduces exact-size leakage above cap at bounded overhead.
-- Keep `mask_shape_above_cap_blur_max_bytes` conservative to avoid unnecessary egress growth.
+- Рандомное дополнение конца данных `[0, mask_shape_above_cap_blur_max_bytes]` добавляется в режиме по умолчанию.
+- В агрессивном режиме система всегда добавляет хотя бы немного дополнительных байт в конец трафика: `[1, mask_shape_above_cap_blur_max_bytes]`.
+- Система хуже “раскрывает” точный размер больших запросов, но делает это так, чтобы не сильно увеличивать лишний трафик.
+- Используйте `mask_shape_above_cap_blur_max_bytes` в базовом режиме, чтобы избежать ненужного роста исходящего трафика
 
-Operational meaning:
+Что это означает на практике:
 
-- Without above-cap blur
-  A probe that forwards `5005` bytes will still look like `5005` bytes to the backend if it is already above cap.
-- With above-cap blur enabled
-  That same probe may look like any value in a bounded window above its base length.
-  Example with `mask_shape_above_cap_blur_max_bytes = 64`:
-  backend-observed size becomes `5005..5069` in default mode, or `5006..5069` in aggressive mode.
-- Choosing `mask_shape_above_cap_blur_max_bytes`
-  Small values reduce cost but preserve more separability between far-apart oversized classes.
-  Larger values blur oversized classes more aggressively, but add more egress overhead and more output variance.
+- Без above-cap blur
+  Probe-запрос, который пересылает `5005` байт, всё равно будет выглядеть для backend как `5005` байт, если он уже превышает cap.
+- С включённым above-cap blur
+Тот же самый probe-запрос может выглядеть как любое значение в ограниченном диапазоне выше его исходной длины.
+  Например, если `mask_shape_above_cap_blur_max_bytes = 64`:
+  Наблюдаемый на backend размер становится диапазоном `5005..5069` в режиме по умолчанию или `5006..5069` в агрессивном режиме.
+- Выбор `mask_shape_above_cap_blur_max_bytes`
+Малые значения уменьшают cost, но сохраняют большую различимость между сильно различающимися классами трафика, которые по размеру существенно больше обычного.
+Большие значения сильнее размывают (blur) классы трафика, которые по размеру существенно больше обычного, но увеличивают исходящий трафик и вариативность выходных данных.
 
-## Timing normalization envelope notes (`[censorship]`)
+## Примечания по нормализации таймингов (`[censorship]`)
 
-`mask_timing_normalization_enabled` smooths timing differences between masking outcomes by applying a target duration envelope.
+`mask_timing_normalization_enabled` сглаживает разницу во времени между результатами маскировки, применяя целевой диапазон длительности.
 
-- A random target is selected in `[mask_timing_normalization_floor_ms, mask_timing_normalization_ceiling_ms]`.
-- Fast paths are delayed up to the selected target.
-- Slow paths are not forced to finish by the ceiling (the envelope is best-effort shaping, not truncation).
+- Случайное целевое значение выбирается в `[mask_timing_normalization_floor_ms, mask_timing_normalization_ceiling_ms]`.
+- Быстрые запросы задерживаются до выбранной цели.
+- Медленные запросы мягко ограничиваются верхним пределом.
 
-Recommended starting profile for timing shaping:
+Рекомендованный начальный конфиг для шейпинга таймингов:
 
 - `mask_timing_normalization_enabled = true`
 - `mask_timing_normalization_floor_ms = 180`
 - `mask_timing_normalization_ceiling_ms = 320`
 
-If your backend or network is very bandwidth-constrained, reduce cap first. If probes are still too distinguishable in your environment, increase floor gradually.
+Если ваш backend или сеть сильно ограничены по пропускной способности, сначала уменьшите cap. Если в вашей среде пробные запросы (probes) всё ещё слишком легко различимы, постепенно увеличивайте нижнее значение.
 
 
 # [censorship.tls_fetch]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`profiles`](#profiles) | `String[]` | `["modern_chrome_like", "modern_firefox_like", "compat_tls12", "legacy_minimal"]` | `✘` |
 | [`strict_route`](#strict_route) | `bool` | `true` | `✘` |
@@ -2852,63 +2859,63 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
 | [`profile_cache_ttl_secs`](#profile_cache_ttl_secs) | `u64` | `600` | `✘` |
 
 ## profiles
-  - **Constraints / validation**: `String[]`. Empty list falls back to defaults; values are deduplicated preserving order.
-  - **Description**: Ordered ClientHello profile fallback chain for TLS-front metadata fetch.
-  - **Example**:
+  - **Ограничения / валидация**: `String[]`. Пустой список возвращает значения по умолчанию; дубликаты удаляются с сохранением порядка.
+  - **Описание**: Упорядоченная цепочка fallback-профилей ClientHello для получения TLS-front метаданных.
+  - **Пример**:
 
     ```toml
     [censorship.tls_fetch]
     profiles = ["modern_chrome_like", "compat_tls12"]
     ```
 ## strict_route
-  - **Constraints / validation**: `bool`.
-  - **Description**: When `true` and an upstream route is configured, TLS fetch fails closed on upstream connect errors instead of falling back to direct TCP.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Если значние `true` и настроен upstream-маршрут, то при ошибках подключения к upstream TLS-запрос завершается с ошибкой вместо перехода на прямое TCP-соединение.
+  - **Пример**:
 
     ```toml
     [censorship.tls_fetch]
     strict_route = true
     ```
 ## attempt_timeout_ms
-  - **Constraints / validation**: Must be `> 0` (milliseconds).
-  - **Description**: Timeout budget per one TLS-fetch profile attempt (ms).
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд).
+  - **Описание**: Лимит таймаута на одну попытку получения профиля TLS (мс).
+  - **Пример**:
 
     ```toml
     [censorship.tls_fetch]
     attempt_timeout_ms = 5000
     ```
 ## total_budget_ms
-  - **Constraints / validation**: Must be `> 0` (milliseconds).
-  - **Description**: Total wall-clock budget across all TLS-fetch attempts (ms).
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0` (миллисекунд).
+  - **Описание**: Общий бюджет “реального времени” (wall-clock) на все попытки получения данных через TLS (в миллисекундах).
+  - **Пример**:
 
     ```toml
     [censorship.tls_fetch]
     total_budget_ms = 15000
     ```
 ## grease_enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables GREASE-style random values in selected ClientHello extensions for fetch traffic.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает случайные GREASE-style значения в выбранных расширениях ClientHello для получения трафика.
+  - **Пример**:
 
     ```toml
     [censorship.tls_fetch]
     grease_enabled = false
     ```
 ## deterministic
-  - **Constraints / validation**: `bool`.
-  - **Description**: Enables deterministic ClientHello randomness for debugging/tests.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Включает детерминированную случайность ClientHello для отладки и тестов. Dместо настоящей случайности в TLS ClientHello используется фиксированная (повторяемая) “псевдослучайность”, чтобы поведение можно было воспроизводить.
+  - **Пример**:
 
     ```toml
     [censorship.tls_fetch]
     deterministic = false
     ```
 ## profile_cache_ttl_secs
-  - **Constraints / validation**: `u64` (seconds). `0` disables cache.
-  - **Description**: TTL for winner-profile cache entries used by TLS fetch path.
-  - **Example**:
+  - **Ограничения / валидация**: `u64` (секунд). `0` - отключает кэширование.
+  - **Описание**: Время жизни (TTL) записей кэша “победившего профиля” (winner-profile), используемых для получения данных через TLS.
+  - **Пример**:
 
     ```toml
     [censorship.tls_fetch]
@@ -2918,7 +2925,7 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
 # [access]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`users`](#users) | `Map<String, String>` | `{"default": "000…000"}` | `✔` |
 | [`user_ad_tags`](#user_ad_tags) | `Map<String, String>` | `{}` | `✔` |
@@ -2938,9 +2945,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
 | [`cidr_rate_limits`](#cidr_rate_limits) | `Map<IpNetwork, RateLimitBps>` | `{}` | `✔` |
 
 ## users
-  - **Constraints / validation**: Must not be empty (at least one user must exist). Each value must be **exactly 32 hex characters**.
-  - **Description**: User credentials map used for client authentication. Keys are user names; values are MTProxy secrets.
-  - **Example**:
+  - **Ограничения / валидация**: Не должно быть пустым (должен существовать хотя бы один пользователь). Каждое значение должно состоять **ровно из 32 шестнадцатеричных символов**.
+  - **Описание**: Учетные данные пользователей, используемые для аутентификации клиентов. Ключи — это имена пользователей; значения являются секретами MTProxy.
+  - **Пример**:
 
     ```toml
     [access.users]
@@ -2948,9 +2955,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     bob   = "0123456789abcdef0123456789abcdef"
     ```
 ## user_ad_tags
-  - **Constraints / validation**: Each value must be **exactly 32 hex characters** (same format as `general.ad_tag`). An all-zero tag is allowed but logs a warning.
-  - **Description**: Per-user sponsored-channel ad tag override. When a user has an entry here, it takes precedence over `general.ad_tag`.
-  - **Example**:
+  - **Ограничения / валидация**: Каждое значение должно содержать **ровно 32 шестнадцатеричных символа** (тот же формат, что и в `general.ad_tag`). Тег со всеми нулями разрешен, но в логи будет записано предупреждение.
+  - **Описание**: Переопределение рекламного тега спонсируемого канала для каждого пользователя. Когда у пользователя есть запись здесь, она имеет приоритет над `general.ad_tag`.
+  - **Пример**:
 
     ```toml
     [general]
@@ -2960,18 +2967,18 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     alice = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     ```
 ## user_max_tcp_conns
-  - **Constraints / validation**: `Map<String, usize>`.
-  - **Description**: Per-user maximum concurrent TCP connections.
-  - **Example**:
+  - **Ограничения / валидация**: `Map<String, usize>`.
+  - **Описание**: Максимальное количество одновременных TCP-соединений для каждого пользователя.
+  - **Пример**:
 
     ```toml
     [access.user_max_tcp_conns]
     alice = 500
     ```
 ## user_max_tcp_conns_global_each
-  - **Constraints / validation**: `usize`. `0` disables the inherited limit.
-  - **Description**: Global per-user maximum concurrent TCP connections, applied when a user has **no positive** entry in `[access.user_max_tcp_conns]` (a missing key, or a value of `0`, both fall through to this setting). Per-user limits greater than `0` in `user_max_tcp_conns` take precedence.
-  - **Example**:
+  - **Ограничения / валидация**: `usize`. `0` - отключает лимит.
+  - **Описание**: Глобальное максимальное количество одновременных TCP-соединений для каждого пользователя, применяется, когда у пользователя **нет** записи в `[access.user_max_tcp_conns]` (отсутствующее или равное `0` значения подпадают под это условие). Ограничения на пользователя, превышающие `0` в параметре `user_max_tcp_conns`, имеют приоритет.
+  - **Пример**:
 
     ```toml
     [access]
@@ -2979,66 +2986,66 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
 
     [access.user_max_tcp_conns]
     alice = 500   # uses 500, not the global cap
-    # bob has no entry → uses 200
+    # bob has no entry > uses 200
     ```
 ## user_expirations
-  - **Constraints / validation**: `Map<String, DateTime<Utc>>`. Each value must be a valid RFC3339 / ISO-8601 datetime.
-  - **Description**: Per-user account expiration timestamps (UTC).
-  - **Example**:
+  - **Ограничения / валидация**: `Map<String, DateTime<Utc>>`. Каждое значение должно быть валидной датой и временем в формате RFC3339/ISO-8601.
+  - **Описание**: Временные метки истечения срока действия учетной записи пользователя (UTC).
+  - **Пример**:
 
     ```toml
     [access.user_expirations]
     alice = "2026-12-31T23:59:59Z"
     ```
 ## user_data_quota
-  - **Constraints / validation**: `Map<String, u64>`.
-  - **Description**: Per-user traffic quota in bytes.
-  - **Example**:
+  - **Ограничения / валидация**: `Map<String, u64>`.
+  - **Описание**: Квота трафика на пользователя в байтах.
+  - **Пример**:
 
     ```toml
     [access.user_data_quota]
     alice = 1073741824 # 1 GiB
     ```
 ## user_max_unique_ips
-  - **Constraints / validation**: `Map<String, usize>`.
-  - **Description**: Per-user unique source IP limits.
-  - **Example**:
+  - **Ограничения / валидация**: `Map<String, usize>`.
+  - **Описание**: Ограничение на количество уникальных IP-адресов, с которых выполняется подключение, для каждого пользователя.
+  - **Пример**:
 
     ```toml
     [access.user_max_unique_ips]
     alice = 16
     ```
 ## user_max_unique_ips_global_each
-  - **Constraints / validation**: `usize`. `0` disables the inherited limit.
-  - **Description**: Global per-user unique IP limit applied when a user has no individual override in `[access.user_max_unique_ips]`.
-  - **Example**:
+  - **Ограничения / валидация**: `usize`. `0` - отключает лимит.
+  - **Описание**: Глобальный лимит на количество уникальных IP-адресов, с которых выполняется подключение, для каждого пользователя, когда у пользователя нет индивидуального переопределения в `[access.user_max_unique_ips]`.
+  - **Пример**:
 
     ```toml
     [access]
     user_max_unique_ips_global_each = 8
     ```
 ## user_max_unique_ips_mode
-  - **Constraints / validation**: Must be one of `"active_window"`, `"time_window"`, `"combined"`.
-  - **Description**: Unique source IP limit accounting mode.
-  - **Example**:
+  - **Ограничения / валидация**: `"active_window"`, `"time_window"`, `"combined"`.
+  - **Описание**: Режим учета лимита уникальных IP-адресов.
+  - **Пример**:
 
     ```toml
     [access]
     user_max_unique_ips_mode = "active_window"
     ```
 ## user_max_unique_ips_window_secs
-  - **Constraints / validation**: Must be `> 0`.
-  - **Description**: Window size (seconds) used by unique-IP accounting modes that include a time window (`"time_window"` and `"combined"`).
-  - **Example**:
+  - **Ограничения / валидация**: Должно быть `> 0`.
+  - **Описание**: Размер временного окна (в секундах), используемого режимами учёта уникальных IP, которые работают с ограничением по времени (значения `"time_window"` и `"combined"`).
+  - **Пример**:
 
     ```toml
     [access]
     user_max_unique_ips_window_secs = 30
     ```
 ## user_source_deny
-  - **Constraints / validation**: Table `username -> IpNetwork[]`. Each network must parse as CIDR (for example `203.0.113.0/24` or `2001:db8::/32`).
-  - **Description**: Per-user source IP/CIDR deny-list applied **after successful auth** in TLS and MTProto handshake paths. A matched source IP is rejected via the same fail-closed path as invalid auth.
-  - **Example**:
+  - **Ограничения / валидация**: Таблица `username -> IpNetwork[]`. Каждая сеть должна разбираться как CIDR, например `203.0.113.0/24` или `2001:db8::/32`.
+  - **Описание**: Deny-list исходных IP/CIDR для конкретного пользователя, применяемый **после успешной аутентификации** в TLS- и MTProto-handshake путях. Совпавший source IP отклоняется тем же fail-closed путём, что и невалидная аутентификация.
+  - **Пример**:
 
     ```toml
     [access.user_source_deny]
@@ -3046,31 +3053,31 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     bob = ["198.51.100.42/32"]
     ```
 
-  - **How it works (quick check)**:
-    - connection from user `alice` and source `203.0.113.55` -> rejected (matches `203.0.113.0/24`)
-    - connection from user `alice` and source `198.51.100.10` -> allowed by this rule set (no match)
+  - **Краткая проверка**:
+    - соединение пользователя `alice` с source `203.0.113.55` отклоняется, потому что совпадает с `203.0.113.0/24`;
+    - соединение пользователя `alice` с source `198.51.100.10` допускается этим набором правил, потому что совпадений нет.
 ## replay_check_len
-  - **Constraints / validation**: `usize`.
-  - **Description**: Replay-protection storage length (number of entries tracked for duplicate detection).
-  - **Example**:
+  - **Ограничения / валидация**: `usize`.
+  - **Описание**: Количество последних сообщений/запросов, которое система запоминает, чтобы не допустить их повторной отправки (replay).
+  - **Пример**:
 
     ```toml
     [access]
     replay_check_len = 65536
     ```
 ## replay_window_secs
-  - **Constraints / validation**: `u64`.
-  - **Description**: Replay-protection time window in seconds.
-  - **Example**:
+  - **Ограничения / валидация**: `u64`.
+  - **Описание**: Как долго система "помнит" уже обработанные запросы, чтобы не принять их повторно (в секундах).
+  - **Пример**:
 
     ```toml
     [access]
     replay_window_secs = 120
     ```
 ## ignore_time_skew
-  - **Constraints / validation**: `bool`.
-  - **Description**: Disables client/server timestamp skew checks in replay validation when enabled.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Отключает проверку расхождения (смещения) времени между клиентом и сервером в валидации защиты от повторной отправки (replay)
+  - **Пример**:
 
     ```toml
     [access]
@@ -3079,8 +3086,8 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
 
 
 ## user_rate_limits
-  - **Constraints / validation**: Table `username -> { up_bps, down_bps }`. At least one direction must be non-zero.
-  - **Description**: Per-user bandwidth caps in bytes/sec for upload (`up_bps`) and download (`down_bps`).
+  - **Ограничения / валидация**: Таблица `username -> { up_bps, down_bps }`. Должно быть ненулевое значение хотя бы в одном направлении.
+  - **Описание**: Персональные лимиты скорости по пользователям в байтах/сек для отправки (`up_bps`) и получения (`down_bps`).
   - **Example**:
 
     ```toml
@@ -3088,8 +3095,8 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     alice = { up_bps = 1048576, down_bps = 2097152 }
     ```
 ## cidr_rate_limits
-  - **Constraints / validation**: Table `CIDR -> { up_bps, down_bps }`. CIDR must parse as `IpNetwork`; at least one direction must be non-zero.
-  - **Description**: Source-subnet bandwidth caps applied alongside per-user limits.
+  - **Ограничения / валидация**: Таблица `CIDR -> { up_bps, down_bps }`. CIDR должен корректно разбираться как `IpNetwork`; хотя бы одно направление должно быть ненулевым.
+  - **Описание**: Лимиты скорости для подсетей источников, применяются поверх пользовательских ограничений.
   - **Example**:
 
     ```toml
@@ -3099,7 +3106,7 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
 # [[upstreams]]
 
 
-| Key | Type | Default | Hot-Reload |
+| Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`type`](#type) | `"direct"`, `"socks4"`, `"socks5"`, or `"shadowsocks"` | — | `✘` |
 | [`weight`](#weight) | `u16` | `1` | `✘` |
@@ -3118,9 +3125,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
 | [`password`](#password) | `String` | — | `✘` |
 
 ## type
-  - **Constraints / validation**: Required field. Must be one of: `"direct"`, `"socks4"`, `"socks5"`, `"shadowsocks"`.
-  - **Description**: Selects the upstream transport implementation for this `[[upstreams]]` entry.
-  - **Example**:
+  - **Ограничения / валидация**: Обязательный параметр.`"direct"`, `"socks4"`, `"socks5"`, `"shadowsocks"`.
+  - **Описание**: Выбирает реализацию upstream-транспорта для этой записи в `[[upstreams]]`.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3135,9 +3142,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     url = "ss://2022-blake3-aes-256-gcm:BASE64PASSWORD@127.0.0.1:8388"
     ```
 ## weight
-  - **Constraints / validation**: `u16` (0..=65535).
-  - **Description**: Base weight used by weighted-random upstream selection (higher = chosen more often).
-  - **Example**:
+  - **Ограничения / валидация**: `u16` (0..=65535).
+  - **Описание**: Приоритет, используемый при случайном выборе upstream-сервера (чем выше значение, тем чаще он выбирается).
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3145,9 +3152,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     weight = 10
     ```
 ## enabled
-  - **Constraints / validation**: `bool`.
-  - **Description**: When `false`, this entry is ignored and not used for any upstream selection.
-  - **Example**:
+  - **Ограничения / валидация**: `bool`.
+  - **Описание**: Если установлено значение `false`, эта запись игнорируется и не используется при выборе upstream-сервера
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3156,9 +3163,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     enabled = false
     ```
 ## scopes
-  - **Constraints / validation**: `String`. Comma-separated list; whitespace is trimmed during matching.
-  - **Description**: Scope tags used for request-level upstream filtering. If a request specifies a scope, only upstreams whose `scopes` contains that tag can be selected. If a request does not specify a scope, only upstreams with empty `scopes` are eligible.
-  - **Example**:
+  - **Ограничения / валидация**: `String`. CСписок, разделенный запятыми; пробелы обрезаются во время сопоставления
+  - **Описание**: Теги области (`scope`), используемые для фильтрации upstream-серверов на уровне запроса. Если в запросе указан `scope`, выбираются только те upstream’ы, у которых поле `scopes` содержит этот тег. Если scope в запросе не указан, допускаются только upstream’ы с пустым scopes.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3167,9 +3174,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     scopes = "me, fetch, dc2"
     ```
 ## ipv4 (upstreams)
-  - **Constraints / validation**: `bool` (optional).
-  - **Description**: Allows IPv4 DC targets for this upstream. When omitted, Telemt auto-detects support from runtime connectivity state.
-  - **Example**:
+  - **Ограничения / валидация**: `bool` (необязательный параметр).
+  - **Описание**: Разрешает IPv4 DC-targets для этого upstream. Если не задан, Telemt определяет поддержку автоматически по runtime-состоянию connectivity.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3177,9 +3184,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     ipv4 = true
     ```
 ## ipv6 (upstreams)
-  - **Constraints / validation**: `bool` (optional).
-  - **Description**: Allows IPv6 DC targets for this upstream. When omitted, Telemt auto-detects support from runtime connectivity state.
-  - **Example**:
+  - **Ограничения / валидация**: `bool` (необязательный параметр).
+  - **Описание**: Разрешает IPv6 DC-targets для этого upstream. Если не задан, Telemt определяет поддержку автоматически по runtime-состоянию connectivity.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3187,12 +3194,12 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     ipv6 = false
     ```
 ## interface
-  - **Constraints / validation**: `String` (optional).
-    - For `"direct"`: may be an IP address (used as explicit local bind) or an OS interface name (resolved to an IP at runtime; Unix only).
-    - For `"socks4"`/`"socks5"`: supported only when `address` is an `IP:port` literal; when `address` is a hostname, interface binding is ignored.
-    - For `"shadowsocks"`: passed to the shadowsocks connector as an optional outbound bind hint.
-  - **Description**: Optional outbound interface / local bind hint for the upstream connect socket.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр).
+    - для `"direct"`: может быть IP-адресом (используется как явный local bind) или именем сетевого интерфейса ОС (резолвится в IP во время выполнения; только Unix).
+    - для `"socks4"`/`"socks5"`: поддерживает только, если `address` - это `IP:port`; если `address` - это имя хоста, interface binding игнорируется.
+    - для `"shadowsocks"`: passed to the shadowsocks connector as an optional outbound bind hint.
+  - **Описание**: Передаётся в коннектор Shadowsocks как необязательная подсказка для outbound bind.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3205,11 +3212,11 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     interface = "192.0.2.10" # explicit local bind IP
     ```
 ## bind_addresses
-  - **Constraints / validation**: `String[]` (optional). Applies only to `type = "direct"`.
-    - Each entry should be an IP address string.
-    - At runtime, Telemt selects an address that matches the target family (IPv4 vs IPv6). If `bind_addresses` is set and none match the target family, the connect attempt fails.
-  - **Description**: Explicit local source addresses for outgoing direct TCP connects. When multiple addresses are provided, selection is round-robin.
-  - **Example**:
+  - **Ограничения / валидация**: `String[]` (необязательный параметр). Применяется в случае, если `type = "direct"`.
+    - Каждая запись должна быть IP-адресом в формате строки.
+    - Во время выполнения Telemt выбирает адрес, соответствующий целевому семейству (IPv4 или IPv6). Если установлен параметр «bind_addresses», и ни один из них не соответствует целевому семейству, попытка подключения считается неудачной.
+  - **Описание**: Явно заданные локальные source адреса для исходящих прямых TCP-соединений. Если указано несколько адресов, они выбираются по алгоритму round-robin.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3217,9 +3224,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     bind_addresses = ["192.0.2.10", "192.0.2.11"]
     ```
 ## bindtodevice
-  - **Constraints / validation**: `String` (optional). Applies only to `type = "direct"` and is Linux-only.
-  - **Description**: Hard interface pinning via `SO_BINDTODEVICE` for outgoing direct TCP connects.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Применяется только для `type = "direct"` и только в Linux.
+  - **Описание**: Жёсткая привязка исходящих direct TCP-connect к интерфейсу через `SO_BINDTODEVICE`.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3227,9 +3234,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     bindtodevice = "eth0"
     ```
 ## force_bind
-  - **Constraints / validation**: `String` (optional). Alias for `bindtodevice`.
-  - **Description**: Backward-compatible alias for Linux `SO_BINDTODEVICE` hard interface pinning.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Алиас для `bindtodevice`.
+  - **Описание**: Обратно-совместимый алиас для жёсткой Linux-привязки к интерфейсу через `SO_BINDTODEVICE`.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3237,12 +3244,12 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     force_bind = "eth0"
     ```
 ## url
-  - **Constraints / validation**: Applies only to `type = "shadowsocks"`.
-    - Must be a valid Shadowsocks URL accepted by the `shadowsocks` crate.
-    - Shadowsocks plugins are not supported.
-    - Requires `general.use_middle_proxy = false` (shadowsocks upstreams are rejected in ME mode).
-  - **Description**: Shadowsocks server URL used for connecting to Telegram via a Shadowsocks relay.
-  - **Example**:
+  - **Ограничения / валидация**: Применяется в случае, если `type = "shadowsocks"`.
+    - Должен быть действительный URL-адрес Shadowsocks, принятый `shadowsocks` контейнером.
+    - Плагины Shadowsocks не поддерживаются.
+    - Требует, чтобы `general.use_middle_proxy = false` ( Shadowsocks upstreams отклоняются в режиме ME (Middle-End)).
+  - **Описание**: URL-адрес сервера Shadowsocks, используемый для подключения к Telegram через Shadowsocks.
+  - **Пример**:
 
     ```toml
     [general]
@@ -3253,9 +3260,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     url = "ss://2022-blake3-aes-256-gcm:BASE64PASSWORD@127.0.0.1:8388"
     ```
 ## address
-  - **Constraints / validation**: Required for `type = "socks4"` and `type = "socks5"`. Must be `host:port` or `ip:port`.
-  - **Description**: SOCKS proxy server endpoint used for upstream connects.
-  - **Example**:
+  - **Ограничения / валидация**: Необходим в случае, если `type = "socks4"` и `type = "socks5"`. Значение должно быть в формате `host:port` или `ip:port`.
+  - **Описание**: Endpoint прокси-сервера SOCKS, используемый для  upstream-подключений.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3263,9 +3270,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     address = "127.0.0.1:9050"
     ```
 ## user_id
-  - **Constraints / validation**: `String` (optional). Only for `type = "socks4"`.
-  - **Description**: SOCKS4 CONNECT user ID. Note: when a request scope is selected, Telemt may override this with the selected scope value.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Используется только при `type = "socks4"`.
+  - **Описание**: User ID для команды CONNECT в SOCKS4. Примечание: если для запроса выбран scope, Telemt может переопределить это значение на выбранный scope.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3274,9 +3281,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     user_id = "telemt"
     ```
 ## username
-  - **Constraints / validation**: `String` (optional). Only for `type = "socks5"`.
-  - **Description**: SOCKS5 username (for username/password authentication). Note: when a request scope is selected, Telemt may override this with the selected scope value.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Используется только при `type = "socks5"`.
+  - **Описание**: Имя пользователя SOCKS5 (для аутентификации по username/password). Примечание: если для запроса выбран scope, Telemt может переопределить это значение на выбранный scope.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
@@ -3285,9 +3292,9 @@ If your backend or network is very bandwidth-constrained, reduce cap first. If p
     username = "alice"
     ```
 ## password
-  - **Constraints / validation**: `String` (optional). Only for `type = "socks5"`.
-  - **Description**: SOCKS5 password (for username/password authentication). Note: when a request scope is selected, Telemt may override this with the selected scope value.
-  - **Example**:
+  - **Ограничения / валидация**: `String` (необязательный параметр). Используется только при `type = "socks5"`.
+  - **Описание**: Пароль SOCKS5 (для аутентификации по username/password). Примечание: если для запроса выбран scope, Telemt может переопределить это значение на выбранный scope.
+  - **Пример**:
 
     ```toml
     [[upstreams]]
