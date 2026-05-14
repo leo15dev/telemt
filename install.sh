@@ -935,7 +935,7 @@ case "$ACTION" in
             printf '  sudo journalctl -u %s -f\n\n' "$SERVICE_NAME"
         elif [ "$svc" = "openrc" ]; then
             printf '%s\n' "$L_OUT_LOGS"
-            printf '  sudo grep -i %s /var/log/messages /var/log/syslog 2>/dev/null\n\n' "$SERVICE_NAME"
+            printf '  sudo tail -f /var/log/messages /var/log/syslog 2>/dev/null | grep -i %s\n\n' "$SERVICE_NAME"
         fi
 
         printf '====================================================================\n'
