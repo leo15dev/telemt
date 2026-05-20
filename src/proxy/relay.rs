@@ -550,9 +550,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for StatsIo<S> {
                     this.counters.touch(Instant::now(), this.epoch);
 
                     this.stats
-                        .add_user_octets_from_handle(this.user_stats.as_ref(), n_to_charge);
-                    this.stats
-                        .increment_user_msgs_from_handle(this.user_stats.as_ref());
+                        .add_user_traffic_from_handle(this.user_stats.as_ref(), n_to_charge);
                     if this.traffic_lease.is_some() {
                         this.c2s_rate_debt_bytes =
                             this.c2s_rate_debt_bytes.saturating_add(n_to_charge);
@@ -718,9 +716,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for StatsIo<S> {
                     this.counters.touch(Instant::now(), this.epoch);
 
                     this.stats
-                        .add_user_octets_to_handle(this.user_stats.as_ref(), n_to_charge);
-                    this.stats
-                        .increment_user_msgs_to_handle(this.user_stats.as_ref());
+                        .add_user_traffic_to_handle(this.user_stats.as_ref(), n_to_charge);
 
                     if let (Some(limit), Some(remaining)) = (this.quota_limit, remaining_before) {
                         if should_immediate_quota_check(remaining, n_to_charge) {

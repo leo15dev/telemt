@@ -475,6 +475,30 @@ impl Stats {
     }
 
     #[inline]
+    pub(crate) fn add_user_traffic_from_handle(&self, user_stats: &UserStats, bytes: u64) {
+        if !self.telemetry_user_enabled() {
+            return;
+        }
+        self.touch_user_stats(user_stats);
+        user_stats
+            .octets_from_client
+            .fetch_add(bytes, Ordering::Relaxed);
+        user_stats.msgs_from_client.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub(crate) fn add_user_traffic_to_handle(&self, user_stats: &UserStats, bytes: u64) {
+        if !self.telemetry_user_enabled() {
+            return;
+        }
+        self.touch_user_stats(user_stats);
+        user_stats
+            .octets_to_client
+            .fetch_add(bytes, Ordering::Relaxed);
+        user_stats.msgs_to_client.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
     pub(crate) fn increment_user_msgs_from_handle(&self, user_stats: &UserStats) {
         if !self.telemetry_user_enabled() {
             return;

@@ -567,6 +567,29 @@ impl ConnRegistry {
         })
     }
 
+    /// Returns the active writer and routing metadata from one hot-binding lookup.
+    pub async fn get_writer_with_meta(&self, conn_id: u64) -> Option<(ConnWriter, ConnMeta)> {
+        if !self.routing.map.contains_key(&conn_id) {
+            return None;
+        }
+
+        let hot = self.hot_binding.map.get(&conn_id)?;
+        let writer_id = hot.writer_id;
+        let meta = hot.meta.clone();
+        let writer = self
+            .writers
+            .map
+            .get(&writer_id)
+            .map(|entry| entry.value().clone())?;
+        Some((
+            ConnWriter {
+                writer_id,
+                tx: writer,
+            },
+            meta,
+        ))
+    }
+
     pub async fn active_conn_ids(&self) -> Vec<u64> {
         let binding = self.binding.inner.lock().await;
         binding.writer_for_conn.keys().copied().collect()

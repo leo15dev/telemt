@@ -378,6 +378,7 @@ impl MePool {
             iv: hs.write_iv,
             seq_no: 0,
             crc_mode: hs.crc_mode,
+            frame_buf: Vec::new(),
         };
         let writer = MeWriter {
             id: writer_id,

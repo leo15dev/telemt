@@ -5,6 +5,9 @@ use crate::crypto::{AesCbc, crc32, crc32c};
 use crate::error::{ProxyError, Result};
 use crate::protocol::constants::*;
 
+const RPC_WRITER_FRAME_BUF_SHRINK_THRESHOLD: usize = 256 * 1024;
+const RPC_WRITER_FRAME_BUF_RETAIN: usize = 64 * 1024;
+
 /// Commands sent to dedicated writer tasks to avoid mutex contention on TCP writes.
 pub(crate) enum WriterCommand {
     Data(Bytes),
@@ -43,6 +46,7 @@ pub(crate) fn rpc_crc(mode: RpcChecksumMode, data: &[u8]) -> u32 {
     }
 }
 
+/// Builds a fixed-size control payload without heap allocation.
 pub(crate) fn build_control_payload(tag: u32, value: u64) -> [u8; 12] {
     let mut payload = [0u8; 12];
     payload[..4].copy_from_slice(&tag.to_le_bytes());
@@ -51,14 +55,26 @@ pub(crate) fn build_control_payload(tag: u32, value: u64) -> [u8; 12] {
 }
 
 pub(crate) fn build_rpc_frame(seq_no: i32, payload: &[u8], crc_mode: RpcChecksumMode) -> Vec<u8> {
-    let total_len = (4 + 4 + payload.len() + 4) as u32;
-    let mut frame = Vec::with_capacity(total_len as usize);
+    let mut frame = Vec::new();
+    build_rpc_frame_into(&mut frame, seq_no, payload, crc_mode);
+    frame
+}
+
+fn build_rpc_frame_into(
+    frame: &mut Vec<u8>,
+    seq_no: i32,
+    payload: &[u8],
+    crc_mode: RpcChecksumMode,
+) {
+    let total_len = 4 + 4 + payload.len() + 4;
+    frame.clear();
+    frame.reserve(total_len + 15);
+    let total_len = total_len as u32;
     frame.extend_from_slice(&total_len.to_le_bytes());
     frame.extend_from_slice(&seq_no.to_le_bytes());
     frame.extend_from_slice(payload);
     let c = rpc_crc(crc_mode, &frame);
     frame.extend_from_slice(&c.to_le_bytes());
-    frame
 }
 
 pub(crate) async fn read_rpc_frame_plaintext(
@@ -226,29 +242,35 @@ pub(crate) struct RpcWriter {
     pub(crate) iv: [u8; 16],
     pub(crate) seq_no: i32,
     pub(crate) crc_mode: RpcChecksumMode,
+    pub(crate) frame_buf: Vec<u8>,
 }
 
 impl RpcWriter {
     pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<()> {
-        let frame = build_rpc_frame(self.seq_no, payload, self.crc_mode);
+        build_rpc_frame_into(&mut self.frame_buf, self.seq_no, payload, self.crc_mode);
         self.seq_no = self.seq_no.wrapping_add(1);
 
-        let pad = (16 - (frame.len() % 16)) % 16;
-        let mut buf = frame;
+        let pad = (16 - (self.frame_buf.len() % 16)) % 16;
         let pad_pattern: [u8; 4] = [0x04, 0x00, 0x00, 0x00];
         for i in 0..pad {
-            buf.push(pad_pattern[i % 4]);
+            self.frame_buf.push(pad_pattern[i % 4]);
         }
 
         let cipher = AesCbc::new(self.key, self.iv);
         cipher
-            .encrypt_in_place(&mut buf)
+            .encrypt_in_place(&mut self.frame_buf)
             .map_err(|e| ProxyError::Crypto(format!("{e}")))?;
 
-        if buf.len() >= 16 {
-            self.iv.copy_from_slice(&buf[buf.len() - 16..]);
+        if self.frame_buf.len() >= 16 {
+            self.iv
+                .copy_from_slice(&self.frame_buf[self.frame_buf.len() - 16..]);
         }
-        self.writer.write_all(&buf).await.map_err(ProxyError::Io)
+        let write_result = self.writer.write_all(&self.frame_buf).await;
+        if self.frame_buf.capacity() > RPC_WRITER_FRAME_BUF_SHRINK_THRESHOLD {
+            self.frame_buf.clear();
+            self.frame_buf.shrink_to(RPC_WRITER_FRAME_BUF_RETAIN);
+        }
+        write_result.map_err(ProxyError::Io)
     }
 
     pub(crate) async fn send_and_flush(&mut self, payload: &[u8]) -> Result<()> {

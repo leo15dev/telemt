@@ -46,12 +46,6 @@ impl MePool {
         tag_override: Option<&[u8]>,
     ) -> Result<()> {
         let tag = tag_override.or(self.proxy_tag.as_deref());
-        let fallback_meta = ConnMeta {
-            target_dc,
-            client_addr,
-            our_addr,
-            proto_flags,
-        };
         let build_routed_payload = |effective_our_addr: SocketAddr| {
             (
                 build_proxy_req_payload(
@@ -90,16 +84,13 @@ impl MePool {
         let mut hybrid_wait_current = hybrid_wait_step;
 
         loop {
-            let current_meta = self
-                .registry
-                .get_meta(conn_id)
-                .await
-                .unwrap_or_else(|| fallback_meta.clone());
-            let (current_payload, _) = build_routed_payload(current_meta.our_addr);
-            if let Some(current) = self.registry.get_writer(conn_id).await {
+            if let Some((current, current_meta)) =
+                self.registry.get_writer_with_meta(conn_id).await
+            {
+                let (current_payload, _) = build_routed_payload(current_meta.our_addr);
                 match current
                     .tx
-                    .try_send(WriterCommand::Data(current_payload.clone()))
+                    .try_send(WriterCommand::Data(current_payload))
                 {
                     Ok(()) => {
                         self.note_hybrid_route_success();
@@ -451,7 +442,7 @@ impl MePool {
                             self.remove_writer_and_close_clients(w.id).await;
                             continue;
                         }
-                        permit.send(WriterCommand::Data(payload.clone()));
+                        permit.send(WriterCommand::Data(payload));
                         self.stats
                             .increment_me_writer_pick_success_try_total(pick_mode);
                         if w.generation < self.current_generation() {
@@ -519,7 +510,7 @@ impl MePool {
                         self.remove_writer_and_close_clients(w.id).await;
                         continue;
                     }
-                    permit.send(WriterCommand::Data(payload.clone()));
+                    permit.send(WriterCommand::Data(payload));
                     self.stats
                         .increment_me_writer_pick_success_fallback_total(pick_mode);
                     if w.generation < self.current_generation() {
