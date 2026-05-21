@@ -437,8 +437,9 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     tokio::select! {
-        result = client_writer.write_all(bytes) => result.map_err(ProxyError::Io),
+        biased;
         _ = cancel.cancelled() => Err(ProxyError::MiddleClientWriterCancelled),
+        result = client_writer.write_all(bytes) => result.map_err(ProxyError::Io),
     }
 }
 
@@ -450,7 +451,8 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     tokio::select! {
-        result = client_writer.flush() => result.map_err(ProxyError::Io),
+        biased;
         _ = cancel.cancelled() => Err(ProxyError::MiddleClientWriterCancelled),
+        result = client_writer.flush() => result.map_err(ProxyError::Io),
     }
 }
