@@ -172,7 +172,7 @@ Those cross-DC requests are normal and happen constantly.
 > If your home DC is DC2 and DC2 goes down, you **cannot** reach DC5 even though DC5 itself is perfectly healthy.  
 > The client has no valid session to route the request through.  
 
-This is also why an MTProxy only needs to reach Telegram's DC infrastructure as a whole.  
+This is also why it is required for MTProxy to reach Telegram's DC infrastructure as a whole.  
 The proxy itself doesn't care which DC your account lives on. The client negotiates the correct DC through the proxy after connecting.
 
 ### How many people can use one link
