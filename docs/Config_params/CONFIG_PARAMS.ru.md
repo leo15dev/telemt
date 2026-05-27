@@ -85,145 +85,152 @@
 
 # [general]
 
-| Ключ | Тип | По умолчанию |
-| --- | ---- | ------- |
-| [`data_path`](#data_path) | `String` | — |
-| [`prefer_ipv6`](#prefer_ipv6) | `bool` | `false` |
-| [`fast_mode`](#fast_mode) | `bool` | `true` |
-| [`use_middle_proxy`](#use_middle_proxy) | `bool` | `true` |
-| [`proxy_secret_path`](#proxy_secret_path) | `String` | `"proxy-secret"` |
-| [`proxy_config_v4_cache_path`](#proxy_config_v4_cache_path) | `String` | `"cache/proxy-config-v4.txt"` |
-| [`proxy_config_v6_cache_path`](#proxy_config_v6_cache_path) | `String` | `"cache/proxy-config-v6.txt"` |
-| [`ad_tag`](#ad_tag) | `String` | — |
-| [`middle_proxy_nat_ip`](#middle_proxy_nat_ip) | `IpAddr` | — |
-| [`middle_proxy_nat_probe`](#middle_proxy_nat_probe) | `bool` | `true` |
-| [`middle_proxy_nat_stun`](#middle_proxy_nat_stun) | `String` | — |
-| [`middle_proxy_nat_stun_servers`](#middle_proxy_nat_stun_servers) | `String[]` | `[]` |
-| [`stun_nat_probe_concurrency`](#stun_nat_probe_concurrency) | `usize` | `8` |
-| [`middle_proxy_pool_size`](#middle_proxy_pool_size) | `usize` | `8` |
-| [`middle_proxy_warm_standby`](#middle_proxy_warm_standby) | `usize` | `16` |
-| [`me_init_retry_attempts`](#me_init_retry_attempts) | `u32` | `0` |
-| [`me2dc_fallback`](#me2dc_fallback) | `bool` | `true` |
-| [`me2dc_fast`](#me2dc_fast) | `bool` | `true` |
-| [`me_keepalive_enabled`](#me_keepalive_enabled) | `bool` | `true` |
-| [`me_keepalive_interval_secs`](#me_keepalive_interval_secs) | `u64` | `8` |
-| [`me_keepalive_jitter_secs`](#me_keepalive_jitter_secs) | `u64` | `2` |
-| [`me_keepalive_payload_random`](#me_keepalive_payload_random) | `bool` | `true` |
-| [`rpc_proxy_req_every`](#rpc_proxy_req_every) | `u64` | `0` |
-| [`me_writer_cmd_channel_capacity`](#me_writer_cmd_channel_capacity) | `usize` | `4096` |
-| [`me_route_channel_capacity`](#me_route_channel_capacity) | `usize` | `768` |
-| [`me_c2me_channel_capacity`](#me_c2me_channel_capacity) | `usize` | `1024` |
-| [`me_c2me_send_timeout_ms`](#me_c2me_send_timeout_ms) | `u64` | `4000` |
-| [`me_reader_route_data_wait_ms`](#me_reader_route_data_wait_ms) | `u64` | `2` |
-| [`me_d2c_flush_batch_max_frames`](#me_d2c_flush_batch_max_frames) | `usize` | `32` |
-| [`me_d2c_flush_batch_max_bytes`](#me_d2c_flush_batch_max_bytes) | `usize` | `131072` |
-| [`me_d2c_flush_batch_max_delay_us`](#me_d2c_flush_batch_max_delay_us) | `u64` | `500` |
-| [`me_d2c_ack_flush_immediate`](#me_d2c_ack_flush_immediate) | `bool` | `true` |
-| [`me_quota_soft_overshoot_bytes`](#me_quota_soft_overshoot_bytes) | `u64` | `65536` |
-| [`me_d2c_frame_buf_shrink_threshold_bytes`](#me_d2c_frame_buf_shrink_threshold_bytes) | `usize` | `262144` |
-| [`direct_relay_copy_buf_c2s_bytes`](#direct_relay_copy_buf_c2s_bytes) | `usize` | `65536` |
-| [`direct_relay_copy_buf_s2c_bytes`](#direct_relay_copy_buf_s2c_bytes) | `usize` | `262144` |
-| [`crypto_pending_buffer`](#crypto_pending_buffer) | `usize` | `262144` |
-| [`max_client_frame`](#max_client_frame) | `usize` | `16777216` |
-| [`desync_all_full`](#desync_all_full) | `bool` | `false` |
-| [`beobachten`](#beobachten) | `bool` | `true` |
-| [`beobachten_minutes`](#beobachten_minutes) | `u64` | `10` |
-| [`beobachten_flush_secs`](#beobachten_flush_secs) | `u64` | `15` |
-| [`beobachten_file`](#beobachten_file) | `String` | `"cache/beobachten.txt"` |
-| [`hardswap`](#hardswap) | `bool` | `true` |
-| [`me_warmup_stagger_enabled`](#me_warmup_stagger_enabled) | `bool` | `true` |
-| [`me_warmup_step_delay_ms`](#me_warmup_step_delay_ms) | `u64` | `500` |
-| [`me_warmup_step_jitter_ms`](#me_warmup_step_jitter_ms) | `u64` | `300` |
-| [`me_reconnect_max_concurrent_per_dc`](#me_reconnect_max_concurrent_per_dc) | `u32` | `8` |
-| [`me_reconnect_backoff_base_ms`](#me_reconnect_backoff_base_ms) | `u64` | `500` |
-| [`me_reconnect_backoff_cap_ms`](#me_reconnect_backoff_cap_ms) | `u64` | `30000` |
-| [`me_reconnect_fast_retry_count`](#me_reconnect_fast_retry_count) | `u32` | `16` |
-| [`me_single_endpoint_shadow_writers`](#me_single_endpoint_shadow_writers) | `u8` | `2` |
-| [`me_single_endpoint_outage_mode_enabled`](#me_single_endpoint_outage_mode_enabled) | `bool` | `true` |
-| [`me_single_endpoint_outage_disable_quarantine`](#me_single_endpoint_outage_disable_quarantine) | `bool` | `true` |
-| [`me_single_endpoint_outage_backoff_min_ms`](#me_single_endpoint_outage_backoff_min_ms) | `u64` | `250` |
-| [`me_single_endpoint_outage_backoff_max_ms`](#me_single_endpoint_outage_backoff_max_ms) | `u64` | `3000` |
-| [`me_single_endpoint_shadow_rotate_every_secs`](#me_single_endpoint_shadow_rotate_every_secs) | `u64` | `900` |
-| [`me_floor_mode`](#me_floor_mode) | `"static"` or `"adaptive"` | `"adaptive"` |
-| [`me_adaptive_floor_idle_secs`](#me_adaptive_floor_idle_secs) | `u64` | `90` |
-| [`me_adaptive_floor_min_writers_single_endpoint`](#me_adaptive_floor_min_writers_single_endpoint) | `u8` | `1` |
-| [`me_adaptive_floor_min_writers_multi_endpoint`](#me_adaptive_floor_min_writers_multi_endpoint) | `u8` | `1` |
-| [`me_adaptive_floor_recover_grace_secs`](#me_adaptive_floor_recover_grace_secs) | `u64` | `180` |
-| [`me_adaptive_floor_writers_per_core_total`](#me_adaptive_floor_writers_per_core_total) | `u16` | `48` |
-| [`me_adaptive_floor_cpu_cores_override`](#me_adaptive_floor_cpu_cores_override) | `u16` | `0` |
-| [`me_adaptive_floor_max_extra_writers_single_per_core`](#me_adaptive_floor_max_extra_writers_single_per_core) | `u16` | `1` |
-| [`me_adaptive_floor_max_extra_writers_multi_per_core`](#me_adaptive_floor_max_extra_writers_multi_per_core) | `u16` | `2` |
-| [`me_adaptive_floor_max_active_writers_per_core`](#me_adaptive_floor_max_active_writers_per_core) | `u16` | `64` |
-| [`me_adaptive_floor_max_warm_writers_per_core`](#me_adaptive_floor_max_warm_writers_per_core) | `u16` | `64` |
-| [`me_adaptive_floor_max_active_writers_global`](#me_adaptive_floor_max_active_writers_global) | `u32` | `256` |
-| [`me_adaptive_floor_max_warm_writers_global`](#me_adaptive_floor_max_warm_writers_global) | `u32` | `256` |
-| [`upstream_connect_retry_attempts`](#upstream_connect_retry_attempts) | `u32` | `2` |
-| [`upstream_connect_retry_backoff_ms`](#upstream_connect_retry_backoff_ms) | `u64` | `100` |
-| [`upstream_connect_budget_ms`](#upstream_connect_budget_ms) | `u64` | `3000` |
-| [`upstream_unhealthy_fail_threshold`](#upstream_unhealthy_fail_threshold) | `u32` | `5` |
-| [`upstream_connect_failfast_hard_errors`](#upstream_connect_failfast_hard_errors) | `bool` | `false` |
-| [`stun_iface_mismatch_ignore`](#stun_iface_mismatch_ignore) | `bool` | `false` |
-| [`unknown_dc_log_path`](#unknown_dc_log_path) | `String` | `"unknown-dc.txt"` |
-| [`unknown_dc_file_log_enabled`](#unknown_dc_file_log_enabled) | `bool` | `false` |
-| [`log_level`](#log_level) | `"debug"`, `"verbose"`, `"normal"`, or `"silent"` | `"normal"` |
-| [`disable_colors`](#disable_colors) | `bool` | `false` |
-| [`me_socks_kdf_policy`](#me_socks_kdf_policy) | `"strict"` or `"compat"` | `"strict"` |
-| [`me_route_backpressure_enabled`](#me_route_backpressure_enabled) | `bool` | `false` |
-| [`me_route_fairshare_enabled`](#me_route_fairshare_enabled) | `bool` | `false` |
-| [`me_route_backpressure_base_timeout_ms`](#me_route_backpressure_base_timeout_ms) | `u64` | `25` |
-| [`me_route_backpressure_high_timeout_ms`](#me_route_backpressure_high_timeout_ms) | `u64` | `120` |
-| [`me_route_backpressure_high_watermark_pct`](#me_route_backpressure_high_watermark_pct) | `u8` | `80` |
-| [`me_health_interval_ms_unhealthy`](#me_health_interval_ms_unhealthy) | `u64` | `1000` |
-| [`me_health_interval_ms_healthy`](#me_health_interval_ms_healthy) | `u64` | `3000` |
-| [`me_admission_poll_ms`](#me_admission_poll_ms) | `u64` | `1000` |
-| [`me_warn_rate_limit_ms`](#me_warn_rate_limit_ms) | `u64` | `5000` |
-| [`me_route_no_writer_mode`](#me_route_no_writer_mode) | `"async_recovery_failfast"`, `"inline_recovery_legacy"`, or `"hybrid_async_persistent"` | `"hybrid_async_persistent"` |
-| [`me_route_no_writer_wait_ms`](#me_route_no_writer_wait_ms) | `u64` | `250` |
-| [`me_route_hybrid_max_wait_ms`](#me_route_hybrid_max_wait_ms) | `u64` | `3000` |
-| [`me_route_blocking_send_timeout_ms`](#me_route_blocking_send_timeout_ms) | `u64` | `250` |
-| [`me_route_inline_recovery_attempts`](#me_route_inline_recovery_attempts) | `u32` | `3` |
-| [`me_route_inline_recovery_wait_ms`](#me_route_inline_recovery_wait_ms) | `u64` | `3000` |
-| [`fast_mode_min_tls_record`](#fast_mode_min_tls_record) | `usize` | `0` |
-| [`update_every`](#update_every) | `u64` | `300` |
-| [`me_reinit_every_secs`](#me_reinit_every_secs) | `u64` | `900` |
-| [`me_hardswap_warmup_delay_min_ms`](#me_hardswap_warmup_delay_min_ms) | `u64` | `1000` |
-| [`me_hardswap_warmup_delay_max_ms`](#me_hardswap_warmup_delay_max_ms) | `u64` | `2000` |
-| [`me_hardswap_warmup_extra_passes`](#me_hardswap_warmup_extra_passes) | `u8` | `3` |
-| [`me_hardswap_warmup_pass_backoff_base_ms`](#me_hardswap_warmup_pass_backoff_base_ms) | `u64` | `500` |
-| [`me_config_stable_snapshots`](#me_config_stable_snapshots) | `u8` | `2` |
-| [`me_config_apply_cooldown_secs`](#me_config_apply_cooldown_secs) | `u64` | `300` |
-| [`me_snapshot_require_http_2xx`](#me_snapshot_require_http_2xx) | `bool` | `true` |
-| [`me_snapshot_reject_empty_map`](#me_snapshot_reject_empty_map) | `bool` | `true` |
-| [`me_snapshot_min_proxy_for_lines`](#me_snapshot_min_proxy_for_lines) | `u32` | `1` |
-| [`proxy_secret_stable_snapshots`](#proxy_secret_stable_snapshots) | `u8` | `2` |
-| [`proxy_secret_rotate_runtime`](#proxy_secret_rotate_runtime) | `bool` | `true` |
-| [`me_secret_atomic_snapshot`](#me_secret_atomic_snapshot) | `bool` | `true` |
-| [`proxy_secret_len_max`](#proxy_secret_len_max) | `usize` | `256` |
-| [`me_pool_drain_ttl_secs`](#me_pool_drain_ttl_secs) | `u64` | `90` |
-| [`me_instadrain`](#me_instadrain) | `bool` | `false` |
-| [`me_pool_drain_threshold`](#me_pool_drain_threshold) | `u64` | `32` |
-| [`me_pool_drain_soft_evict_enabled`](#me_pool_drain_soft_evict_enabled) | `bool` | `true` |
-| [`me_pool_drain_soft_evict_grace_secs`](#me_pool_drain_soft_evict_grace_secs) | `u64` | `10` |
-| [`me_pool_drain_soft_evict_per_writer`](#me_pool_drain_soft_evict_per_writer) | `u8` | `2` |
-| [`me_pool_drain_soft_evict_budget_per_core`](#me_pool_drain_soft_evict_budget_per_core) | `u16` | `16` |
-| [`me_pool_drain_soft_evict_cooldown_ms`](#me_pool_drain_soft_evict_cooldown_ms) | `u64` | `1000` |
-| [`me_bind_stale_mode`](#me_bind_stale_mode) | `"never"`, `"ttl"`, or `"always"` | `"ttl"` |
-| [`me_bind_stale_ttl_secs`](#me_bind_stale_ttl_secs) | `u64` | `90` |
-| [`me_pool_min_fresh_ratio`](#me_pool_min_fresh_ratio) | `f32` | `0.8` |
-| [`me_reinit_drain_timeout_secs`](#me_reinit_drain_timeout_secs) | `u64` | `90` |
-| [`proxy_secret_auto_reload_secs`](#proxy_secret_auto_reload_secs) | `u64` | `3600` |
-| [`proxy_config_auto_reload_secs`](#proxy_config_auto_reload_secs) | `u64` | `3600` |
-| [`me_reinit_singleflight`](#me_reinit_singleflight) | `bool` | `true` |
-| [`me_reinit_trigger_channel`](#me_reinit_trigger_channel) | `usize` | `64` |
-| [`me_reinit_coalesce_window_ms`](#me_reinit_coalesce_window_ms) | `u64` | `200` |
-| [`me_deterministic_writer_sort`](#me_deterministic_writer_sort) | `bool` | `true` |
-| [`me_writer_pick_mode`](#me_writer_pick_mode) | `"sorted_rr"` or `"p2c"` | `"p2c"` |
-| [`me_writer_pick_sample_size`](#me_writer_pick_sample_size) | `u8` | `3` |
-| [`ntp_check`](#ntp_check) | `bool` | `true` |
-| [`ntp_servers`](#ntp_servers) | `String[]` | `["pool.ntp.org"]` |
-| [`auto_degradation_enabled`](#auto_degradation_enabled) | `bool` | `true` |
-| [`degradation_min_unavailable_dc_groups`](#degradation_min_unavailable_dc_groups) | `u8` | `2` |
-| [`rst_on_close`](#rst_on_close) | `"off"`, `"errors"` или `"always"` | `"off"` |
+
+| Ключ | Тип | По умолчанию | Hot-Reload |
+| --- | ---- | ------- | ---------- |
+| [`data_path`](#data_path) | `String` | — | `✘` |
+| [`quota_state_path`](#quota_state_path) | `Path` | `"telemt.limit.json"` | `✘` |
+| [`config_strict`](#config_strict) | `bool` | `false` | `✘` |
+| [`prefer_ipv6`](#prefer_ipv6) | `bool` | `false` | `✘` |
+| [`fast_mode`](#fast_mode) | `bool` | `true` | `✘` |
+| [`use_middle_proxy`](#use_middle_proxy) | `bool` | `true` | `✘` |
+| [`proxy_secret_path`](#proxy_secret_path) | `String` | `"proxy-secret"` | `✘` |
+| [`proxy_secret_url`](#proxy_secret_url) | `String` | `"https://core.telegram.org/getProxySecret"` | `✘` |
+| [`proxy_config_v4_cache_path`](#proxy_config_v4_cache_path) | `String` | `"cache/proxy-config-v4.txt"` | `✘` |
+| [`proxy_config_v4_url`](#proxy_config_v4_url) | `String` | `"https://core.telegram.org/getProxyConfig"` | `✘` |
+| [`proxy_config_v6_cache_path`](#proxy_config_v6_cache_path) | `String` | `"cache/proxy-config-v6.txt"` | `✘` |
+| [`proxy_config_v6_url`](#proxy_config_v6_url) | `String` | `"https://core.telegram.org/getProxyConfigV6"` | `✘` |
+| [`ad_tag`](#ad_tag) | `String` | — | `✔` |
+| [`middle_proxy_nat_ip`](#middle_proxy_nat_ip) | `IpAddr` | — | `✘` |
+| [`middle_proxy_nat_probe`](#middle_proxy_nat_probe) | `bool` | `true` | `✘` |
+| [`middle_proxy_nat_stun`](#middle_proxy_nat_stun) | `String` | — | `✘` |
+| [`middle_proxy_nat_stun_servers`](#middle_proxy_nat_stun_servers) | `String[]` | `[]` | `✘` |
+| [`stun_nat_probe_concurrency`](#stun_nat_probe_concurrency) | `usize` | `8` | `✘` |
+| [`middle_proxy_pool_size`](#middle_proxy_pool_size) | `usize` | `8` | `✘` |
+| [`middle_proxy_warm_standby`](#middle_proxy_warm_standby) | `usize` | `16` | `✘` |
+| [`me_init_retry_attempts`](#me_init_retry_attempts) | `u32` | `0` | `✘` |
+| [`me2dc_fallback`](#me2dc_fallback) | `bool` | `true` | `✘` |
+| [`me2dc_fast`](#me2dc_fast) | `bool` | `false` | `✘` |
+| [`me_keepalive_enabled`](#me_keepalive_enabled) | `bool` | `true` | `✘` |
+| [`me_keepalive_interval_secs`](#me_keepalive_interval_secs) | `u64` | `8` | `✘` |
+| [`me_keepalive_jitter_secs`](#me_keepalive_jitter_secs) | `u64` | `2` | `✘` |
+| [`me_keepalive_payload_random`](#me_keepalive_payload_random) | `bool` | `true` | `✘` |
+| [`rpc_proxy_req_every`](#rpc_proxy_req_every) | `u64` | `0` | `✘` |
+| [`me_writer_cmd_channel_capacity`](#me_writer_cmd_channel_capacity) | `usize` | `4096` | `✘` |
+| [`me_route_channel_capacity`](#me_route_channel_capacity) | `usize` | `768` | `✘` |
+| [`me_c2me_channel_capacity`](#me_c2me_channel_capacity) | `usize` | `1024` | `✘` |
+| [`me_c2me_send_timeout_ms`](#me_c2me_send_timeout_ms) | `u64` | `4000` | `✘` |
+| [`me_reader_route_data_wait_ms`](#me_reader_route_data_wait_ms) | `u64` | `2` | `✔` |
+| [`me_d2c_flush_batch_max_frames`](#me_d2c_flush_batch_max_frames) | `usize` | `32` | `✔` |
+| [`me_d2c_flush_batch_max_bytes`](#me_d2c_flush_batch_max_bytes) | `usize` | `131072` | `✔` |
+| [`me_d2c_flush_batch_max_delay_us`](#me_d2c_flush_batch_max_delay_us) | `u64` | `500` | `✔` |
+| [`me_d2c_ack_flush_immediate`](#me_d2c_ack_flush_immediate) | `bool` | `true` | `✔` |
+| [`me_quota_soft_overshoot_bytes`](#me_quota_soft_overshoot_bytes) | `u64` | `65536` | `✔` |
+| [`me_d2c_frame_buf_shrink_threshold_bytes`](#me_d2c_frame_buf_shrink_threshold_bytes) | `usize` | `262144` | `✔` |
+| [`direct_relay_copy_buf_c2s_bytes`](#direct_relay_copy_buf_c2s_bytes) | `usize` | `65536` | `✔` |
+| [`direct_relay_copy_buf_s2c_bytes`](#direct_relay_copy_buf_s2c_bytes) | `usize` | `262144` | `✔` |
+| [`crypto_pending_buffer`](#crypto_pending_buffer) | `usize` | `262144` | `✘` |
+| [`max_client_frame`](#max_client_frame) | `usize` | `16777216` | `✘` |
+| [`desync_all_full`](#desync_all_full) | `bool` | `false` | `✔` |
+| [`beobachten`](#beobachten) | `bool` | `true` | `✘` |
+| [`beobachten_minutes`](#beobachten_minutes) | `u64` | `10` | `✘` |
+| [`beobachten_flush_secs`](#beobachten_flush_secs) | `u64` | `15` | `✘` |
+| [`beobachten_file`](#beobachten_file) | `String` | `"cache/beobachten.txt"` | `✘` |
+| [`hardswap`](#hardswap) | `bool` | `true` | `✔` |
+| [`me_warmup_stagger_enabled`](#me_warmup_stagger_enabled) | `bool` | `true` | `✘` |
+| [`me_warmup_step_delay_ms`](#me_warmup_step_delay_ms) | `u64` | `500` | `✘` |
+| [`me_warmup_step_jitter_ms`](#me_warmup_step_jitter_ms) | `u64` | `300` | `✘` |
+| [`me_reconnect_max_concurrent_per_dc`](#me_reconnect_max_concurrent_per_dc) | `u32` | `8` | `✘` |
+| [`me_reconnect_backoff_base_ms`](#me_reconnect_backoff_base_ms) | `u64` | `500` | `✘` |
+| [`me_reconnect_backoff_cap_ms`](#me_reconnect_backoff_cap_ms) | `u64` | `30000` | `✘` |
+| [`me_reconnect_fast_retry_count`](#me_reconnect_fast_retry_count) | `u32` | `16` | `✘` |
+| [`me_single_endpoint_shadow_writers`](#me_single_endpoint_shadow_writers) | `u8` | `2` | `✔` |
+| [`me_single_endpoint_outage_mode_enabled`](#me_single_endpoint_outage_mode_enabled) | `bool` | `true` | `✔` |
+| [`me_single_endpoint_outage_disable_quarantine`](#me_single_endpoint_outage_disable_quarantine) | `bool` | `true` | `✔` |
+| [`me_single_endpoint_outage_backoff_min_ms`](#me_single_endpoint_outage_backoff_min_ms) | `u64` | `250` | `✔` |
+| [`me_single_endpoint_outage_backoff_max_ms`](#me_single_endpoint_outage_backoff_max_ms) | `u64` | `3000` | `✔` |
+| [`me_single_endpoint_shadow_rotate_every_secs`](#me_single_endpoint_shadow_rotate_every_secs) | `u64` | `900` | `✔` |
+| [`me_floor_mode`](#me_floor_mode) | `"static"` or `"adaptive"` | `"adaptive"` | `✔` |
+| [`me_adaptive_floor_idle_secs`](#me_adaptive_floor_idle_secs) | `u64` | `90` | `✔` |
+| [`me_adaptive_floor_min_writers_single_endpoint`](#me_adaptive_floor_min_writers_single_endpoint) | `u8` | `1` | `✔` |
+| [`me_adaptive_floor_min_writers_multi_endpoint`](#me_adaptive_floor_min_writers_multi_endpoint) | `u8` | `1` | `✔` |
+| [`me_adaptive_floor_recover_grace_secs`](#me_adaptive_floor_recover_grace_secs) | `u64` | `180` | `✔` |
+| [`me_adaptive_floor_writers_per_core_total`](#me_adaptive_floor_writers_per_core_total) | `u16` | `48` | `✔` |
+| [`me_adaptive_floor_cpu_cores_override`](#me_adaptive_floor_cpu_cores_override) | `u16` | `0` | `✔` |
+| [`me_adaptive_floor_max_extra_writers_single_per_core`](#me_adaptive_floor_max_extra_writers_single_per_core) | `u16` | `1` | `✔` |
+| [`me_adaptive_floor_max_extra_writers_multi_per_core`](#me_adaptive_floor_max_extra_writers_multi_per_core) | `u16` | `2` | `✔` |
+| [`me_adaptive_floor_max_active_writers_per_core`](#me_adaptive_floor_max_active_writers_per_core) | `u16` | `64` | `✔` |
+| [`me_adaptive_floor_max_warm_writers_per_core`](#me_adaptive_floor_max_warm_writers_per_core) | `u16` | `64` | `✔` |
+| [`me_adaptive_floor_max_active_writers_global`](#me_adaptive_floor_max_active_writers_global) | `u32` | `256` | `✔` |
+| [`me_adaptive_floor_max_warm_writers_global`](#me_adaptive_floor_max_warm_writers_global) | `u32` | `256` | `✔` |
+| [`upstream_connect_retry_attempts`](#upstream_connect_retry_attempts) | `u32` | `2` | `✘` |
+| [`upstream_connect_retry_backoff_ms`](#upstream_connect_retry_backoff_ms) | `u64` | `100` | `✘` |
+| [`upstream_connect_budget_ms`](#upstream_connect_budget_ms) | `u64` | `3000` | `✘` |
+| [`tg_connect`](#tg_connect) | `u64` | `10` | `✘` |
+| [`upstream_unhealthy_fail_threshold`](#upstream_unhealthy_fail_threshold) | `u32` | `5` | `✘` |
+| [`upstream_connect_failfast_hard_errors`](#upstream_connect_failfast_hard_errors) | `bool` | `false` | `✘` |
+| [`stun_iface_mismatch_ignore`](#stun_iface_mismatch_ignore) | `bool` | `false` | `✘` |
+| [`unknown_dc_log_path`](#unknown_dc_log_path) | `String` | `"unknown-dc.txt"` | `✘` |
+| [`unknown_dc_file_log_enabled`](#unknown_dc_file_log_enabled) | `bool` | `false` | `✘` |
+| [`log_level`](#log_level) | `"debug"`, `"verbose"`, `"normal"`, or `"silent"` | `"normal"` | `✔` |
+| [`disable_colors`](#disable_colors) | `bool` | `false` | `✘` |
+| [`me_socks_kdf_policy`](#me_socks_kdf_policy) | `"strict"` or `"compat"` | `"strict"` | `✔` |
+| [`me_route_backpressure_enabled`](#me_route_backpressure_enabled) | `bool` | `false` | `✔` |
+| [`me_route_fairshare_enabled`](#me_route_fairshare_enabled) | `bool` | `false` | `✔` |
+| [`me_route_backpressure_base_timeout_ms`](#me_route_backpressure_base_timeout_ms) | `u64` | `25` | `✔` |
+| [`me_route_backpressure_high_timeout_ms`](#me_route_backpressure_high_timeout_ms) | `u64` | `120` | `✔` |
+| [`me_route_backpressure_high_watermark_pct`](#me_route_backpressure_high_watermark_pct) | `u8` | `80` | `✔` |
+| [`me_health_interval_ms_unhealthy`](#me_health_interval_ms_unhealthy) | `u64` | `1000` | `✔` |
+| [`me_health_interval_ms_healthy`](#me_health_interval_ms_healthy) | `u64` | `3000` | `✔` |
+| [`me_admission_poll_ms`](#me_admission_poll_ms) | `u64` | `1000` | `✔` |
+| [`me_warn_rate_limit_ms`](#me_warn_rate_limit_ms) | `u64` | `5000` | `✔` |
+| [`me_route_no_writer_mode`](#me_route_no_writer_mode) | `"async_recovery_failfast"`, `"inline_recovery_legacy"`, or `"hybrid_async_persistent"` | `"hybrid_async_persistent"` | `✘` |
+| [`me_route_no_writer_wait_ms`](#me_route_no_writer_wait_ms) | `u64` | `250` | `✘` |
+| [`me_route_hybrid_max_wait_ms`](#me_route_hybrid_max_wait_ms) | `u64` | `3000` | `✘` |
+| [`me_route_blocking_send_timeout_ms`](#me_route_blocking_send_timeout_ms) | `u64` | `250` | `✘` |
+| [`me_route_inline_recovery_attempts`](#me_route_inline_recovery_attempts) | `u32` | `3` | `✘` |
+| [`me_route_inline_recovery_wait_ms`](#me_route_inline_recovery_wait_ms) | `u64` | `3000` | `✘` |
+| [`fast_mode_min_tls_record`](#fast_mode_min_tls_record) | `usize` | `0` | `✘` |
+| [`update_every`](#update_every) | `u64` | `300` | `✔` |
+| [`me_reinit_every_secs`](#me_reinit_every_secs) | `u64` | `900` | `✔` |
+| [`me_hardswap_warmup_delay_min_ms`](#me_hardswap_warmup_delay_min_ms) | `u64` | `1000` | `✔` |
+| [`me_hardswap_warmup_delay_max_ms`](#me_hardswap_warmup_delay_max_ms) | `u64` | `2000` | `✔` |
+| [`me_hardswap_warmup_extra_passes`](#me_hardswap_warmup_extra_passes) | `u8` | `3` | `✔` |
+| [`me_hardswap_warmup_pass_backoff_base_ms`](#me_hardswap_warmup_pass_backoff_base_ms) | `u64` | `500` | `✔` |
+| [`me_config_stable_snapshots`](#me_config_stable_snapshots) | `u8` | `2` | `✔` |
+| [`me_config_apply_cooldown_secs`](#me_config_apply_cooldown_secs) | `u64` | `300` | `✔` |
+| [`me_snapshot_require_http_2xx`](#me_snapshot_require_http_2xx) | `bool` | `true` | `✔` |
+| [`me_snapshot_reject_empty_map`](#me_snapshot_reject_empty_map) | `bool` | `true` | `✔` |
+| [`me_snapshot_min_proxy_for_lines`](#me_snapshot_min_proxy_for_lines) | `u32` | `1` | `✔` |
+| [`proxy_secret_stable_snapshots`](#proxy_secret_stable_snapshots) | `u8` | `2` | `✔` |
+| [`proxy_secret_rotate_runtime`](#proxy_secret_rotate_runtime) | `bool` | `true` | `✔` |
+| [`me_secret_atomic_snapshot`](#me_secret_atomic_snapshot) | `bool` | `true` | `✔` |
+| [`proxy_secret_len_max`](#proxy_secret_len_max) | `usize` | `256` | `✔` |
+| [`me_pool_drain_ttl_secs`](#me_pool_drain_ttl_secs) | `u64` | `90` | `✔` |
+| [`me_instadrain`](#me_instadrain) | `bool` | `false` | `✔` |
+| [`me_pool_drain_threshold`](#me_pool_drain_threshold) | `u64` | `32` | `✔` |
+| [`me_pool_drain_soft_evict_enabled`](#me_pool_drain_soft_evict_enabled) | `bool` | `true` | `✘` |
+| [`me_pool_drain_soft_evict_grace_secs`](#me_pool_drain_soft_evict_grace_secs) | `u64` | `10` | `✘` |
+| [`me_pool_drain_soft_evict_per_writer`](#me_pool_drain_soft_evict_per_writer) | `u8` | `2` | `✘` |
+| [`me_pool_drain_soft_evict_budget_per_core`](#me_pool_drain_soft_evict_budget_per_core) | `u16` | `16` | `✘` |
+| [`me_pool_drain_soft_evict_cooldown_ms`](#me_pool_drain_soft_evict_cooldown_ms) | `u64` | `1000` | `✘` |
+| [`me_bind_stale_mode`](#me_bind_stale_mode) | `"never"`, `"ttl"`, or `"always"` | `"ttl"` | `✔` |
+| [`me_bind_stale_ttl_secs`](#me_bind_stale_ttl_secs) | `u64` | `90` | `✔` |
+| [`me_pool_min_fresh_ratio`](#me_pool_min_fresh_ratio) | `f32` | `0.8` | `✔` |
+| [`me_reinit_drain_timeout_secs`](#me_reinit_drain_timeout_secs) | `u64` | `90` | `✔` |
+| [`proxy_secret_auto_reload_secs`](#proxy_secret_auto_reload_secs) | `u64` | `3600` | `✔` |
+| [`proxy_config_auto_reload_secs`](#proxy_config_auto_reload_secs) | `u64` | `3600` | `✔` |
+| [`me_reinit_singleflight`](#me_reinit_singleflight) | `bool` | `true` | `✔` |
+| [`me_reinit_trigger_channel`](#me_reinit_trigger_channel) | `usize` | `64` | `✘` |
+| [`me_reinit_coalesce_window_ms`](#me_reinit_coalesce_window_ms) | `u64` | `200` | `✔` |
+| [`me_deterministic_writer_sort`](#me_deterministic_writer_sort) | `bool` | `true` | `✔` |
+| [`me_writer_pick_mode`](#me_writer_pick_mode) | `"sorted_rr"` or `"p2c"` | `"p2c"` | `✔` |
+| [`me_writer_pick_sample_size`](#me_writer_pick_sample_size) | `u8` | `3` | `✔` |
+| [`ntp_check`](#ntp_check) | `bool` | `true` | `✘` |
+| [`ntp_servers`](#ntp_servers) | `String[]` | `["pool.ntp.org"]` | `✘` |
+| [`auto_degradation_enabled`](#auto_degradation_enabled) | `bool` | `true` | `✘` |
+| [`degradation_min_unavailable_dc_groups`](#degradation_min_unavailable_dc_groups) | `u8` | `2` | `✘` |
+| [`rst_on_close`](#rst_on_close) | `"off"`, `"errors"` или `"always"` | `"off"` | `✘` |
 
 ## data_path
   - **Ограничения / валидация**: `String` (необязательный параметр).
@@ -2386,41 +2393,6 @@
 # [censorship]
 
 
-| Ключ | Тип | По умолчанию |
-| --- | ---- | ------- |
-| [`tls_domain`](#tls_domain) | `String` | `"petrovich.ru"` |
-| [`tls_domains`](#tls_domains) | `String[]` | `[]` |
-| [`unknown_sni_action`](#unknown_sni_action) | `"drop"`, `"mask"`, `"accept"`, `"reject_handshake"` | `"drop"` |
-| [`tls_fetch_scope`](#tls_fetch_scope) | `String` | `""` |
-| [`tls_fetch`](#tls_fetch) | `Table` | built-in defaults |
-| [`mask`](#mask) | `bool` | `true` |
-| [`mask_host`](#mask_host) | `String` | — |
-| [`mask_port`](#mask_port) | `u16` | `443` |
-| [`exclusive_mask`](#exclusive_mask) | `Map<String,String>` | `{}` |
-| [`mask_unix_sock`](#mask_unix_sock) | `String` | — |
-| [`fake_cert_len`](#fake_cert_len) | `usize` | `2048` |
-| [`tls_emulation`](#tls_emulation) | `bool` | `true` |
-| [`tls_front_dir`](#tls_front_dir) | `String` | `"tlsfront"` |
-| [`server_hello_delay_min_ms`](#server_hello_delay_min_ms) | `u64` | `0` |
-| [`server_hello_delay_max_ms`](#server_hello_delay_max_ms) | `u64` | `0` |
-| [`tls_new_session_tickets`](#tls_new_session_tickets) | `u8` | `0` |
-| [`tls_full_cert_ttl_secs`](#tls_full_cert_ttl_secs) | `u64` | `90` |
-| [`serverhello_compact`](#serverhello_compact) | `bool` | `false` |
-| [`alpn_enforce`](#alpn_enforce) | `bool` | `true` |
-| [`mask_proxy_protocol`](#mask_proxy_protocol) | `u8` | `0` |
-| [`mask_shape_hardening`](#mask_shape_hardening) | `bool` | `true` |
-| [`mask_shape_hardening_aggressive_mode`](#mask_shape_hardening_aggressive_mode) | `bool` | `false` |
-| [`mask_shape_bucket_floor_bytes`](#mask_shape_bucket_floor_bytes) | `usize` | `512` |
-| [`mask_shape_bucket_cap_bytes`](#mask_shape_bucket_cap_bytes) | `usize` | `4096` |
-| [`mask_shape_above_cap_blur`](#mask_shape_above_cap_blur) | `bool` | `false` |
-| [`mask_shape_above_cap_blur_max_bytes`](#mask_shape_above_cap_blur_max_bytes) | `usize` | `512` |
-| [`mask_relay_max_bytes`](#mask_relay_max_bytes) | `usize` | `5242880` |
-| [`mask_relay_timeout_ms`](mask_relay_timeout_ms) | `u64` | `60_000` |
-| [`mask_relay_idle_timeout_ms`](mask_relay_idle_timeout_ms) | `u64` | `5_000` |
-| [`mask_classifier_prefetch_timeout_ms`](#mask_classifier_prefetch_timeout_ms) | `u64` | `5` |
-| [`mask_timing_normalization_enabled`](#mask_timing_normalization_enabled) | `bool` | `false` |
-| [`mask_timing_normalization_floor_ms`](#mask_timing_normalization_floor_ms) | `u64` | `0` |
-| [`mask_timing_normalization_ceiling_ms`](#mask_timing_normalization_ceiling_ms) | `u64` | `0` |
 | Ключ | Тип | По умолчанию | Hot-Reload |
 | --- | ---- | ------- | ---------- |
 | [`tls_domain`](#tls_domain) | `String` | `"petrovich.ru"` | `✘` |
