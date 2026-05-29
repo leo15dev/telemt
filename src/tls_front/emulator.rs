@@ -226,10 +226,7 @@ fn replay_profiled_server_hello_extension(
     }
 }
 
-fn build_profiled_server_hello_extensions(
-    cached: &CachedTlsData,
-    rng: &SecureRandom,
-) -> Vec<u8> {
+fn build_profiled_server_hello_extensions(cached: &CachedTlsData, rng: &SecureRandom) -> Vec<u8> {
     let capacity = cached
         .server_hello_template
         .extensions
@@ -612,7 +609,10 @@ mod tests {
             0,
         );
 
-        assert_eq!(server_hello_extension_types(&response), vec![0x002b, 0x0033]);
+        assert_eq!(
+            server_hello_extension_types(&response),
+            vec![0x002b, 0x0033]
+        );
     }
 
     #[test]

@@ -1702,7 +1702,8 @@ fn select_server_hello_cipher_suite_falls_back_to_offered_tls13_suite() {
 
 #[test]
 fn select_server_hello_cipher_suite_keeps_preferred_for_malformed_clienthello() {
-    let mut ch = build_client_hello_with_ciphers_and_exts(&[[0x13, 0x03]], Vec::new(), "example.com");
+    let mut ch =
+        build_client_hello_with_ciphers_and_exts(&[[0x13, 0x03]], Vec::new(), "example.com");
     ch.truncate(12);
     assert_eq!(
         select_server_hello_cipher_suite(&ch, [0x13, 0x01]),

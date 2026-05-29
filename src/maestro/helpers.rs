@@ -38,10 +38,7 @@ fn format_maestro_line(message: impl AsRef<str>, colors_enabled: bool) -> String
 pub(crate) fn print_maestro_line(message: impl AsRef<str>) {
     eprintln!(
         "{}",
-        format_maestro_line(
-            message,
-            MAESTRO_COLORS_ENABLED.load(Ordering::Relaxed)
-        )
+        format_maestro_line(message, MAESTRO_COLORS_ENABLED.load(Ordering::Relaxed))
     );
 }
 

@@ -1525,8 +1525,7 @@ where
             config.censorship.tls_new_session_tickets,
         )
     } else {
-        let selected_cipher_suite =
-            tls::select_server_hello_cipher_suite(handshake, [0x13, 0x01]);
+        let selected_cipher_suite = tls::select_server_hello_cipher_suite(handshake, [0x13, 0x01]);
         tls::build_server_hello_with_cipher(
             &validated_secret,
             &validation_digest,
