@@ -81,7 +81,7 @@ telemt config.toml
 ## Support Telemt
 
 Telemt is free, open-source, and built in personal time.
-If it helps you - consider supporting continued development.
+If it helps you — consider supporting continued development.
 
 Any cryptocurrency (BTC, ETH, USDT, 350+ coins):
 
