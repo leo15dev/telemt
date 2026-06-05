@@ -118,6 +118,7 @@ pub struct HotFields {
     pub me_admission_poll_ms: u64,
     pub me_warn_rate_limit_ms: u64,
     pub users: std::collections::HashMap<String, String>,
+    pub user_enabled: std::collections::HashMap<String, bool>,
     pub user_ad_tags: std::collections::HashMap<String, String>,
     pub user_max_tcp_conns: std::collections::HashMap<String, usize>,
     pub user_max_tcp_conns_global_each: usize,
@@ -247,6 +248,7 @@ impl HotFields {
             me_admission_poll_ms: cfg.general.me_admission_poll_ms,
             me_warn_rate_limit_ms: cfg.general.me_warn_rate_limit_ms,
             users: cfg.access.users.clone(),
+            user_enabled: cfg.access.user_enabled.clone(),
             user_ad_tags: cfg.access.user_ad_tags.clone(),
             user_max_tcp_conns: cfg.access.user_max_tcp_conns.clone(),
             user_max_tcp_conns_global_each: cfg.access.user_max_tcp_conns_global_each,
@@ -551,6 +553,7 @@ fn overlay_hot_fields(old: &ProxyConfig, new: &ProxyConfig) -> ProxyConfig {
     cfg.general.me_warn_rate_limit_ms = new.general.me_warn_rate_limit_ms;
 
     cfg.access.users = new.access.users.clone();
+    cfg.access.user_enabled = new.access.user_enabled.clone();
     cfg.access.user_ad_tags = new.access.user_ad_tags.clone();
     cfg.access.user_max_tcp_conns = new.access.user_max_tcp_conns.clone();
     cfg.access.user_max_tcp_conns_global_each = new.access.user_max_tcp_conns_global_each;
@@ -1178,6 +1181,16 @@ fn log_changes(
         }
     }
 
+    if old_hot.user_enabled != new_hot.user_enabled {
+        info!(
+            "config reload: user_enabled updated ({} disabled overrides)",
+            new_hot
+                .user_enabled
+                .values()
+                .filter(|enabled| !**enabled)
+                .count()
+        );
+    }
     if old_hot.user_max_tcp_conns != new_hot.user_max_tcp_conns {
         info!(
             "config reload: user_max_tcp_conns updated ({} entries)",

@@ -464,6 +464,12 @@ async fn run_telemt_core(
             config.network.dns_overrides.len()
         );
     }
+    let shared_state = ProxySharedState::new();
+    shared_state.apply_user_enabled_config(&config.access.user_enabled);
+    shared_state.traffic_limiter.apply_policy(
+        config.access.user_rate_limits.clone(),
+        config.access.cidr_rate_limits.clone(),
+    );
 
     let (api_config_tx, api_config_rx) = watch::channel(Arc::new(config.clone()));
     let (detected_ips_tx, detected_ips_rx) = watch::channel((None::<IpAddr>, None::<IpAddr>));
@@ -502,6 +508,7 @@ async fn run_telemt_core(
             let me_pool_api = api_me_pool.clone();
             let upstream_manager_api = upstream_manager.clone();
             let route_runtime_api = route_runtime.clone();
+            let proxy_shared_api = shared_state.clone();
             let config_rx_api = api_config_rx.clone();
             let admission_rx_api = admission_rx.clone();
             let config_path_api = config_path.clone();
@@ -515,6 +522,7 @@ async fn run_telemt_core(
                     ip_tracker_api,
                     me_pool_api,
                     route_runtime_api,
+                    proxy_shared_api,
                     upstream_manager_api,
                     config_rx_api,
                     admission_rx_api,
@@ -732,11 +740,6 @@ async fn run_telemt_core(
     ));
 
     let buffer_pool = Arc::new(BufferPool::with_config(64 * 1024, 4096));
-    let shared_state = ProxySharedState::new();
-    shared_state.traffic_limiter.apply_policy(
-        config.access.user_rate_limits.clone(),
-        config.access.cidr_rate_limits.clone(),
-    );
 
     if direct_first_startup {
         startup_tracker

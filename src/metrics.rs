@@ -55,8 +55,10 @@ pub async fn serve(
                 return;
             }
         };
-        let is_ipv6 = addr.is_ipv6();
-        match bind_metrics_listener(addr, is_ipv6, listen_backlog) {
+        // Match `server.api.listen`: `[::]:port` is a dual-stack wildcard
+        // on Linux when `net.ipv6.bindv6only=0`.
+        let ipv6_only = addr.is_ipv6() && !addr.ip().is_unspecified();
+        match bind_metrics_listener(addr, ipv6_only, listen_backlog) {
             Ok(listener) => {
                 info!("Metrics endpoint: http://{}/metrics and /beobachten", addr);
                 serve_listener(
@@ -286,7 +288,7 @@ async fn handle<B>(
     }
 
     if req.uri().path() == "/beobachten" {
-        let body = render_beobachten(beobachten, config);
+        let body = render_beobachten(stats, beobachten, config);
         let resp = Response::builder()
             .status(StatusCode::OK)
             .header("content-type", "text/plain; charset=utf-8")
@@ -302,13 +304,22 @@ async fn handle<B>(
     Ok(resp)
 }
 
-fn render_beobachten(beobachten: &BeobachtenStore, config: &ProxyConfig) -> String {
+fn render_beobachten(stats: &Stats, beobachten: &BeobachtenStore, config: &ProxyConfig) -> String {
     if !config.general.beobachten {
         return "beobachten disabled\n".to_string();
     }
 
     let ttl = Duration::from_secs(config.general.beobachten_minutes.saturating_mul(60));
-    beobachten.snapshot_text(ttl)
+    let mut body = beobachten.snapshot_text(ttl);
+    let tls_text = stats.tls_fingerprint_snapshot_text(ttl, 20);
+    if !tls_text.is_empty() {
+        if !body.ends_with('\n') {
+            body.push('\n');
+        }
+        body.push('\n');
+        body.push_str(&tls_text);
+    }
+    body
 }
 
 fn tls_front_domains(config: &ProxyConfig) -> Vec<String> {

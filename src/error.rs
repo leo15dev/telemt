@@ -245,6 +245,9 @@ pub enum ProxyError {
     InvalidSecret { user: String, reason: String },
 
     // ============= User Errors =============
+    #[error("User {user} disabled")]
+    UserDisabled { user: String },
+
     #[error("User {user} expired")]
     UserExpired { user: String },
 

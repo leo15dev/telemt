@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf, split};
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::config::ProxyConfig;
@@ -258,6 +259,7 @@ where
         route_snapshot,
         session_id,
         SocketAddr::from(([0, 0, 0, 0], config.server.port)),
+        CancellationToken::new(),
         ProxySharedState::new(),
     )
     .await
@@ -276,6 +278,7 @@ pub(crate) async fn handle_via_direct_with_shared<R, W>(
     route_snapshot: RouteCutoverState,
     session_id: u64,
     local_addr: SocketAddr,
+    session_cancel: CancellationToken,
     shared: Arc<ProxySharedState>,
 ) -> Result<()>
 where
@@ -302,14 +305,25 @@ where
             "Ignoring invalid scope hint and falling back to default upstream selection"
         );
     }
-    let tg_stream = upstream_manager
-        .connect(dc_addr, Some(success.dc_idx), scope_hint)
-        .await?;
+    let tg_stream = tokio::select! {
+        result = upstream_manager.connect(dc_addr, Some(success.dc_idx), scope_hint) => result?,
+        _ = session_cancel.cancelled() => {
+            return Err(ProxyError::UserDisabled {
+                user: user.to_string(),
+            });
+        }
+    };
 
     debug!(peer = %success.peer, dc_addr = %dc_addr, "Connected, performing TG handshake");
 
-    let (tg_reader, tg_writer) =
-        do_tg_handshake_static(tg_stream, &success, &config, rng.as_ref()).await?;
+    let (tg_reader, tg_writer) = tokio::select! {
+        result = do_tg_handshake_static(tg_stream, &success, &config, rng.as_ref()) => result?,
+        _ = session_cancel.cancelled() => {
+            return Err(ProxyError::UserDisabled {
+                user: user.to_string(),
+            });
+        }
+    };
 
     debug!(peer = %success.peer, "TG handshake complete, starting relay");
 
@@ -331,20 +345,22 @@ where
     } else {
         Duration::from_secs(1800)
     };
-    let relay_result = crate::proxy::relay::relay_bidirectional_with_activity_timeout_and_lease(
-        client_reader,
-        client_writer,
-        tg_reader,
-        tg_writer,
-        config.general.direct_relay_copy_buf_c2s_bytes,
-        config.general.direct_relay_copy_buf_s2c_bytes,
-        user,
-        Arc::clone(&stats),
-        config.access.user_data_quota.get(user).copied(),
-        buffer_pool,
-        traffic_lease,
-        relay_activity_timeout,
-    );
+    let relay_result =
+        crate::proxy::relay::relay_bidirectional_with_activity_timeout_lease_and_cancel(
+            client_reader,
+            client_writer,
+            tg_reader,
+            tg_writer,
+            config.general.direct_relay_copy_buf_c2s_bytes,
+            config.general.direct_relay_copy_buf_s2c_bytes,
+            user,
+            Arc::clone(&stats),
+            config.access.user_data_quota.get(user).copied(),
+            buffer_pool,
+            traffic_lease,
+            relay_activity_timeout,
+            session_cancel.clone(),
+        );
     tokio::pin!(relay_result);
     let relay_result = loop {
         if let Some(cutover) =
@@ -370,6 +386,11 @@ where
                 if changed.is_err() {
                     break relay_result.await;
                 }
+            }
+            _ = session_cancel.cancelled() => {
+                break Err(ProxyError::UserDisabled {
+                    user: user.to_string(),
+                });
             }
         }
     };

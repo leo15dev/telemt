@@ -13,6 +13,7 @@ pub(crate) async fn handle_via_middle_proxy<R, W>(
     mut route_rx: watch::Receiver<RouteCutoverState>,
     route_snapshot: RouteCutoverState,
     session_id: u64,
+    session_cancel: CancellationToken,
     shared: Arc<ProxySharedState>,
 ) -> Result<()>
 where
@@ -20,6 +21,10 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     let user = success.user.clone();
+    if session_cancel.is_cancelled() {
+        return Err(ProxyError::UserDisabled { user });
+    }
+
     let quota_limit = config.access.user_data_quota.get(&user).copied();
     let quota_user_stats = quota_limit.map(|_| stats.get_or_create_user_stats_handle(&user));
     let peer = success.peer;
@@ -590,6 +595,25 @@ where
         }
 
         tokio::select! {
+            _ = session_cancel.cancelled() => {
+                warn!(
+                    user = %user,
+                    conn_id,
+                    "Disabled user middle session cancelled"
+                );
+                let _ = enqueue_c2me_command_in(
+                    shared.as_ref(),
+                    &c2me_tx,
+                    C2MeCommand::Close,
+                    c2me_send_timeout,
+                    stats.as_ref(),
+                )
+                .await;
+                main_result = Err(ProxyError::UserDisabled {
+                    user: user.clone(),
+                });
+                break;
+            }
             changed = route_rx.changed(), if route_watch_open => {
                 if changed.is_err() {
                     route_watch_open = false;

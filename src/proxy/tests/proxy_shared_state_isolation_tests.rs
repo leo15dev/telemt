@@ -61,6 +61,7 @@ fn new_client_harness() -> ClientHarness {
             selected_scope: String::new(),
             ipv4: None,
             ipv6: None,
+            prefer: None,
         }],
         1,
         1,

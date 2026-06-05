@@ -479,6 +479,7 @@ pub(super) struct TlsDomainLink {
 #[derive(Serialize)]
 pub(super) struct UserInfo {
     pub(super) username: String,
+    pub(super) enabled: bool,
     pub(super) in_runtime: bool,
     pub(super) user_ad_tag: Option<String>,
     pub(super) max_tcp_conns: Option<usize>,
@@ -545,6 +546,7 @@ pub(super) struct CreateUserRequest {
     pub(super) rate_limit_up_bps: Option<u64>,
     pub(super) rate_limit_down_bps: Option<u64>,
     pub(super) max_unique_ips: Option<usize>,
+    pub(super) enabled: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -564,6 +566,8 @@ pub(super) struct PatchUserRequest {
     pub(super) rate_limit_down_bps: Patch<u64>,
     #[serde(default, deserialize_with = "patch_field")]
     pub(super) max_unique_ips: Patch<usize>,
+    #[serde(default, deserialize_with = "patch_field")]
+    pub(super) enabled: Patch<bool>,
 }
 
 #[derive(Default, Deserialize)]

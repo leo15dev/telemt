@@ -55,11 +55,13 @@ use crate::error::{ProxyError, Result};
 use crate::proxy::traffic_limiter::TrafficLease;
 use crate::stats::Stats;
 use crate::stream::BufferPool;
+use std::future::pending;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, copy_bidirectional_with_sizes};
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 // ============= Constants =============
@@ -197,6 +199,84 @@ where
     SR: AsyncRead + Unpin + Send + 'static,
     SW: AsyncWrite + Unpin + Send + 'static,
 {
+    relay_bidirectional_with_activity_timeout_lease_cancel_inner(
+        client_reader,
+        client_writer,
+        server_reader,
+        server_writer,
+        c2s_buf_size,
+        s2c_buf_size,
+        user,
+        stats,
+        quota_limit,
+        _buffer_pool,
+        traffic_lease,
+        activity_timeout,
+        None,
+    )
+    .await
+}
+
+pub async fn relay_bidirectional_with_activity_timeout_lease_and_cancel<CR, CW, SR, SW>(
+    client_reader: CR,
+    client_writer: CW,
+    server_reader: SR,
+    server_writer: SW,
+    c2s_buf_size: usize,
+    s2c_buf_size: usize,
+    user: &str,
+    stats: Arc<Stats>,
+    quota_limit: Option<u64>,
+    _buffer_pool: Arc<BufferPool>,
+    traffic_lease: Option<Arc<TrafficLease>>,
+    activity_timeout: Duration,
+    session_cancel: CancellationToken,
+) -> Result<()>
+where
+    CR: AsyncRead + Unpin + Send + 'static,
+    CW: AsyncWrite + Unpin + Send + 'static,
+    SR: AsyncRead + Unpin + Send + 'static,
+    SW: AsyncWrite + Unpin + Send + 'static,
+{
+    relay_bidirectional_with_activity_timeout_lease_cancel_inner(
+        client_reader,
+        client_writer,
+        server_reader,
+        server_writer,
+        c2s_buf_size,
+        s2c_buf_size,
+        user,
+        stats,
+        quota_limit,
+        _buffer_pool,
+        traffic_lease,
+        activity_timeout,
+        Some(session_cancel),
+    )
+    .await
+}
+
+async fn relay_bidirectional_with_activity_timeout_lease_cancel_inner<CR, CW, SR, SW>(
+    client_reader: CR,
+    client_writer: CW,
+    server_reader: SR,
+    server_writer: SW,
+    c2s_buf_size: usize,
+    s2c_buf_size: usize,
+    user: &str,
+    stats: Arc<Stats>,
+    quota_limit: Option<u64>,
+    _buffer_pool: Arc<BufferPool>,
+    traffic_lease: Option<Arc<TrafficLease>>,
+    activity_timeout: Duration,
+    session_cancel: Option<CancellationToken>,
+) -> Result<()>
+where
+    CR: AsyncRead + Unpin + Send + 'static,
+    CW: AsyncWrite + Unpin + Send + 'static,
+    SR: AsyncRead + Unpin + Send + 'static,
+    SW: AsyncWrite + Unpin + Send + 'static,
+{
     let activity_timeout = activity_timeout.max(Duration::from_secs(1));
     let epoch = Instant::now();
     let counters = Arc::new(SharedCounters::new());
@@ -287,14 +367,29 @@ where
     //
     // When the watchdog fires, select! drops the copy future,
     // releasing the &mut borrows on client and server.
-    let copy_result = tokio::select! {
+    enum RelayOutcome {
+        Copy(std::io::Result<(u64, u64)>),
+        ActivityTimeout,
+        UserDisabled,
+    }
+
+    let cancel_wait = async move {
+        match session_cancel {
+            Some(token) => token.cancelled().await,
+            None => pending::<()>().await,
+        }
+    };
+    tokio::pin!(cancel_wait);
+
+    let relay_outcome = tokio::select! {
         result = copy_bidirectional_with_sizes(
             &mut client,
             &mut server,
             c2s_buf_size.max(1),
             s2c_buf_size.max(1),
-        ) => Some(result),
-        _ = watchdog => None, // Activity timeout — cancel relay
+        ) => RelayOutcome::Copy(result),
+        _ = watchdog => RelayOutcome::ActivityTimeout,
+        _ = &mut cancel_wait => RelayOutcome::UserDisabled,
     };
 
     // ── Clean shutdown ──────────────────────────────────────────────
@@ -308,8 +403,8 @@ where
     let s2c_ops = counters.s2c_ops.load(Ordering::Relaxed);
     let duration = epoch.elapsed();
 
-    match copy_result {
-        Some(Ok((c2s, s2c))) => {
+    match relay_outcome {
+        RelayOutcome::Copy(Ok((c2s, s2c))) => {
             // Normal completion — one side closed the connection
             debug!(
                 user = %user_owned,
@@ -322,7 +417,7 @@ where
             );
             Ok(())
         }
-        Some(Err(e)) if is_quota_io_error(&e) => {
+        RelayOutcome::Copy(Err(e)) if is_quota_io_error(&e) => {
             let c2s = counters.c2s_bytes.load(Ordering::Relaxed);
             let s2c = counters.s2c_bytes.load(Ordering::Relaxed);
             warn!(
@@ -338,7 +433,7 @@ where
                 user: user_owned.clone(),
             })
         }
-        Some(Err(e)) => {
+        RelayOutcome::Copy(Err(e)) => {
             // I/O error in one of the directions
             let c2s = counters.c2s_bytes.load(Ordering::Relaxed);
             let s2c = counters.s2c_bytes.load(Ordering::Relaxed);
@@ -354,7 +449,7 @@ where
             );
             Err(e.into())
         }
-        None => {
+        RelayOutcome::ActivityTimeout => {
             // Activity timeout (watchdog fired)
             let c2s = counters.c2s_bytes.load(Ordering::Relaxed);
             let s2c = counters.s2c_bytes.load(Ordering::Relaxed);
@@ -368,6 +463,22 @@ where
                 "Relay finished (activity timeout)"
             );
             Ok(())
+        }
+        RelayOutcome::UserDisabled => {
+            let c2s = counters.c2s_bytes.load(Ordering::Relaxed);
+            let s2c = counters.s2c_bytes.load(Ordering::Relaxed);
+            debug!(
+                user = %user_owned,
+                c2s_bytes = c2s,
+                s2c_bytes = s2c,
+                c2s_msgs = c2s_ops,
+                s2c_msgs = s2c_ops,
+                duration_secs = duration.as_secs(),
+                "Relay finished (user disabled)"
+            );
+            Err(ProxyError::UserDisabled {
+                user: user_owned.clone(),
+            })
         }
     }
 }

@@ -14,6 +14,7 @@ use super::model::ApiFailure;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AccessSection {
     Users,
+    UserEnabled,
     UserAdTags,
     UserMaxTcpConns,
     UserExpirations,
@@ -26,6 +27,7 @@ impl AccessSection {
     fn table_name(self) -> &'static str {
         match self {
             Self::Users => "access.users",
+            Self::UserEnabled => "access.user_enabled",
             Self::UserAdTags => "access.user_ad_tags",
             Self::UserMaxTcpConns => "access.user_max_tcp_conns",
             Self::UserExpirations => "access.user_expirations",
@@ -135,6 +137,15 @@ fn render_access_section(cfg: &ProxyConfig, section: AccessSection) -> Result<St
                 .collect();
             serialize_table_body(&rows)?
         }
+        AccessSection::UserEnabled => {
+            let rows: BTreeMap<String, bool> = cfg
+                .access
+                .user_enabled
+                .iter()
+                .map(|(key, value)| (key.clone(), *value))
+                .collect();
+            serialize_table_body(&rows)?
+        }
         AccessSection::UserAdTags => {
             let rows: BTreeMap<String, String> = cfg
                 .access
@@ -204,6 +215,7 @@ fn render_access_section(cfg: &ProxyConfig, section: AccessSection) -> Result<St
 fn access_section_is_empty(cfg: &ProxyConfig, section: AccessSection) -> bool {
     match section {
         AccessSection::Users => cfg.access.users.is_empty(),
+        AccessSection::UserEnabled => cfg.access.user_enabled.is_empty(),
         AccessSection::UserAdTags => cfg.access.user_ad_tags.is_empty(),
         AccessSection::UserMaxTcpConns => cfg.access.user_max_tcp_conns.is_empty(),
         AccessSection::UserExpirations => cfg.access.user_expirations.is_empty(),

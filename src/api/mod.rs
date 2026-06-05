@@ -22,6 +22,7 @@ use tracing::{debug, info, warn};
 use crate::config::{ApiGrayAction, ProxyConfig};
 use crate::ip_tracker::UserIpTracker;
 use crate::proxy::route_mode::RouteRuntimeController;
+use crate::proxy::shared_state::ProxySharedState;
 use crate::startup::StartupTracker;
 use crate::stats::Stats;
 use crate::transport::UpstreamManager;
@@ -51,9 +52,10 @@ use model::{
     PatchUserRequest, ResetUserQuotaResponse, RotateSecretRequest, SummaryData, UserActiveIps,
     is_valid_username,
 };
+use patch::Patch;
 use runtime_edge::{
     EdgeConnectionsCacheEntry, build_runtime_connections_summary_data,
-    build_runtime_events_recent_data,
+    build_runtime_events_recent_data, build_runtime_tls_fingerprints_data,
 };
 use runtime_init::build_runtime_initialization_data;
 use runtime_min::{
@@ -71,7 +73,8 @@ use runtime_zero::{
     build_system_info_data,
 };
 use users::{
-    build_user_quota_list, create_user, delete_user, patch_user, rotate_secret, users_from_config,
+    build_user_quota_list, create_user, delete_user, patch_user, rotate_secret, set_user_enabled,
+    users_from_config,
 };
 
 const API_MAX_CONTROL_CONNECTIONS: usize = 1024;
@@ -107,6 +110,7 @@ pub(super) struct ApiShared {
     pub(super) runtime_state: Arc<ApiRuntimeState>,
     pub(super) startup_tracker: Arc<StartupTracker>,
     pub(super) route_runtime: Arc<RouteRuntimeController>,
+    pub(super) proxy_shared: Arc<ProxySharedState>,
 }
 
 impl ApiShared {
@@ -165,12 +169,15 @@ fn allowed_methods_for_path(path: &str) -> Option<&'static str> {
         | "/v1/runtime/me-selftest"
         | "/v1/runtime/connections/summary"
         | "/v1/runtime/events/recent"
+        | "/v1/runtime/tls-fingerprints"
         | "/v1/stats/users/active-ips"
         | "/v1/stats/users/quota"
         | "/v1/stats/users" => Some(ALLOW_GET),
         "/v1/users" => Some(ALLOW_GET_POST),
         _ if user_action_route_matches(path, "/reset-quota") => Some(ALLOW_POST),
         _ if user_action_route_matches(path, "/rotate-secret") => Some(ALLOW_POST),
+        _ if user_action_route_matches(path, "/enable") => Some(ALLOW_POST),
+        _ if user_action_route_matches(path, "/disable") => Some(ALLOW_POST),
         _ if path
             .strip_prefix("/v1/users/")
             .map(|user| !user.is_empty() && !user.contains('/'))
@@ -188,6 +195,7 @@ pub async fn serve(
     ip_tracker: Arc<UserIpTracker>,
     me_pool: Arc<RwLock<Option<Arc<MePool>>>>,
     route_runtime: Arc<RouteRuntimeController>,
+    proxy_shared: Arc<ProxySharedState>,
     upstream_manager: Arc<UpstreamManager>,
     config_rx: watch::Receiver<Arc<ProxyConfig>>,
     admission_rx: watch::Receiver<bool>,
@@ -237,6 +245,7 @@ pub async fn serve(
         runtime_state: runtime_state.clone(),
         startup_tracker,
         route_runtime,
+        proxy_shared,
     });
 
     spawn_runtime_watchers(
@@ -532,6 +541,15 @@ async fn handle(
                 );
                 Ok(success_response(StatusCode::OK, data, revision))
             }
+            ("GET", "/v1/runtime/tls-fingerprints") => {
+                let revision = current_revision(&shared.config_path).await?;
+                let data = build_runtime_tls_fingerprints_data(
+                    shared.as_ref(),
+                    cfg.as_ref(),
+                    query.as_deref(),
+                );
+                Ok(success_response(StatusCode::OK, data, revision))
+            }
             ("GET", "/v1/stats/users/active-ips") => {
                 let revision = current_revision(&shared.config_path).await?;
                 let usernames: Vec<_> = cfg.access.users.keys().cloned().collect();
@@ -582,6 +600,7 @@ async fn handle(
                 }
                 let expected_revision = parse_if_match(req.headers());
                 let body = read_json::<CreateUserRequest>(req.into_body(), body_limit).await?;
+                let requested_enabled = body.enabled;
                 let result = create_user(body, expected_revision, &shared).await;
                 let (mut data, revision) = match result {
                     Ok(ok) => ok,
@@ -594,6 +613,25 @@ async fn handle(
                 };
                 let runtime_cfg = config_rx.borrow().clone();
                 data.user.in_runtime = runtime_cfg.access.users.contains_key(&data.user.username);
+                if let Some(enabled) = requested_enabled {
+                    shared
+                        .proxy_shared
+                        .set_user_enabled(&data.user.username, enabled);
+                    if !enabled {
+                        let cancelled = shared
+                            .proxy_shared
+                            .cancel_user_sessions(&data.user.username);
+                        if cancelled > 0 {
+                            shared.runtime_events.record(
+                                "api.user.disable.runtime",
+                                format!(
+                                    "username={} cancelled_sessions={}",
+                                    data.user.username, cancelled
+                                ),
+                            );
+                        }
+                    }
+                }
                 shared.runtime_events.record(
                     "api.user.create.ok",
                     format!("username={}", data.user.username),
@@ -606,6 +644,99 @@ async fn handle(
                 Ok(success_response(status, data, revision))
             }
             _ => {
+                if method == Method::POST
+                    && let Some(base_user) = normalized_path
+                        .strip_prefix("/v1/users/")
+                        .and_then(|path| path.strip_suffix("/enable"))
+                    && !base_user.is_empty()
+                    && !base_user.contains('/')
+                {
+                    let base_user = parse_route_username(base_user)?;
+                    if api_cfg.read_only {
+                        return Ok(error_response(
+                            request_id,
+                            ApiFailure::new(
+                                StatusCode::FORBIDDEN,
+                                "read_only",
+                                "API runs in read-only mode",
+                            ),
+                        ));
+                    }
+                    let expected_revision = parse_if_match(req.headers());
+                    let result =
+                        set_user_enabled(base_user, true, expected_revision, &shared).await;
+                    let (mut data, revision) = match result {
+                        Ok(ok) => ok,
+                        Err(error) => {
+                            shared.runtime_events.record(
+                                "api.user.enable.failed",
+                                format!("username={} code={}", base_user, error.code),
+                            );
+                            return Err(error);
+                        }
+                    };
+                    let runtime_cfg = config_rx.borrow().clone();
+                    data.in_runtime = runtime_cfg.access.users.contains_key(&data.username);
+                    shared.proxy_shared.set_user_enabled(base_user, true);
+                    shared
+                        .runtime_events
+                        .record("api.user.enable.ok", format!("username={}", base_user));
+                    let status = if data.in_runtime {
+                        StatusCode::OK
+                    } else {
+                        StatusCode::ACCEPTED
+                    };
+                    return Ok(success_response(status, data, revision));
+                }
+                if method == Method::POST
+                    && let Some(base_user) = normalized_path
+                        .strip_prefix("/v1/users/")
+                        .and_then(|path| path.strip_suffix("/disable"))
+                    && !base_user.is_empty()
+                    && !base_user.contains('/')
+                {
+                    let base_user = parse_route_username(base_user)?;
+                    if api_cfg.read_only {
+                        return Ok(error_response(
+                            request_id,
+                            ApiFailure::new(
+                                StatusCode::FORBIDDEN,
+                                "read_only",
+                                "API runs in read-only mode",
+                            ),
+                        ));
+                    }
+                    let expected_revision = parse_if_match(req.headers());
+                    let result =
+                        set_user_enabled(base_user, false, expected_revision, &shared).await;
+                    let (mut data, revision) = match result {
+                        Ok(ok) => ok,
+                        Err(error) => {
+                            shared.runtime_events.record(
+                                "api.user.disable.failed",
+                                format!("username={} code={}", base_user, error.code),
+                            );
+                            return Err(error);
+                        }
+                    };
+                    let runtime_cfg = config_rx.borrow().clone();
+                    data.in_runtime = runtime_cfg.access.users.contains_key(&data.username);
+                    let newly_disabled = shared.proxy_shared.set_user_enabled(base_user, false);
+                    let cancelled = shared.proxy_shared.cancel_user_sessions(base_user);
+                    shared.runtime_events.record(
+                        "api.user.disable.ok",
+                        format!(
+                            "username={} newly_disabled={} cancelled_sessions={}",
+                            base_user, newly_disabled, cancelled
+                        ),
+                    );
+                    let status = if data.in_runtime {
+                        StatusCode::OK
+                    } else {
+                        StatusCode::ACCEPTED
+                    };
+                    return Ok(success_response(status, data, revision));
+                }
                 if method == Method::POST
                     && let Some(user) = normalized_path
                         .strip_prefix("/v1/users/")
@@ -763,6 +894,11 @@ async fn handle(
                         let expected_revision = parse_if_match(req.headers());
                         let body =
                             read_json::<PatchUserRequest>(req.into_body(), body_limit).await?;
+                        let enabled_update = match &body.enabled {
+                            Patch::Unchanged => None,
+                            Patch::Remove => Some(true),
+                            Patch::Set(enabled) => Some(*enabled),
+                        };
                         let result = patch_user(user, body, expected_revision, &shared).await;
                         let (mut data, revision) = match result {
                             Ok(ok) => ok,
@@ -776,6 +912,22 @@ async fn handle(
                         };
                         let runtime_cfg = config_rx.borrow().clone();
                         data.in_runtime = runtime_cfg.access.users.contains_key(&data.username);
+                        if let Some(enabled) = enabled_update {
+                            shared
+                                .proxy_shared
+                                .set_user_enabled(&data.username, enabled);
+                            if !enabled {
+                                let cancelled =
+                                    shared.proxy_shared.cancel_user_sessions(&data.username);
+                                shared.runtime_events.record(
+                                    "api.user.disable.runtime",
+                                    format!(
+                                        "username={} cancelled_sessions={}",
+                                        data.username, cancelled
+                                    ),
+                                );
+                            }
+                        }
                         shared
                             .runtime_events
                             .record("api.user.patch.ok", format!("username={}", data.username));
@@ -809,9 +961,12 @@ async fn handle(
                                 return Err(error);
                             }
                         };
-                        shared
-                            .runtime_events
-                            .record("api.user.delete.ok", format!("username={}", deleted_user));
+                        shared.proxy_shared.set_user_enabled(&deleted_user, true);
+                        let cancelled = shared.proxy_shared.cancel_user_sessions(&deleted_user);
+                        shared.runtime_events.record(
+                            "api.user.delete.ok",
+                            format!("username={} cancelled_sessions={}", deleted_user, cancelled),
+                        );
                         let runtime_cfg = config_rx.borrow().clone();
                         let in_runtime = runtime_cfg.access.users.contains_key(&deleted_user);
                         let response = DeleteUserResponse {

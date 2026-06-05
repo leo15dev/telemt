@@ -147,7 +147,7 @@ pub(crate) async fn run_startup_connectivity(
             .any(|r| r.rtt_ms.is_some());
 
         if upstream_result.both_available {
-            if prefer_ipv6 {
+            if upstream_result.prefer_ipv6 {
                 info!("  IPv6 in use / IPv4 is fallback");
             } else {
                 info!("  IPv4 in use / IPv6 is fallback");

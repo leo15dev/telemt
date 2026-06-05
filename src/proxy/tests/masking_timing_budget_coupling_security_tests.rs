@@ -22,6 +22,7 @@ async fn adversarial_delayed_interface_lookup_does_not_consume_outcome_floor_bud
 
     let refresh_lock = LOCAL_INTERFACE_REFRESH_LOCK.get_or_init(|| AsyncMutex::new(()));
     let held_refresh_guard = refresh_lock.lock().await;
+    reset_local_interface_enumerations_for_tests();
 
     let (mut client, server) = duplex(1024);
     let started = Instant::now();

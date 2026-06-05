@@ -33,6 +33,7 @@ fn new_upstream_manager(stats: Arc<Stats>) -> Arc<UpstreamManager> {
             selected_scope: String::new(),
             ipv4: None,
             ipv6: None,
+            prefer: None,
         }],
         1,
         1,

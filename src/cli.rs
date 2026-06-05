@@ -705,6 +705,9 @@ ignore_time_skew = false
 type = "direct"
 enabled = true
 weight = 10
+# Optional per-upstream DC family policy:
+# ipv6 = true
+# prefer = 6
 "#,
         username = username,
         secret = secret,

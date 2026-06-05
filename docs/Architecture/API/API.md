@@ -103,6 +103,7 @@ Notes:
 | `GET` | `/v1/runtime/me-selftest` | none | `200` | `RuntimeMeSelftestData` |
 | `GET` | `/v1/runtime/connections/summary` | none | `200` | `RuntimeEdgeConnectionsSummaryData` |
 | `GET` | `/v1/runtime/events/recent` | none | `200` | `RuntimeEdgeEventsData` |
+| `GET` | `/v1/runtime/tls-fingerprints` | optional `limit=1..1000` | `200` | `RuntimeEdgeTlsFingerprintsData` |
 | `GET` | `/v1/stats/users/active-ips` | none | `200` | `UserActiveIps[]` |
 | `GET` | `/v1/stats/users` | none | `200` | `UserInfo[]` |
 | `GET` | `/v1/users` | none | `200` | `UserInfo[]` |
@@ -111,6 +112,8 @@ Notes:
 | `PATCH` | `/v1/users/{username}` | `PatchUserRequest` | `200` or `202` | `UserInfo` |
 | `DELETE` | `/v1/users/{username}` | none | `200` or `202` | `DeleteUserResponse` |
 | `POST` | `/v1/users/{username}/rotate-secret` | `RotateSecretRequest` or empty body | `200` or `202` | `CreateUserResponse` |
+| `POST` | `/v1/users/{username}/enable` | empty body | `200` or `202` | `UserInfo` |
+| `POST` | `/v1/users/{username}/disable` | empty body | `200` or `202` | `UserInfo` |
 | `POST` | `/v1/users/{username}/reset-quota` | empty body | `200` | `ResetUserQuotaResponse` |
 
 ## Endpoint Behavior
@@ -146,6 +149,8 @@ Notes:
 | `PATCH /v1/users/{username}` | Updates selected per-user fields with JSON Merge Patch semantics. |
 | `DELETE /v1/users/{username}` | Deletes one user and related per-user access-map entries. |
 | `POST /v1/users/{username}/rotate-secret` | Rotates one user's secret and returns the effective secret. |
+| `POST /v1/users/{username}/enable` | Enables one user, removing any disabled override from config. |
+| `POST /v1/users/{username}/disable` | Disables one user and closes active runtime sessions for that user. |
 | `POST /v1/users/{username}/reset-quota` | Resets one user's runtime quota counter and persists quota state. |
 
 ## Common Error Codes
@@ -175,6 +180,8 @@ Notes:
 | `PUT /v1/users/{username}` | `405 method_not_allowed`. |
 | `POST /v1/users/{username}` | `404 not_found`. |
 | `POST /v1/users/{username}/rotate-secret/` | Trailing slash is trimmed and the route matches `rotate-secret`. |
+| `POST /v1/users/{username}/enable/` | Trailing slash is trimmed and the route matches `enable`. |
+| `POST /v1/users/{username}/disable/` | Trailing slash is trimmed and the route matches `disable`. |
 | `POST /v1/users/{username}/reset-quota/` | Trailing slash is trimmed and the route matches `reset-quota`. |
 
 ## Body and JSON Semantics
@@ -208,6 +215,7 @@ Notes:
 | `rate_limit_up_bps` | `u64` | no | Per-user upload rate limit in bytes per second. |
 | `rate_limit_down_bps` | `u64` | no | Per-user download rate limit in bytes per second. |
 | `max_unique_ips` | `usize` | no | Per-user unique source IP limit. |
+| `enabled` | `bool` | no | User enable flag. Missing means enabled. `false` persists a disabled override. |
 
 ### `PatchUserRequest`
 | Field | Type | Required | Description |
@@ -220,6 +228,7 @@ Notes:
 | `rate_limit_up_bps` | `u64|null` | no | Per-user upload rate limit in bytes per second; `null` removes the upload direction limit. |
 | `rate_limit_down_bps` | `u64|null` | no | Per-user download rate limit in bytes per second; `null` removes the download direction limit. |
 | `max_unique_ips` | `usize|null` | no | Per-user unique source IP limit; `null` removes the per-user override. |
+| `enabled` | `bool|null` | no | `false` disables the user. `true` or `null` removes the disabled override, so the user is enabled. |
 
 ### `access.user_source_deny` via API
 - In current API surface, per-user deny-list is **not** exposed as a dedicated field in `CreateUserRequest` / `PatchUserRequest`.
@@ -807,6 +816,43 @@ An empty request body is accepted and generates a new secret automatically.
 | `event_type` | `string` | Event kind identifier. |
 | `context` | `string` | Context text (truncated to implementation-defined max length). |
 
+### `RuntimeEdgeTlsFingerprintsData`
+| Field | Type | Description |
+| --- | --- | --- |
+| `enabled` | `bool` | Endpoint availability under `runtime_edge_enabled`. |
+| `reason` | `string?` | `feature_disabled` when endpoint is disabled. |
+| `generated_at_epoch_secs` | `u64` | Snapshot generation timestamp. |
+| `data` | `RuntimeEdgeTlsFingerprintsPayload?` | Null when unavailable. |
+
+#### `RuntimeEdgeTlsFingerprintsPayload`
+| Field | Type | Description |
+| --- | --- | --- |
+| `limit` | `usize` | Effective Top-N row count. |
+| `retention_secs` | `u64` | In-memory retention window, derived from `general.beobachten_minutes`. |
+| `capacity` | `usize` | Maximum retained fingerprint buckets. |
+| `dropped_total` | `u64` | Buckets dropped because the collector was full. |
+| `parse_error_total` | `u64` | Complete ClientHello records that could not be fingerprinted. |
+| `by_fingerprint` | `RuntimeEdgeTlsFingerprintRow[]` | Global JA3/JA4 leaderboard. |
+| `by_ip` | `RuntimeEdgeTlsFingerprintRow[]` | Source-IP scoped leaderboard. |
+| `by_cidr` | `RuntimeEdgeTlsFingerprintRow[]` | Source CIDR scoped leaderboard (`/24` for IPv4, `/56` for IPv6). |
+| `by_user` | `RuntimeEdgeTlsFingerprintRow[]` | Authenticated user scoped leaderboard. |
+
+#### `RuntimeEdgeTlsFingerprintRow`
+| Field | Type | Description |
+| --- | --- | --- |
+| `scope` | `string?` | IP, CIDR, or username; absent in `by_fingerprint`. |
+| `ja3` | `string` | JA3 MD5 hash. |
+| `ja3_raw` | `string` | Raw JA3 field string. |
+| `ja4` | `string` | JA4 TLS client fingerprint. |
+| `ja4_raw` | `string` | Raw JA4 material used for the hashed parts. |
+| `total` | `u64` | Complete ClientHello observations for this bucket. |
+| `auth_success` | `u64` | TLS-authenticated observations for this bucket. |
+| `bad_or_probe` | `u64` | Complete ClientHello observations later classified as bad/probe. |
+| `first_seen_epoch_secs` | `u64` | First observation timestamp. |
+| `last_seen_epoch_secs` | `u64` | Last observation timestamp. |
+
+JA3 follows the Salesforce ClientHello field order. JA4 follows the FoxIO TLS-client `a_b_c` format; GREASE values are excluded and no high-cardinality Prometheus labels are emitted for fingerprints.
+
 ### `ZeroAllData`
 | Field | Type | Description |
 | --- | --- | --- |
@@ -1165,6 +1211,7 @@ An empty request body is accepted and generates a new secret automatically.
 | Field | Type | Description |
 | --- | --- | --- |
 | `username` | `string` | Username. |
+| `enabled` | `bool` | Effective user enable flag. Missing config entry is reported as `true`. |
 | `in_runtime` | `bool` | Whether current runtime config already contains this user. |
 | `user_ad_tag` | `string?` | Optional ad tag (32 hex chars). |
 | `max_tcp_conns` | `usize?` | Optional max concurrent TCP limit. |
@@ -1239,6 +1286,8 @@ Link generation uses active config and enabled modes:
 | `POST /v1/users` | Creates user, validates config, then atomically updates only affected `access.*` TOML tables (`access.users` always, plus optional per-user tables present in request). |
 | `PATCH /v1/users/{username}` | Partial update of provided fields only. Missing fields remain unchanged; explicit `null` removes optional per-user entries. The write path updates only affected `access.*` TOML tables. |
 | `POST /v1/users/{username}/rotate-secret` | Replaces the user's secret with a provided valid 32-hex value or a generated value, then returns the effective secret in `CreateUserResponse`. |
+| `POST /v1/users/{username}/enable` | Enables the user idempotently by removing the `access.user_enabled[username]` override and updating the runtime admission state immediately. |
+| `POST /v1/users/{username}/disable` | Disables the user idempotently by writing `access.user_enabled[username] = false`, updating runtime admission immediately, and cancelling active sessions for that username. |
 | `POST /v1/users/{username}/reset-quota` | Resets the runtime quota counter for the route username, persists quota state to `general.quota_state_path`, and does not modify user config. |
 | `DELETE /v1/users/{username}` | Deletes only specified user, removes this user from related optional `access.user_*` maps, blocks last-user deletion, and atomically updates only related `access.*` TOML tables. |
 
@@ -1282,6 +1331,7 @@ Additional runtime endpoint behavior:
 | `/v1/runtime/me-selftest` | No | ME pool unavailable => `enabled=false`, `reason=source_unavailable` | `enabled=true`, full payload |
 | `/v1/runtime/connections/summary` | `runtime_edge_enabled=false` => `enabled=false`, `reason=feature_disabled` | Recompute lock contention with no cache entry => `enabled=true`, `reason=source_unavailable` | `enabled=true`, full payload |
 | `/v1/runtime/events/recent` | `runtime_edge_enabled=false` => `enabled=false`, `reason=feature_disabled` | Not used in current implementation | `enabled=true`, full payload |
+| `/v1/runtime/tls-fingerprints` | `runtime_edge_enabled=false` => `enabled=false`, `reason=feature_disabled` | Not used in current implementation | `enabled=true`, full payload |
 
 ## ME Fallback Behavior Exposed Via API
 

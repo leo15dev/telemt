@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, watch};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::reload;
 
@@ -230,6 +230,27 @@ pub(crate) async fn spawn_runtime_tasks(
                 );
                 prev_user_limits = cfg.access.user_rate_limits.clone();
                 prev_cidr_limits = cfg.access.cidr_rate_limits.clone();
+            }
+        }
+    });
+
+    let shared_user_enabled = shared_state.clone();
+    let mut config_rx_user_enabled = config_rx.clone();
+    tokio::spawn(async move {
+        loop {
+            if config_rx_user_enabled.changed().await.is_err() {
+                break;
+            }
+            let cfg = config_rx_user_enabled.borrow_and_update().clone();
+            for user in shared_user_enabled.apply_user_enabled_config(&cfg.access.user_enabled) {
+                let cancelled = shared_user_enabled.cancel_user_sessions(&user);
+                if cancelled > 0 {
+                    info!(
+                        user = %user,
+                        cancelled,
+                        "Disabled user sessions cancelled after config reload"
+                    );
+                }
             }
         }
     });

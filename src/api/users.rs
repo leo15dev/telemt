@@ -32,6 +32,7 @@ pub(super) async fn create_user(
     let touches_user_rate_limits =
         body.rate_limit_up_bps.is_some() || body.rate_limit_down_bps.is_some();
     let touches_user_max_unique_ips = body.max_unique_ips.is_some();
+    let touches_user_enabled = matches!(body.enabled, Some(false));
 
     if !is_valid_username(&body.username) {
         return Err(ApiFailure::bad_request(
@@ -111,6 +112,9 @@ pub(super) async fn create_user(
             .user_max_unique_ips
             .insert(body.username.clone(), limit);
     }
+    if matches!(body.enabled, Some(false)) {
+        cfg.access.user_enabled.insert(body.username.clone(), false);
+    }
 
     cfg.validate()
         .map_err(|e| ApiFailure::bad_request(format!("config validation failed: {}", e)))?;
@@ -133,6 +137,9 @@ pub(super) async fn create_user(
     }
     if touches_user_max_unique_ips {
         touched_sections.push(AccessSection::UserMaxUniqueIps);
+    }
+    if touches_user_enabled {
+        touched_sections.push(AccessSection::UserEnabled);
     }
 
     let revision =
@@ -161,6 +168,7 @@ pub(super) async fn create_user(
         .find(|entry| entry.username == body.username)
         .unwrap_or(UserInfo {
             username: body.username.clone(),
+            enabled: cfg.access.is_user_enabled(&body.username),
             in_runtime: false,
             user_ad_tag: None,
             max_tcp_conns: cfg
@@ -202,6 +210,7 @@ pub(super) async fn patch_user(
     let touches_user_rate_limits = !matches!(&body.rate_limit_up_bps, Patch::Unchanged)
         || !matches!(&body.rate_limit_down_bps, Patch::Unchanged);
     let touches_user_max_unique_ips = !matches!(&body.max_unique_ips, Patch::Unchanged);
+    let touches_user_enabled = !matches!(&body.enabled, Patch::Unchanged);
 
     if let Some(secret) = body.secret.as_ref()
         && !is_valid_user_secret(secret)
@@ -313,6 +322,15 @@ pub(super) async fn patch_user(
             Some(Some(limit))
         }
     };
+    match body.enabled {
+        Patch::Unchanged => {}
+        Patch::Remove | Patch::Set(true) => {
+            cfg.access.user_enabled.remove(user);
+        }
+        Patch::Set(false) => {
+            cfg.access.user_enabled.insert(user.to_string(), false);
+        }
+    }
 
     cfg.validate()
         .map_err(|e| ApiFailure::bad_request(format!("config validation failed: {}", e)))?;
@@ -338,6 +356,9 @@ pub(super) async fn patch_user(
     }
     if touches_user_max_unique_ips {
         touched_sections.push(AccessSection::UserMaxUniqueIps);
+    }
+    if touches_user_enabled {
+        touched_sections.push(AccessSection::UserEnabled);
     }
 
     let revision = if touched_sections.is_empty() {
@@ -399,6 +420,7 @@ pub(super) async fn rotate_secret(
         .map_err(|e| ApiFailure::bad_request(format!("config validation failed: {}", e)))?;
     let touched_sections = [
         AccessSection::Users,
+        AccessSection::UserEnabled,
         AccessSection::UserAdTags,
         AccessSection::UserMaxTcpConns,
         AccessSection::UserExpirations,
@@ -434,6 +456,55 @@ pub(super) async fn rotate_secret(
     ))
 }
 
+pub(super) async fn set_user_enabled(
+    user: &str,
+    enabled: bool,
+    expected_revision: Option<String>,
+    shared: &ApiShared,
+) -> Result<(UserInfo, String), ApiFailure> {
+    let _guard = shared.mutation_lock.lock().await;
+    let mut cfg = load_config_from_disk(&shared.config_path).await?;
+    ensure_expected_revision(&shared.config_path, expected_revision.as_deref()).await?;
+
+    if !cfg.access.users.contains_key(user) {
+        return Err(ApiFailure::new(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "User not found",
+        ));
+    }
+
+    if enabled {
+        cfg.access.user_enabled.remove(user);
+    } else {
+        cfg.access.user_enabled.insert(user.to_string(), false);
+    }
+
+    cfg.validate()
+        .map_err(|e| ApiFailure::bad_request(format!("config validation failed: {}", e)))?;
+    let revision =
+        save_access_sections_to_disk(&shared.config_path, &cfg, &[AccessSection::UserEnabled])
+            .await?;
+    drop(_guard);
+
+    let (detected_ip_v4, detected_ip_v6) = shared.detected_link_ips();
+    let users = users_from_config(
+        &cfg,
+        &shared.stats,
+        &shared.ip_tracker,
+        detected_ip_v4,
+        detected_ip_v6,
+        None,
+    )
+    .await;
+    let user_info = users
+        .into_iter()
+        .find(|entry| entry.username == user)
+        .ok_or_else(|| ApiFailure::internal("failed to build updated user view"))?;
+
+    Ok((user_info, revision))
+}
+
 pub(super) async fn delete_user(
     user: &str,
     expected_revision: Option<String>,
@@ -459,6 +530,7 @@ pub(super) async fn delete_user(
     }
 
     cfg.access.users.remove(user);
+    cfg.access.user_enabled.remove(user);
     cfg.access.user_ad_tags.remove(user);
     cfg.access.user_max_tcp_conns.remove(user);
     cfg.access.user_expirations.remove(user);
@@ -470,6 +542,7 @@ pub(super) async fn delete_user(
         .map_err(|e| ApiFailure::bad_request(format!("config validation failed: {}", e)))?;
     let touched_sections = [
         AccessSection::Users,
+        AccessSection::UserEnabled,
         AccessSection::UserAdTags,
         AccessSection::UserMaxTcpConns,
         AccessSection::UserExpirations,
@@ -518,6 +591,7 @@ pub(super) async fn users_from_config(
             })
             .unwrap_or_else(empty_user_links);
         users.push(UserInfo {
+            enabled: cfg.access.is_user_enabled(&username),
             in_runtime: runtime_cfg
                 .map(|runtime| runtime.access.users.contains_key(&username))
                 .unwrap_or(false),
@@ -874,6 +948,43 @@ mod tests {
 
         assert_eq!(alice.rate_limit_up_bps, Some(1024));
         assert_eq!(alice.rate_limit_down_bps, None);
+    }
+
+    #[tokio::test]
+    async fn users_from_config_reports_user_enabled_default_and_override() {
+        let mut cfg = ProxyConfig::default();
+        cfg.access.users.insert(
+            "alice".to_string(),
+            "0123456789abcdef0123456789abcdef".to_string(),
+        );
+        cfg.access.users.insert(
+            "bob".to_string(),
+            "fedcba9876543210fedcba9876543210".to_string(),
+        );
+        cfg.access.user_enabled.insert("bob".to_string(), false);
+
+        let stats = Stats::new();
+        let tracker = UserIpTracker::new();
+        let users = users_from_config(&cfg, &stats, &tracker, None, None, None).await;
+        let alice = users
+            .iter()
+            .find(|entry| entry.username == "alice")
+            .expect("alice must be present");
+        let bob = users
+            .iter()
+            .find(|entry| entry.username == "bob")
+            .expect("bob must be present");
+
+        assert!(alice.enabled);
+        assert!(!bob.enabled);
+
+        cfg.access.user_enabled.insert("bob".to_string(), true);
+        let users = users_from_config(&cfg, &stats, &tracker, None, None, None).await;
+        let bob = users
+            .iter()
+            .find(|entry| entry.username == "bob")
+            .expect("bob must be present");
+        assert!(bob.enabled);
     }
 
     #[tokio::test]

@@ -411,6 +411,7 @@ const TLS_FETCH_CONFIG_KEYS: &[&str] = &[
 
 const ACCESS_CONFIG_KEYS: &[&str] = &[
     "users",
+    "user_enabled",
     "user_ad_tags",
     "user_max_tcp_conns",
     "user_max_tcp_conns_global_each",
@@ -1006,6 +1007,14 @@ fn validate_upstreams(config: &ProxyConfig) -> Result<()> {
                 "upstream.ipv4 and upstream.ipv6 cannot both be false".to_string(),
             ));
         }
+        if let Some(prefer) = upstream.prefer
+            && prefer != 4
+            && prefer != 6
+        {
+            return Err(ProxyError::Config(
+                "upstream.prefer must be 4 or 6".to_string(),
+            ));
+        }
 
         if let UpstreamType::Shadowsocks { url, .. } = &upstream.upstream_type {
             let parsed = ShadowsocksServerConfig::from_url(url)
@@ -1019,6 +1028,26 @@ fn validate_upstreams(config: &ProxyConfig) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn normalize_upstream_family_policy(config: &mut ProxyConfig) {
+    for (idx, upstream) in config.upstreams.iter_mut().enumerate() {
+        if matches!(upstream.ipv4, Some(false)) && upstream.prefer == Some(4) {
+            warn!(
+                upstream = idx,
+                "upstream.prefer=4 but upstream.ipv4=false; forcing prefer=6"
+            );
+            upstream.prefer = Some(6);
+        }
+
+        if matches!(upstream.ipv6, Some(false)) && upstream.prefer == Some(6) {
+            warn!(
+                upstream = idx,
+                "upstream.prefer=6 but upstream.ipv6=false; forcing prefer=4"
+            );
+            upstream.prefer = Some(4);
+        }
+    }
 }
 
 // ============= Main Config =============
@@ -2199,8 +2228,10 @@ impl ProxyConfig {
                 selected_scope: String::new(),
                 ipv4: None,
                 ipv6: None,
+                prefer: None,
             });
         }
+        normalize_upstream_family_policy(&mut config);
 
         // Ensure default DC203 override is present.
         config

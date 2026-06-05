@@ -1,14 +1,21 @@
 use super::*;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static TEMP_CONFIG_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn write_temp_config(contents: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time must be after unix epoch")
         .as_nanos();
-    let path = std::env::temp_dir().join(format!("telemt-load-mask-shape-security-{nonce}.toml"));
+    let seq = TEMP_CONFIG_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let path = std::env::temp_dir().join(format!(
+        "telemt-load-mask-shape-security-{pid}-{seq}-{nonce}.toml"
+    ));
     fs::write(&path, contents).expect("temp config write must succeed");
     path
 }

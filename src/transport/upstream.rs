@@ -169,6 +169,7 @@ pub struct StartupPingResult {
     pub v6_results: Vec<DcPingResult>,
     pub v4_results: Vec<DcPingResult>,
     pub upstream_name: String,
+    pub prefer_ipv6: bool,
     /// True if both IPv6 and IPv4 have at least one working DC
     pub both_available: bool,
 }
@@ -313,8 +314,8 @@ pub struct UpstreamEgressInfo {
 #[derive(Debug, Clone)]
 struct HealthCheckGroup {
     dc_idx: i16,
-    primary: Vec<SocketAddr>,
-    fallback: Vec<SocketAddr>,
+    v4_endpoints: Vec<SocketAddr>,
+    v6_endpoints: Vec<SocketAddr>,
 }
 
 // ============= Upstream Manager =============
@@ -532,6 +533,31 @@ impl UpstreamManager {
         dc_preference: IpPreference,
     ) -> Result<SocketAddr> {
         let (allow_ipv4, allow_ipv6) = Self::resolve_runtime_dc_families(upstream, dc_preference);
+        let preferred_ipv6 = match dc_preference {
+            IpPreference::PreferV6 => Some(true),
+            IpPreference::PreferV4 => Some(false),
+            IpPreference::BothWork | IpPreference::Unknown | IpPreference::Unavailable => {
+                upstream.prefer.map(|prefer| prefer == 6)
+            }
+        };
+        if let Some(preferred_ipv6) = preferred_ipv6
+            && target.is_ipv6() != preferred_ipv6
+        {
+            let preferred_allowed = if preferred_ipv6 {
+                allow_ipv6
+            } else {
+                allow_ipv4
+            };
+            if preferred_allowed {
+                if let Some(dc_idx) = dc_idx
+                    && let Some(remapped) =
+                        Self::dc_table_addr(dc_idx, preferred_ipv6, target.port())
+                {
+                    return Ok(remapped);
+                }
+            }
+        }
+
         if (target.is_ipv4() && allow_ipv4) || (target.is_ipv6() && allow_ipv6) {
             return Ok(target);
         }
@@ -1327,7 +1353,7 @@ impl UpstreamManager {
     /// Tests BOTH IPv6 and IPv4, returns separate results for each.
     pub async fn ping_all_dcs(
         &self,
-        _prefer_ipv6: bool,
+        prefer_ipv6: bool,
         dc_overrides: &HashMap<String, Vec<String>>,
         ipv4_enabled: bool,
         ipv6_enabled: bool,
@@ -1355,6 +1381,7 @@ impl UpstreamManager {
 
             let (upstream_ipv4_enabled, upstream_ipv6_enabled) =
                 Self::resolve_probe_dc_families(upstream_config, ipv4_enabled, ipv6_enabled);
+            let upstream_prefer_ipv6 = upstream_config.prefer_ipv6(prefer_ipv6);
             let upstream_name = match &upstream_config.upstream_type {
                 UpstreamType::Direct {
                     interface,
@@ -1600,6 +1627,7 @@ impl UpstreamManager {
                 v6_results,
                 v4_results,
                 upstream_name,
+                prefer_ipv6: upstream_prefer_ipv6,
                 both_available,
             });
         }
@@ -1636,7 +1664,6 @@ impl UpstreamManager {
     }
 
     fn build_health_check_groups(
-        prefer_ipv6: bool,
         ipv4_enabled: bool,
         ipv6_enabled: bool,
         dc_overrides: &HashMap<String, Vec<String>>,
@@ -1713,24 +1740,30 @@ impl UpstreamManager {
         for dc_idx in all_dcs {
             let v4_endpoints = v4_by_dc.remove(&dc_idx).unwrap_or_default();
             let v6_endpoints = v6_by_dc.remove(&dc_idx).unwrap_or_default();
-            let (primary, fallback) = if prefer_ipv6 {
-                (v6_endpoints, v4_endpoints)
-            } else {
-                (v4_endpoints, v6_endpoints)
-            };
 
-            if primary.is_empty() && fallback.is_empty() {
+            if v4_endpoints.is_empty() && v6_endpoints.is_empty() {
                 continue;
             }
 
             groups.push(HealthCheckGroup {
                 dc_idx,
-                primary,
-                fallback,
+                v4_endpoints,
+                v6_endpoints,
             });
         }
 
         groups
+    }
+
+    fn health_check_endpoint_order(
+        group: &HealthCheckGroup,
+        prefer_ipv6: bool,
+    ) -> [(bool, &[SocketAddr]); 2] {
+        if prefer_ipv6 {
+            [(true, &group.v6_endpoints), (false, &group.v4_endpoints)]
+        } else {
+            [(true, &group.v4_endpoints), (false, &group.v6_endpoints)]
+        }
     }
 
     // ============= Health Checks =============
@@ -1744,8 +1777,24 @@ impl UpstreamManager {
         ipv6_enabled: bool,
         dc_overrides: HashMap<String, Vec<String>>,
     ) {
-        let groups =
-            Self::build_health_check_groups(prefer_ipv6, ipv4_enabled, ipv6_enabled, &dc_overrides);
+        let (health_ipv4_enabled, health_ipv6_enabled) = {
+            let guard = self.upstreams.read().await;
+            (
+                ipv4_enabled
+                    || guard
+                        .iter()
+                        .any(|upstream| upstream.config.ipv4 == Some(true)),
+                ipv6_enabled
+                    || guard
+                        .iter()
+                        .any(|upstream| upstream.config.ipv6 == Some(true)),
+            )
+        };
+        let groups = Self::build_health_check_groups(
+            health_ipv4_enabled,
+            health_ipv6_enabled,
+            &dc_overrides,
+        );
         let required_healthy_groups = Self::required_healthy_group_count(groups.len());
         let mut endpoint_rotation: HashMap<(usize, i16, bool), usize> = HashMap::new();
 
@@ -1786,6 +1835,7 @@ impl UpstreamManager {
                 };
                 let (upstream_ipv4_enabled, upstream_ipv6_enabled) =
                     Self::resolve_probe_dc_families(&config, ipv4_enabled, ipv6_enabled);
+                let upstream_prefer_ipv6 = config.prefer_ipv6(prefer_ipv6);
 
                 let mut healthy_groups = 0usize;
                 let mut latency_updates: Vec<(usize, f64)> = Vec::new();
@@ -1795,7 +1845,7 @@ impl UpstreamManager {
                     let mut group_rtt_ms = None;
 
                     for (is_primary, endpoints) in
-                        [(true, &group.primary), (false, &group.fallback)]
+                        Self::health_check_endpoint_order(group, upstream_prefer_ipv6)
                     {
                         if endpoints.is_empty() {
                             continue;
@@ -1990,26 +2040,30 @@ mod tests {
             ],
         );
 
-        let groups = UpstreamManager::build_health_check_groups(true, true, true, &overrides);
+        let groups = UpstreamManager::build_health_check_groups(true, true, &overrides);
         let dc2 = groups
             .iter()
             .find(|g| g.dc_idx == 2)
             .expect("dc2 must be present");
 
-        assert!(dc2.primary.iter().all(|addr| addr.is_ipv6()));
-        assert!(dc2.fallback.iter().all(|addr| addr.is_ipv4()));
+        assert!(dc2.v6_endpoints.iter().all(|addr| addr.is_ipv6()));
+        assert!(dc2.v4_endpoints.iter().all(|addr| addr.is_ipv4()));
         assert!(
-            dc2.primary
+            dc2.v6_endpoints
                 .contains(&"[2001:db8::10]:443".parse::<SocketAddr>().unwrap())
         );
         assert!(
-            dc2.fallback
+            dc2.v4_endpoints
                 .contains(&"203.0.113.10:443".parse::<SocketAddr>().unwrap())
         );
         assert!(
-            dc2.fallback
+            dc2.v4_endpoints
                 .contains(&"203.0.113.11:443".parse::<SocketAddr>().unwrap())
         );
+
+        let ordered = UpstreamManager::health_check_endpoint_order(dc2, true);
+        assert!(ordered[0].1.iter().all(|addr| addr.is_ipv6()));
+        assert!(ordered[1].1.iter().all(|addr| addr.is_ipv4()));
     }
 
     #[test]
@@ -2024,22 +2078,22 @@ mod tests {
             ],
         );
 
-        let groups = UpstreamManager::build_health_check_groups(false, true, false, &overrides);
+        let groups = UpstreamManager::build_health_check_groups(true, false, &overrides);
         let dc9 = groups
             .iter()
             .find(|g| g.dc_idx == 9)
             .expect("override-only dc group must be present");
 
-        assert_eq!(dc9.primary.len(), 2);
+        assert_eq!(dc9.v4_endpoints.len(), 2);
         assert!(
-            dc9.primary
+            dc9.v4_endpoints
                 .contains(&"198.51.100.1:443".parse::<SocketAddr>().unwrap())
         );
         assert!(
-            dc9.primary
+            dc9.v4_endpoints
                 .contains(&"198.51.100.2:443".parse::<SocketAddr>().unwrap())
         );
-        assert!(dc9.fallback.is_empty());
+        assert!(dc9.v6_endpoints.is_empty());
     }
 
     #[test]
@@ -2072,6 +2126,7 @@ mod tests {
             selected_scope: String::new(),
             ipv4: None,
             ipv6: None,
+            prefer: None,
         };
 
         assert!(UpstreamManager::is_unscoped_upstream(&upstream));
@@ -2127,6 +2182,7 @@ mod tests {
                 selected_scope: String::new(),
                 ipv4: None,
                 ipv6: None,
+                prefer: None,
             }],
             1,
             100,
