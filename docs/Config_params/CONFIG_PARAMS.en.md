@@ -1805,6 +1805,7 @@ This document lists all configuration keys accepted by `config.toml`.
 | [`listen_unix_sock`](#listen_unix_sock) | `String` | — | `✘` |
 | [`listen_unix_sock_perm`](#listen_unix_sock_perm) | `String` | — | `✘` |
 | [`listen_tcp`](#listen_tcp) | `bool` | — (auto) | `✘` |
+| [`client_mss`](#client_mss) | `String` | `""` | `✘` |
 | [`proxy_protocol`](#proxy_protocol) | `bool` | `false` | `✘` |
 | [`proxy_protocol_header_timeout_ms`](#proxy_protocol_header_timeout_ms) | `u64` | `500` | `✘` |
 | [`proxy_protocol_trusted_cidrs`](#proxy_protocol_trusted_cidrs) | `IpNetwork[]` | `[]` | `✘` |
@@ -1886,6 +1887,16 @@ This document lists all configuration keys accepted by `config.toml`.
     # force-enable TCP even when also binding a unix socket
     listen_unix_sock = "/run/telemt.sock"
     listen_tcp = true
+    ```
+## client_mss
+  - **Constraints / validation**: `String`. Empty or omitted means do not change kernel MSS. Presets: `"extreme-low"` = `88`, `"tspu"` = `92`, `"2in8"` = `256`. Custom decimal strings must be within `88..=4096`.
+  - **Description**: Client-facing TCP MSS applied to TCP listener sockets before `listen(2)`, so Linux can announce it in SYN/ACK. This affects only proxy client TCP listeners, not API, metrics, Unix sockets, Telegram upstreams, ME sockets, or mask backend connections. Changes require listener restart/rebind.
+  - **Performance note**: Low MSS increases packet count predictably. Approximate segment multiplier is `ceil(1460 / client_mss)`.
+  - **Example**:
+
+    ```toml
+    [server]
+    client_mss = "tspu"
     ```
 ## proxy_protocol
   - **Constraints / validation**: `bool`.
@@ -2207,6 +2218,7 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
 | --- | ---- | ------- | ---------- |
 | [`ip`](#ip) | `IpAddr` | — | `✘` |
 | [`port`](#port-serverlisteners) | `u16` | `server.port` | `✘` |
+| [`client_mss`](#client_mss-serverlisteners) | `String` | `[server].client_mss` | `✘` |
 | [`announce`](#announce) | `String` | — | `✘` |
 | [`announce_ip`](#announce_ip) | `IpAddr` | — | `✘` |
 | [`proxy_protocol`](#proxy_protocol) | `bool` | — | `✘` |
@@ -2230,6 +2242,17 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     [[server.listeners]]
     ip = "0.0.0.0"
     port = 443
+    ```
+## client_mss (server.listeners)
+  - **Constraints / validation**: `String` (optional). Same values as `[server].client_mss`.
+  - **Description**: Per-listener MSS override. When omitted, inherits `[server].client_mss`; when set to an empty string, disables MSS shaping for this listener even if the global value is set. Changes require listener restart/rebind.
+  - **Example**:
+
+    ```toml
+    [[server.listeners]]
+    ip = "0.0.0.0"
+    port = 443
+    client_mss = "256"
     ```
 ## announce
   - **Constraints / validation**: `String` (optional). Must not be empty when set.

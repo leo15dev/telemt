@@ -1451,6 +1451,11 @@ pub struct ServerConfig {
     #[serde(default)]
     pub listen_tcp: Option<bool>,
 
+    /// Client-facing TCP MSS preset or custom value for all TCP listeners.
+    /// Empty string or omitted value keeps the kernel default.
+    #[serde(default)]
+    pub client_mss: Option<String>,
+
     /// Accept HAProxy PROXY protocol headers on incoming connections.
     /// When enabled, real client IPs are extracted from PROXY v1/v2 headers.
     #[serde(default)]
@@ -1517,6 +1522,7 @@ impl Default for ServerConfig {
             listen_unix_sock: None,
             listen_unix_sock_perm: None,
             listen_tcp: None,
+            client_mss: None,
             proxy_protocol: false,
             proxy_protocol_header_timeout_ms: default_proxy_protocol_header_timeout_ms(),
             proxy_protocol_trusted_cidrs: default_proxy_protocol_trusted_cidrs(),
@@ -2087,6 +2093,10 @@ pub struct ListenerConfig {
     /// Per-listener TCP port. If omitted, falls back to legacy `server.port`.
     #[serde(default)]
     pub port: Option<u16>,
+    /// Per-listener client-facing TCP MSS preset or custom value.
+    /// Empty string disables MSS shaping for this listener.
+    #[serde(default)]
+    pub client_mss: Option<String>,
     /// IP address or hostname to announce in proxy links.
     /// Takes precedence over `announce_ip` if both are set.
     #[serde(default)]
@@ -2102,6 +2112,64 @@ pub struct ListenerConfig {
     /// Default is false for safety.
     #[serde(default)]
     pub reuse_allow: bool,
+}
+
+/// Client-facing TCP MSS preset for extreme-low fragmentation profiles.
+pub const CLIENT_MSS_EXTREME_LOW: u16 = 88;
+/// Client-facing TCP MSS preset matching TSPU-oriented deployments.
+pub const CLIENT_MSS_TSPU: u16 = 92;
+/// Client-facing TCP MSS preset for 2-in-8 segment shaping.
+pub const CLIENT_MSS_2IN8: u16 = 256;
+/// Minimum accepted custom client-facing TCP MSS value.
+pub const CLIENT_MSS_MIN: u16 = CLIENT_MSS_EXTREME_LOW;
+/// Maximum accepted custom client-facing TCP MSS value.
+pub const CLIENT_MSS_MAX: u16 = 4096;
+
+impl ServerConfig {
+    /// Resolves the global client-facing TCP MSS setting.
+    pub fn client_mss_value(&self) -> std::result::Result<Option<u16>, String> {
+        parse_client_mss(self.client_mss.as_deref())
+    }
+}
+
+impl ListenerConfig {
+    /// Resolves the listener MSS override, falling back to the global server value.
+    pub fn effective_client_mss(
+        &self,
+        server: &ServerConfig,
+    ) -> std::result::Result<Option<u16>, String> {
+        match self.client_mss.as_deref() {
+            Some(value) => parse_client_mss(Some(value)),
+            None => server.client_mss_value(),
+        }
+    }
+}
+
+fn parse_client_mss(raw: Option<&str>) -> std::result::Result<Option<u16>, String> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let value = raw.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    match value.to_ascii_lowercase().as_str() {
+        "extreme-low" => return Ok(Some(CLIENT_MSS_EXTREME_LOW)),
+        "tspu" => return Ok(Some(CLIENT_MSS_TSPU)),
+        "2in8" => return Ok(Some(CLIENT_MSS_2IN8)),
+        _ => {}
+    }
+
+    let parsed = value
+        .parse::<u16>()
+        .map_err(|_| "must be \"\", extreme-low, tspu, 2in8, or a decimal value".to_string())?;
+    if !(CLIENT_MSS_MIN..=CLIENT_MSS_MAX).contains(&parsed) {
+        return Err(format!(
+            "custom value must be within [{CLIENT_MSS_MIN}, {CLIENT_MSS_MAX}]"
+        ));
+    }
+    Ok(Some(parsed))
 }
 
 // ============= ShowLink =============

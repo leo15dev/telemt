@@ -312,6 +312,7 @@ fn listeners_equal(
     lhs.iter().zip(rhs.iter()).all(|(a, b)| {
         a.ip == b.ip
             && a.port == b.port
+            && a.client_mss == b.client_mss
             && a.announce == b.announce
             && a.announce_ip == b.announce_ip
             && a.proxy_protocol == b.proxy_protocol
@@ -608,6 +609,7 @@ fn warn_non_hot_changes(old: &ProxyConfig, new: &ProxyConfig, non_hot_changed: b
         || old.server.listen_addr_ipv4 != new.server.listen_addr_ipv4
         || old.server.listen_addr_ipv6 != new.server.listen_addr_ipv6
         || old.server.listen_tcp != new.server.listen_tcp
+        || old.server.client_mss != new.server.client_mss
         || old.server.listen_unix_sock != new.server.listen_unix_sock
         || old.server.listen_unix_sock_perm != new.server.listen_unix_sock_perm
     {

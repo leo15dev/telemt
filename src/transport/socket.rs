@@ -9,7 +9,7 @@ use std::io::Result;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use tokio::net::TcpStream;
-use tracing::debug;
+use tracing::{debug, warn};
 
 const DEFAULT_SOCKET_BUFFER_BYTES: usize = 256 * 1024;
 
@@ -283,6 +283,8 @@ pub struct ListenOptions {
     pub backlog: u32,
     /// IPv6 only (disable dual-stack)
     pub ipv6_only: bool,
+    /// Client-facing TCP MSS to announce on accepted TCP sessions.
+    pub client_mss: Option<u16>,
 }
 
 impl Default for ListenOptions {
@@ -292,6 +294,7 @@ impl Default for ListenOptions {
             reuse_port: true,
             backlog: 1024,
             ipv6_only: false,
+            client_mss: None,
         }
     }
 }
@@ -317,6 +320,19 @@ pub fn create_listener(addr: SocketAddr, options: &ListenOptions) -> Result<Sock
 
     if addr.is_ipv6() && options.ipv6_only {
         socket.set_only_v6(true)?;
+    }
+
+    if let Some(client_mss) = options.client_mss {
+        if let Err(error) = socket.set_tcp_mss(u32::from(client_mss)) {
+            warn!(
+                addr = %addr,
+                client_mss,
+                error = %error,
+                "Failed to apply listener client MSS; continuing with kernel default"
+            );
+        } else {
+            debug!(addr = %addr, client_mss, "Applied listener client MSS");
+        }
     }
 
     socket.set_nonblocking(true)?;
@@ -637,5 +653,28 @@ mod tests {
         assert!(opts.reuse_addr);
         assert!(opts.reuse_port);
         assert_eq!(opts.backlog, 1024);
+        assert_eq!(opts.client_mss, None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_create_listener_applies_client_mss() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let options = ListenOptions {
+            reuse_port: false,
+            client_mss: Some(256),
+            ..Default::default()
+        };
+        let socket = match create_listener(addr, &options) {
+            Ok(socket) => socket,
+            Err(e) if e.kind() == ErrorKind::PermissionDenied => return,
+            Err(e) => panic!("create_listener failed: {e}"),
+        };
+        let mss = match socket.tcp_mss() {
+            Ok(mss) => mss,
+            Err(e) if e.kind() == ErrorKind::PermissionDenied => return,
+            Err(e) => panic!("tcp_mss failed: {e}"),
+        };
+        assert_eq!(mss, 256);
     }
 }

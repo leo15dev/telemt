@@ -299,6 +299,7 @@ const SERVER_CONFIG_KEYS: &[&str] = &[
     "listen_unix_sock",
     "listen_unix_sock_perm",
     "listen_tcp",
+    "client_mss",
     "proxy_protocol",
     "proxy_protocol_header_timeout_ms",
     "proxy_protocol_trusted_cidrs",
@@ -344,6 +345,7 @@ const CONNTRACK_CONTROL_CONFIG_KEYS: &[&str] = &[
 const LISTENER_CONFIG_KEYS: &[&str] = &[
     "ip",
     "port",
+    "client_mss",
     "announce",
     "announce_ip",
     "proxy_protocol",
@@ -1933,6 +1935,20 @@ impl ProxyConfig {
             ));
         }
 
+        config
+            .server
+            .client_mss_value()
+            .map_err(|error| ProxyError::Config(format!("server.client_mss {error}")))?;
+        for (idx, listener) in config.server.listeners.iter().enumerate() {
+            if listener.client_mss.is_some() {
+                listener
+                    .effective_client_mss(&config.server)
+                    .map_err(|error| {
+                        ProxyError::Config(format!("server.listeners[{idx}].client_mss {error}"))
+                    })?;
+            }
+        }
+
         if config.server.accept_permit_timeout_ms > 60_000 {
             return Err(ProxyError::Config(
                 "server.accept_permit_timeout_ms must be within [0, 60000]".to_string(),
@@ -2173,6 +2189,7 @@ impl ProxyConfig {
                 config.server.listeners.push(ListenerConfig {
                     ip: ipv4,
                     port: Some(config.server.port),
+                    client_mss: None,
                     announce: None,
                     announce_ip: None,
                     proxy_protocol: None,
@@ -2185,6 +2202,7 @@ impl ProxyConfig {
                 config.server.listeners.push(ListenerConfig {
                     ip: ipv6,
                     port: Some(config.server.port),
+                    client_mss: None,
                     announce: None,
                     announce_ip: None,
                     proxy_protocol: None,
@@ -2460,6 +2478,7 @@ mod tests {
         assert_eq!(cfg.general.update_every, default_update_every());
         assert_eq!(cfg.server.listen_addr_ipv4, default_listen_addr_ipv4());
         assert_eq!(cfg.server.listen_addr_ipv6, default_listen_addr_ipv6_opt());
+        assert_eq!(cfg.server.client_mss_value(), Ok(None));
         assert_eq!(
             cfg.server.proxy_protocol_trusted_cidrs,
             default_proxy_protocol_trusted_cidrs()
@@ -3784,6 +3803,153 @@ mod tests {
         std::fs::write(&path, toml).unwrap();
         let err = ProxyConfig::load(&path).unwrap_err().to_string();
         assert!(err.contains("server.api.minimal_runtime_cache_ttl_ms must be within [0, 60000]"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn client_mss_presets_and_listener_override_are_resolved() {
+        let toml = r#"
+            [server]
+            client_mss = "tspu"
+
+            [[server.listeners]]
+            ip = "127.0.0.1"
+            port = 1443
+
+            [[server.listeners]]
+            ip = "127.0.0.2"
+            port = 1444
+            client_mss = "2in8"
+
+            [[server.listeners]]
+            ip = "127.0.0.3"
+            port = 1445
+            client_mss = ""
+
+            [[server.listeners]]
+            ip = "127.0.0.4"
+            port = 1446
+            client_mss = "extreme-low"
+
+            [censorship]
+            tls_domain = "example.com"
+
+            [access.users]
+            user = "00000000000000000000000000000000"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("telemt_client_mss_valid_test.toml");
+        std::fs::write(&path, toml).unwrap();
+        let cfg = ProxyConfig::load(&path).unwrap();
+
+        assert_eq!(cfg.server.client_mss_value(), Ok(Some(92)));
+        assert_eq!(
+            cfg.server.listeners[0].effective_client_mss(&cfg.server),
+            Ok(Some(92))
+        );
+        assert_eq!(
+            cfg.server.listeners[1].effective_client_mss(&cfg.server),
+            Ok(Some(256))
+        );
+        assert_eq!(
+            cfg.server.listeners[2].effective_client_mss(&cfg.server),
+            Ok(None)
+        );
+        assert_eq!(
+            cfg.server.listeners[3].effective_client_mss(&cfg.server),
+            Ok(Some(88))
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn client_mss_custom_value_is_accepted() {
+        let toml = r#"
+            [server]
+            client_mss = "4096"
+
+            [censorship]
+            tls_domain = "example.com"
+
+            [access.users]
+            user = "00000000000000000000000000000000"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("telemt_client_mss_custom_valid_test.toml");
+        std::fs::write(&path, toml).unwrap();
+        let cfg = ProxyConfig::load(&path).unwrap();
+
+        assert_eq!(cfg.server.client_mss_value(), Ok(Some(4096)));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn client_mss_out_of_range_is_rejected() {
+        for value in ["87", "4097"] {
+            let toml = format!(
+                r#"
+                [server]
+                client_mss = "{value}"
+
+                [censorship]
+                tls_domain = "example.com"
+
+                [access.users]
+                user = "00000000000000000000000000000000"
+            "#
+            );
+            let dir = std::env::temp_dir();
+            let path = dir.join(format!("telemt_client_mss_out_of_range_{value}_test.toml"));
+            std::fs::write(&path, toml).unwrap();
+            let err = ProxyConfig::load(&path).unwrap_err().to_string();
+
+            assert!(err.contains("server.client_mss custom value must be within [88, 4096]"));
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn client_mss_unquoted_number_is_rejected() {
+        let toml = r#"
+            [server]
+            client_mss = 256
+
+            [censorship]
+            tls_domain = "example.com"
+
+            [access.users]
+            user = "00000000000000000000000000000000"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("telemt_client_mss_unquoted_number_test.toml");
+        std::fs::write(&path, toml).unwrap();
+        let err = ProxyConfig::load(&path).unwrap_err().to_string();
+
+        assert!(err.contains("client_mss"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn listener_client_mss_invalid_preset_is_rejected() {
+        let toml = r#"
+            [[server.listeners]]
+            ip = "127.0.0.1"
+            port = 1443
+            client_mss = "tiny"
+
+            [censorship]
+            tls_domain = "example.com"
+
+            [access.users]
+            user = "00000000000000000000000000000000"
+        "#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("telemt_listener_client_mss_invalid_test.toml");
+        std::fs::write(&path, toml).unwrap();
+        let err = ProxyConfig::load(&path).unwrap_err().to_string();
+
+        assert!(err.contains("server.listeners[0].client_mss"));
+        assert!(err.contains("must be \"\", extreme-low, tspu, 2in8"));
         let _ = std::fs::remove_file(path);
     }
 

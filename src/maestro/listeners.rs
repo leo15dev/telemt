@@ -47,6 +47,10 @@ fn default_link_port(config: &ProxyConfig) -> u16 {
         .unwrap_or(config.server.port)
 }
 
+fn mss_segment_multiplier(client_mss: u16) -> u16 {
+    1460u16.div_ceil(client_mss)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn bind_listeners(
     config: &Arc<ProxyConfig>,
@@ -90,10 +94,22 @@ pub(crate) async fn bind_listeners(
             warn!(%addr, "Skipping IPv6 listener: IPv6 disabled by [network]");
             continue;
         }
+        let client_mss = match listener_conf.effective_client_mss(&config.server) {
+            Ok(value) => value,
+            Err(error) => {
+                warn!(
+                    %addr,
+                    error = %error,
+                    "Invalid listener client MSS after config validation; using kernel default"
+                );
+                None
+            }
+        };
         let options = ListenOptions {
             reuse_port: listener_conf.reuse_allow,
             ipv6_only: listener_conf.ip.is_ipv6(),
             backlog: config.server.listen_backlog,
+            client_mss,
             ..Default::default()
         };
 
@@ -101,6 +117,14 @@ pub(crate) async fn bind_listeners(
             Ok(socket) => {
                 let listener = TcpListener::from_std(socket.into())?;
                 info!("Listening on {}", addr);
+                if let Some(client_mss) = client_mss {
+                    info!(
+                        %addr,
+                        client_mss,
+                        segment_multiplier = mss_segment_multiplier(client_mss),
+                        "Client-facing TCP MSS configured"
+                    );
+                }
                 let listener_proxy_protocol = listener_conf
                     .proxy_protocol
                     .unwrap_or(config.server.proxy_protocol);

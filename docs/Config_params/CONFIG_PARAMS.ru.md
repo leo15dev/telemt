@@ -1807,6 +1807,7 @@
 | [`listen_unix_sock`](#listen_unix_sock) | `String` | — | `✘` |
 | [`listen_unix_sock_perm`](#listen_unix_sock_perm) | `String` | — | `✘` |
 | [`listen_tcp`](#listen_tcp) | `bool` | — (auto) | `✘` |
+| [`client_mss`](#client_mss) | `String` | `""` | `✘` |
 | [`proxy_protocol`](#proxy_protocol) | `bool` | `false` | `✘` |
 | [`proxy_protocol_header_timeout_ms`](#proxy_protocol_header_timeout_ms) | `u64` | `500` | `✘` |
 | [`proxy_protocol_trusted_cidrs`](#proxy_protocol_trusted_cidrs) | `IpNetwork[]` | `[]` | `✘` |
@@ -1888,6 +1889,16 @@
     # force-enable TCP even when also binding a unix socket
     listen_unix_sock = "/run/telemt.sock"
     listen_tcp = true
+    ```
+## client_mss
+  - **Ограничения / валидация**: `String`. Пустое значение или отсутствие параметра означает, что Telemt не изменяет MSS, выбранный ядром. Поддерживаемые presets: `"extreme-low"` = `88`, `"tspu"` = `92`, `"2in8"` = `256`. Пользовательское десятичное значение должно быть строкой в диапазоне `88..=4096`.
+  - **Описание**: MSS для входящих TCP-соединений клиентов. Значение применяется к TCP listener-сокетам до `listen(2)`, чтобы Linux мог объявить его в SYN/ACK. Параметр влияет только на proxy client TCP listeners и не применяется к API, metrics, Unix sockets, Telegram upstreams, ME sockets или mask backend connections. Изменение требует restart/rebind listener’ов.
+  - **Performance note**: Низкий MSS предсказуемо увеличивает количество TCP-сегментов. Приблизительный multiplier: `ceil(1460 / client_mss)`.
+  - **Пример**:
+
+    ```toml
+    [server]
+    client_mss = "tspu"
     ```
 ## proxy_protocol
   - **Ограничения / валидация**: `bool`.
@@ -2213,6 +2224,7 @@
 | --- | ---- | ------- | ---------- |
 | [`ip`](#ip) | `IpAddr` | — | `✘` |
 | [`port`](#port-serverlisteners) | `u16` | `server.port` | `✘` |
+| [`client_mss`](#client_mss-serverlisteners) | `String` | `[server].client_mss` | `✘` |
 | [`announce`](#announce) | `String` | — | `✘` |
 | [`announce_ip`](#announce_ip) | `IpAddr` | — | `✘` |
 | [`proxy_protocol`](#proxy_protocol) | `bool` | — | `✘` |
@@ -2236,6 +2248,17 @@
     [[server.listeners]]
     ip = "0.0.0.0"
     port = 443
+    ```
+## client_mss (server.listeners)
+  - **Ограничения / валидация**: `String` (необязательный параметр). Допустимые значения совпадают с `[server].client_mss`.
+  - **Описание**: Per-listener override для MSS. Если параметр не задан, listener наследует `[server].client_mss`; если задана пустая строка, MSS shaping отключается только для этого listener’а, даже когда глобальный параметр задан. Изменение требует restart/rebind listener’а.
+  - **Пример**:
+
+    ```toml
+    [[server.listeners]]
+    ip = "0.0.0.0"
+    port = 443
+    client_mss = "256"
     ```
 ## announce
   - **Ограничения / валидация**: `String` (необязательный параметр). Не должен быть пустым, если задан.
