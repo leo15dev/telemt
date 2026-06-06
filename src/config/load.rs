@@ -1941,9 +1941,11 @@ impl ProxyConfig {
             .map_err(|error| ProxyError::Config(format!("server.client_mss {error}")))?;
         for (idx, listener) in config.server.listeners.iter().enumerate() {
             if listener.client_mss.is_some() {
-                listener.effective_client_mss(&config.server).map_err(|error| {
-                    ProxyError::Config(format!("server.listeners[{idx}].client_mss {error}"))
-                })?;
+                listener
+                    .effective_client_mss(&config.server)
+                    .map_err(|error| {
+                        ProxyError::Config(format!("server.listeners[{idx}].client_mss {error}"))
+                    })?;
             }
         }
 
