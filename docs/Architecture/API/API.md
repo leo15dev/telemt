@@ -106,6 +106,8 @@ Notes:
 | `GET` | `/v1/runtime/tls-fingerprints` | optional `limit=1..1000` | `200` | `RuntimeEdgeTlsFingerprintsData` |
 | `GET` | `/v1/stats/users/active-ips` | none | `200` | `UserActiveIps[]` |
 | `GET` | `/v1/stats/users` | none | `200` | `UserInfo[]` |
+| `GET` | `/v1/config` | none | `200` | `ConfigData` |
+| `PATCH` | `/v1/config` | sparse JSON object | `200` | `PatchConfigResponse` |
 | `GET` | `/v1/users` | none | `200` | `UserInfo[]` |
 | `POST` | `/v1/users` | `CreateUserRequest` | `201` or `202` | `CreateUserResponse` |
 | `GET` | `/v1/users/{username}` | none | `200` | `UserInfo` |
@@ -143,6 +145,8 @@ Notes:
 | `GET /v1/runtime/events/recent` | Returns recent API/runtime event records with optional `limit` query. |
 | `GET /v1/stats/users/active-ips` | Returns users that currently have non-empty active source-IP lists. |
 | `GET /v1/stats/users` | Alias of `GET /v1/users`; returns disk-first user views with runtime lag flag. |
+| `GET /v1/config` | Returns the current editable config sections as JSON (no `access.*`) plus the revision. |
+| `PATCH /v1/config` | Applies a sparse patch to editable config sections; validates, writes, and reports restart impact. |
 | `GET /v1/users` | Returns disk-first user views sorted by username. |
 | `POST /v1/users` | Creates a user and returns the effective user view plus secret. |
 | `GET /v1/users/{username}` | Returns one disk-first user view or `404` when absent. |
@@ -158,6 +162,8 @@ Notes:
 | HTTP | `error.code` | Trigger |
 | --- | --- | --- |
 | `400` | `bad_request` | Invalid JSON, validation failures, malformed request body. |
+| `400` | `access_not_editable` | `PATCH /v1/config` body contains an `access` key (managed via users API). |
+| `400` | `section_not_editable` | `PATCH /v1/config` body contains `server`, `network`, or an unknown top-level key. |
 | `401` | `unauthorized` | Missing/invalid `Authorization` when `auth_header` is configured. |
 | `403` | `forbidden` | Source IP is not allowed by whitelist. |
 | `403` | `read_only` | Mutating endpoint called while `read_only=true`. |
@@ -177,6 +183,7 @@ Notes:
 | Path matching | Exact match on `req.uri().path()`. Query string does not affect route matching. |
 | Trailing slash | Trimmed for route matching when path length is greater than 1. Example: `/v1/users/` matches `/v1/users`. |
 | Username route with extra slash | `/v1/users/{username}/...` is not treated as user route and returns `404`. |
+| `DELETE /v1/config` (or any method not in `GET`, `PATCH`) | `405 method_not_allowed` with `Allow: GET, PATCH`. |
 | `PUT /v1/users/{username}` | `405 method_not_allowed`. |
 | `POST /v1/users/{username}` | `404 not_found`. |
 | `POST /v1/users/{username}/rotate-secret/` | Trailing slash is trimmed and the route matches `rotate-secret`. |
@@ -245,6 +252,20 @@ alice = ["203.0.113.0/24", "2001:db8:abcd::/48"]
 bob = ["198.51.100.42/32"]
 ```
 
+### `PatchConfigRequest`
+
+A sparse JSON object containing only the top-level config sections to modify. Each key must be one of the editable sections (`general`, `timeouts`, `censorship`, `upstreams`, `show_link`, `dc_overrides`). Tables within a section are deep-merged field-by-field into the existing config; arrays and scalar values replace the existing value wholesale. Untouched sections and file comments are preserved.
+
+**Rejected keys:**
+- `access` → `400 access_not_editable` (users/secrets are managed via `POST/PATCH /v1/users`).
+- `server`, `network`, or any unknown top-level key → `400 section_not_editable`.
+- An object with no editable keys → `400 bad_request` (empty patch).
+
+Example — patch only the SNI domain:
+```json
+{"censorship": {"tls_domain": "front.example.com"}}
+```
+
 ### `RotateSecretRequest`
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -253,6 +274,32 @@ bob = ["198.51.100.42/32"]
 An empty request body is accepted and generates a new secret automatically.
 
 ## Response Data Contracts
+
+### `ConfigData`
+
+Returned by `GET /v1/config`. The top-level fields mirror the editable TOML sections; `access.*` is intentionally omitted.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `revision` | `string` | SHA-256 hex of the current on-disk config content (same value as `config_hash` in `SystemInfoData` and the envelope `revision`). |
+| `general` | `object?` | `[general]` section, if present in config. |
+| `timeouts` | `object?` | `[timeouts]` section, if present. |
+| `censorship` | `object?` | `[censorship]` section, if present. |
+| `upstreams` | `object?` | `[upstreams]` section, if present. |
+| `show_link` | `object?` | `[show_link]` section, if present. |
+| `dc_overrides` | `object?` | `[dc_overrides]` section, if present. |
+
+Sections absent from the config file are absent from the response (not `null`). The `access` section is always stripped — users and secrets are never exposed here.
+
+### `PatchConfigResponse`
+
+Returned by `PATCH /v1/config` on success (`200`).
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `revision` | `string` | SHA-256 hex of the config file after the patch was written. |
+| `restart_required` | `bool` | `true` when one or more changed fields require a process restart to take effect. Hot-reloadable fields (e.g. `general.log_level`) are applied automatically by the config file watcher; restart-required fields (e.g. any `censorship.*`, `timeouts.*`, `upstreams`, or `general.modes` change) are written to disk but only take effect after the Telemt process is restarted. The caller is responsible for triggering a restart when this flag is `true`. |
+| `changed` | `string[]` | Top-level section names that differed between the old and new config (e.g. `["censorship"]`). |
 
 ### `HealthData`
 | Field | Type | Description |
@@ -1279,10 +1326,101 @@ Link generation uses active config and enabled modes:
 | `used_bytes` | `u64` | Current used bytes after reset; always `0` on success. |
 | `last_reset_epoch_secs` | `u64` | Unix timestamp of the reset operation. |
 
+## Config Endpoints
+
+### `GET /v1/config`
+
+Returns the current editable config sections as TOML-shaped JSON, plus the current revision. The `access` section (users and secrets) is always stripped and never appears in the response.
+
+**Auth:** requires `Authorization` header when `auth_header` is configured (same as all other endpoints).
+
+**Success `200` response body** (`data` field of the standard envelope):
+```json
+{
+  "revision": "<sha256-hex>",
+  "censorship": {"tls_domain": "front.example.com"},
+  "general": {"log_level": "normal"}
+}
+```
+
+Top-level sections absent from the config file are absent from the response. Only `GET` and `PATCH` are accepted; any other method returns `405 Method Not Allowed` with `Allow: GET, PATCH`.
+
+---
+
+### `PATCH /v1/config`
+
+Applies a sparse patch to the editable config sections. The merged config is fully validated before writing; if validation fails the file is not modified.
+
+**Auth:** requires `Authorization` header when `auth_header` is configured.
+
+**Headers:**
+
+| Header | Required | Description |
+| --- | --- | --- |
+| `Authorization` | when configured | Same token as all other endpoints. |
+| `Content-Type: application/json` | recommended | Not enforced, but body must be valid JSON. |
+| `If-Match: <revision>` | no | Optimistic concurrency. `<revision>` is the `revision` value from `GET /v1/config` or `config_hash` from `GET /v1/system/info`. If supplied and it does not match the current on-disk revision, returns `409 revision_conflict`. If omitted, the patch applies unconditionally. |
+
+**Editable sections:** `general`, `timeouts`, `censorship`, `upstreams`, `show_link`, `dc_overrides`.
+
+**Rejected keys and their error codes:**
+
+| Key | HTTP | `error.code` |
+| --- | --- | --- |
+| `access` | `400` | `access_not_editable` |
+| `server`, `network`, or any unknown key | `400` | `section_not_editable` |
+| Object with no editable key | `400` | `bad_request` |
+
+**Merge semantics:** tables are deep-merged field-by-field; arrays and scalar values replace the existing value wholesale. File comments and untouched sections are preserved.
+
+**Validation:** the merged config is deserialized into the full `ProxyConfig` type and validated before writing. Failures return `400` with a descriptive message; the file is not modified.
+
+**Read-only mode:** returns `403 read_only` when the API runs with `read_only = true`.
+
+**Success `200` response body** (`data` field of the standard envelope):
+```json
+{
+  "revision": "<new-sha256-hex>",
+  "restart_required": true,
+  "changed": ["censorship"]
+}
+```
+
+- `revision` — SHA-256 hex of the config file after the write.
+- `restart_required` — `true` when the change affects a field that Telemt cannot hot-reload (e.g. `censorship.*`, `timeouts.*`, `upstreams`, `general.modes`). Hot-reloadable fields (e.g. `general.log_level`) are applied automatically by the config file watcher. Restart-required fields are written to disk but only take effect after the Telemt process is restarted; the caller is responsible for triggering the restart.
+- `changed` — list of top-level section names that differed.
+
+**Status codes:**
+
+| HTTP | `error.code` | Condition |
+| --- | --- | --- |
+| `200` | — | Patch applied successfully. |
+| `400` | `bad_request` | Invalid JSON, empty patch, or config validation/deserialization failure. |
+| `400` | `access_not_editable` | Patch contains an `access` key. |
+| `400` | `section_not_editable` | Patch contains `server`, `network`, or an unknown top-level key. |
+| `401` | `unauthorized` | Missing or invalid `Authorization` header. |
+| `403` | `read_only` | API is in read-only mode. |
+| `405` | `method_not_allowed` | Method other than `GET` or `PATCH` used on `/v1/config`. |
+| `409` | `revision_conflict` | `If-Match` header supplied but does not match current revision. |
+| `500` | `internal_error` | I/O or serialization failure. |
+
+**curl example:**
+```bash
+# get current revision
+curl -s -H "Authorization: <token>" http://127.0.0.1:<api>/v1/system/info | jq -r .config_hash
+
+# patch the SNI domain with optimistic concurrency
+curl -s -X PATCH -H "Authorization: <token>" -H "If-Match: <revision>" \
+  -H "Content-Type: application/json" \
+  -d '{"censorship":{"tls_domain":"front.example.com"}}' \
+  http://127.0.0.1:<api>/v1/config
+```
+
 ## Mutation Semantics
 
 | Endpoint | Notes |
 | --- | --- |
+| `PATCH /v1/config` | Deep-merges the patch into editable config sections (tables merged per-field; arrays/scalars replaced wholesale). Validates the merged result before writing. Writes only the touched sections via atomic `tmp + rename`. Returns the new revision and which sections changed. |
 | `POST /v1/users` | Creates user, validates config, then atomically updates only affected `access.*` TOML tables (`access.users` always, plus optional per-user tables present in request). |
 | `PATCH /v1/users/{username}` | Partial update of provided fields only. Missing fields remain unchanged; explicit `null` removes optional per-user entries. The write path updates only affected `access.*` TOML tables. |
 | `POST /v1/users/{username}/rotate-secret` | Replaces the user's secret with a provided valid 32-hex value or a generated value, then returns the effective secret in `CreateUserResponse`. |
