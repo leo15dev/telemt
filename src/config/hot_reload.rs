@@ -1489,6 +1489,48 @@ pub fn spawn_config_watcher(
     (config_rx, log_rx)
 }
 
+// ── Change classification ─────────────────────────────────────────────────────
+
+/// Which top-level config sections changed and whether any require a restart.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+pub struct ChangeClassification {
+    pub changed: Vec<String>,
+    pub restart_required: bool,
+}
+
+/// Classify old->new using Telemt's OWN reload rule: overlay the hot fields and
+/// see if anything non-hot remains different. This guarantees `restart_required`
+/// matches actual runtime behavior and never drifts as new fields are added.
+pub fn classify_config_changes(old: &ProxyConfig, new: &ProxyConfig) -> ChangeClassification {
+    let applied = overlay_hot_fields(old, new);
+    let restart_required = !config_equal(&applied, new);
+    ChangeClassification {
+        changed: changed_sections(old, new),
+        restart_required,
+    }
+}
+
+/// Top-level config sections whose canonical serialized form differs between
+/// old and new. Uses the same serialize+canonicalize path as `config_equal`.
+fn changed_sections(old: &ProxyConfig, new: &ProxyConfig) -> Vec<String> {
+    let mut lhs = serde_json::to_value(old).unwrap_or(serde_json::Value::Null);
+    let mut rhs = serde_json::to_value(new).unwrap_or(serde_json::Value::Null);
+    canonicalize_json(&mut lhs);
+    canonicalize_json(&mut rhs);
+
+    let mut out = Vec::new();
+    if let (Some(lo), Some(ro)) = (lhs.as_object(), rhs.as_object()) {
+        let mut keys: std::collections::BTreeSet<&String> = lo.keys().collect();
+        keys.extend(ro.keys());
+        for key in keys {
+            if lo.get(key) != ro.get(key) {
+                out.push(key.clone());
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1659,6 +1701,41 @@ mod tests {
         assert_eq!(applied.server.port, initial_cfg.server.port);
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn classify_sni_change_requires_restart() {
+        // censorship.* is not in overlay_hot_fields -> restart.
+        let old = ProxyConfig::default();
+        let mut new = ProxyConfig::default();
+        new.censorship.tls_domain = "front.example".to_string();
+
+        let class = classify_config_changes(&old, &new);
+        assert!(class.restart_required);
+        assert!(class.changed.iter().any(|c| c == "censorship"));
+    }
+
+    #[test]
+    fn classify_dns_overrides_change_is_hot() {
+        // network.dns_overrides IS in overlay_hot_fields -> no restart.
+        let old = ProxyConfig::default();
+        let mut new = ProxyConfig::default();
+        new.network.dns_overrides.push("1.1.1.1".to_string());
+
+        let class = classify_config_changes(&old, &new);
+        assert!(!class.restart_required);
+        assert!(class.changed.iter().any(|c| c == "network"));
+    }
+
+    #[test]
+    fn classify_timeouts_change_requires_restart() {
+        // timeouts.* is NOT in overlay_hot_fields -> restart.
+        let old = ProxyConfig::default();
+        let mut new = ProxyConfig::default();
+        new.timeouts.client_handshake = old.timeouts.client_handshake + 1;
+
+        let class = classify_config_changes(&old, &new);
+        assert!(class.restart_required);
     }
 
     #[test]
