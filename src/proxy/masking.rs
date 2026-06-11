@@ -385,7 +385,7 @@ mod tls_domain_mask_host_tests {
         let mut config = ProxyConfig::default();
         config.censorship.tls_domain = "a.com".to_string();
         config.censorship.tls_domains = vec!["b.com".to_string(), "c.com".to_string()];
-        config.censorship.mask_host = Some("a.com".to_string());
+        config.censorship.mask_host = None;
         config
     }
 
@@ -417,6 +417,15 @@ mod tls_domain_mask_host_tests {
         let initial_data = client_hello_with_sni("b.com");
 
         assert_eq!(mask_host_for_initial_data(&config, &initial_data), "b.com");
+    }
+
+    #[test]
+    fn mask_host_uses_primary_domain_when_dynamic_masking_is_disabled() {
+        let mut config = config_with_tls_domains();
+        config.censorship.mask_dynamic = false;
+        let initial_data = client_hello_with_sni("b.com");
+
+        assert_eq!(mask_host_for_initial_data(&config, &initial_data), "a.com");
     }
 
     #[test]
@@ -577,24 +586,32 @@ fn default_mask_tcp_target_for_initial_data<'a>(
         .as_deref()
         .unwrap_or(&config.censorship.tls_domain);
 
-    if !configured_mask_host.eq_ignore_ascii_case(&config.censorship.tls_domain) {
+    if config.censorship.mask_host.is_none() && config.censorship.mask_dynamic {
+        let extracted_sni = if sni.is_none() {
+            tls::extract_sni_from_client_hello(initial_data)
+        } else {
+            None
+        };
+        if let Some(host) = sni
+            .or(extracted_sni.as_deref())
+            .and_then(|sni| matching_tls_domain_for_sni(config, sni))
+        {
+            return MaskTcpTarget {
+                host,
+                port: config.censorship.mask_port,
+            };
+        }
+    }
+
+    if let Some(mask_host) = config.censorship.mask_host.as_deref() {
         return MaskTcpTarget {
-            host: configured_mask_host,
+            host: mask_host,
             port: config.censorship.mask_port,
         };
     }
 
-    let extracted_sni = if sni.is_none() {
-        tls::extract_sni_from_client_hello(initial_data)
-    } else {
-        None
-    };
-    let host = sni
-        .or(extracted_sni.as_deref())
-        .and_then(|sni| matching_tls_domain_for_sni(config, sni))
-        .unwrap_or(configured_mask_host);
     MaskTcpTarget {
-        host,
+        host: configured_mask_host,
         port: config.censorship.mask_port,
     }
 }

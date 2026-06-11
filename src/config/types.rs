@@ -1726,6 +1726,10 @@ pub struct AntiCensorshipConfig {
     #[serde(default = "default_true")]
     pub mask: bool,
 
+    /// Use the ClientHello SNI as the mask TCP target for configured TLS domains.
+    #[serde(default = "default_true")]
+    pub mask_dynamic: bool,
+
     #[serde(default)]
     pub mask_host: Option<String>,
 
@@ -1861,6 +1865,7 @@ impl Default for AntiCensorshipConfig {
             tls_fetch_scope: default_tls_fetch_scope(),
             tls_fetch: TlsFetchConfig::default(),
             mask: default_true(),
+            mask_dynamic: default_true(),
             mask_host: None,
             mask_port: default_mask_port(),
             exclusive_mask: HashMap::new(),

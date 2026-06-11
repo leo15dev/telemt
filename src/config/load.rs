@@ -372,6 +372,7 @@ const CENSORSHIP_CONFIG_KEYS: &[&str] = &[
     "tls_fetch_scope",
     "tls_fetch",
     "mask",
+    "mask_dynamic",
     "mask_host",
     "mask_port",
     "exclusive_mask",
@@ -2045,11 +2046,6 @@ impl ProxyConfig {
 
         if let Some(mask_host) = config.censorship.mask_host.as_mut() {
             *mask_host = normalize_mask_host_to_ascii(mask_host, "censorship.mask_host")?;
-        }
-
-        // Default mask_host to tls_domain if not set and no unix socket configured.
-        if config.censorship.mask_host.is_none() && config.censorship.mask_unix_sock.is_none() {
-            config.censorship.mask_host = Some(config.censorship.tls_domain.clone());
         }
 
         for (domain, target) in &config.censorship.exclusive_mask {
