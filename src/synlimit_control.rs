@@ -221,7 +221,12 @@ async fn apply_iptables_synlimit_rules_for_binary(
         run_command(binary, &accept_refs, None).await?;
         run_command(binary, &drop_refs, None).await?;
     }
-    run_command(binary, &["-t", "filter", "-A", IPTABLES_CHAIN, "-j", "RETURN"], None).await?;
+    run_command(
+        binary,
+        &["-t", "filter", "-A", IPTABLES_CHAIN, "-j", "RETURN"],
+        None,
+    )
+    .await?;
 
     Ok(())
 }
@@ -306,10 +311,7 @@ fn synlimit_rate_arg(seconds: u32, hitcount: u32) -> String {
             return format!("{}/{}", amount / seconds, unit_name);
         }
     }
-    let amount = hitcount
-        .saturating_mul(86_400)
-        .saturating_add(seconds - 1)
-        / seconds;
+    let amount = hitcount.saturating_mul(86_400).saturating_add(seconds - 1) / seconds;
     format!("{}/day", amount.max(1))
 }
 
