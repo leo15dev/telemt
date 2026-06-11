@@ -364,6 +364,9 @@ impl TlsFrontCache {
                             warn!(domain = %cached.domain, "Skipping stale TLS cache entry (>72h)");
                             continue;
                         }
+                        cached
+                            .behavior_profile
+                            .refresh_server_hello_summary(&cached.server_hello_template);
                         let domain = cached.domain.clone();
                         self.set(&domain, cached).await;
                         loaded += 1;

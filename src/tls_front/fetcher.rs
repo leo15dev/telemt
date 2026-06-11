@@ -1477,7 +1477,8 @@ pub async fn fetch_real_tls_with_strategy(
                 raw.cert_info = rustls.cert_info;
                 raw.cert_payload = rustls.cert_payload;
                 raw.behavior_profile.source = TlsProfileSource::Merged;
-                raw.behavior_profile.refresh_quality();
+                raw.behavior_profile
+                    .refresh_server_hello_summary(&raw.server_hello_parsed);
                 debug!(sni = %sni, "Fetched TLS metadata via adaptive raw probe + rustls cert chain");
                 Ok(raw)
             } else {

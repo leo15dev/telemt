@@ -21,6 +21,13 @@ const EXT_SUPPORTED_VERSIONS: u16 = 0x002b;
 const EXT_KEY_SHARE: u16 = 0x0033;
 const EXT_ALPN: u16 = 0x0010;
 
+#[derive(Clone, Copy)]
+enum FallbackShapeFamily {
+    NginxLike,
+    BoringSslLike,
+    RustlsLike,
+}
+
 fn parse_profiled_key_share_group(data: &[u8]) -> Option<u16> {
     if data.len() < 4 {
         return None;
@@ -38,12 +45,26 @@ fn parse_profiled_key_share_group(data: &[u8]) -> Option<u16> {
     }
 }
 
-/// Return the origin-profiled ServerHello key_share group when it is replay-safe.
-pub(crate) fn profiled_server_hello_key_share_group(cached: &CachedTlsData) -> Option<u16> {
-    if !matches!(
+fn effective_profiled_server_hello_record_len(cached: &CachedTlsData) -> usize {
+    if cached.behavior_profile.server_hello_record_len == 0 {
+        cached.server_hello_template.record_body_len()
+    } else {
+        cached.behavior_profile.server_hello_record_len
+    }
+}
+
+fn should_replay_profiled_server_hello_shape(cached: &CachedTlsData) -> bool {
+    matches!(
         cached.behavior_profile.source,
         TlsProfileSource::Raw | TlsProfileSource::Merged
-    ) {
+    ) && cached.server_hello_template.is_replay_safe_tls13_shape(
+        effective_profiled_server_hello_record_len(cached),
+    )
+}
+
+/// Return the origin-profiled ServerHello key_share group when it is replay-safe.
+pub(crate) fn profiled_server_hello_key_share_group(cached: &CachedTlsData) -> Option<u16> {
+    if !should_replay_profiled_server_hello_shape(cached) {
         return None;
     }
 
@@ -105,6 +126,76 @@ fn ensure_payload_capacity(mut sizes: Vec<usize>, payload_len: usize) -> Vec<usi
     sizes
 }
 
+fn fallback_shape_family(cached: &CachedTlsData) -> FallbackShapeFamily {
+    match cached.behavior_profile.source {
+        TlsProfileSource::Rustls => FallbackShapeFamily::RustlsLike,
+        TlsProfileSource::Default => {
+            let mut hasher = Hasher::new();
+            hasher.update(cached.domain.as_bytes());
+            hasher.update(&cached.total_app_data_len.to_le_bytes());
+            if hasher.finalize() & 1 == 0 {
+                FallbackShapeFamily::NginxLike
+            } else {
+                FallbackShapeFamily::BoringSslLike
+            }
+        }
+        TlsProfileSource::Raw | TlsProfileSource::Merged => FallbackShapeFamily::NginxLike,
+    }
+}
+
+fn fallback_total_app_data_len(cached: &CachedTlsData) -> usize {
+    cached
+        .total_app_data_len
+        .max(cached.app_data_records_sizes.iter().sum())
+        .max(1024)
+}
+
+fn push_fallback_size(sizes: &mut Vec<usize>, size: usize) {
+    sizes.push(size.clamp(MIN_APP_DATA, MAX_APP_DATA));
+}
+
+fn fallback_family_app_data_sizes(cached: &CachedTlsData) -> Vec<usize> {
+    if matches!(cached.behavior_profile.source, TlsProfileSource::Rustls)
+        && !cached.app_data_records_sizes.is_empty()
+    {
+        return cached.app_data_records_sizes.clone();
+    }
+
+    let family = fallback_shape_family(cached);
+    let mut remaining = fallback_total_app_data_len(cached);
+    let preferred_chunk = match family {
+        FallbackShapeFamily::NginxLike => 2896,
+        FallbackShapeFamily::BoringSslLike => 1369,
+        FallbackShapeFamily::RustlsLike => 2048,
+    };
+    let split_threshold = match family {
+        FallbackShapeFamily::NginxLike => 4096,
+        FallbackShapeFamily::BoringSslLike => 1536,
+        FallbackShapeFamily::RustlsLike => 3072,
+    };
+
+    if remaining <= split_threshold {
+        return vec![remaining.clamp(MIN_APP_DATA, MAX_APP_DATA)];
+    }
+
+    let mut sizes: Vec<usize> = Vec::new();
+    while remaining > 0 {
+        let chunk = remaining.min(preferred_chunk).min(MAX_APP_DATA);
+        if chunk < MIN_APP_DATA {
+            if let Some(last) = sizes.last_mut() {
+                *last = (*last).saturating_add(chunk).min(MAX_APP_DATA);
+            } else {
+                push_fallback_size(&mut sizes, chunk);
+            }
+            break;
+        }
+        push_fallback_size(&mut sizes, chunk);
+        remaining = remaining.saturating_sub(chunk);
+    }
+
+    sizes
+}
+
 fn emulated_app_data_sizes(cached: &CachedTlsData) -> Vec<usize> {
     match cached.behavior_profile.source {
         TlsProfileSource::Raw | TlsProfileSource::Merged => {
@@ -116,14 +207,10 @@ fn emulated_app_data_sizes(cached: &CachedTlsData) -> Vec<usize> {
             }
             return vec![cached.total_app_data_len.max(1024)];
         }
-        TlsProfileSource::Default | TlsProfileSource::Rustls => {}
+        TlsProfileSource::Default | TlsProfileSource::Rustls => {
+            return fallback_family_app_data_sizes(cached);
+        }
     }
-
-    let mut sizes = cached.app_data_records_sizes.clone();
-    if sizes.is_empty() {
-        sizes.push(cached.total_app_data_len.max(1024));
-    }
-    sizes
 }
 
 fn emulated_change_cipher_spec_count(_cached: &CachedTlsData) -> usize {
@@ -151,7 +238,13 @@ fn emulated_ticket_record_sizes(
     sizes.extend(profiled_sizes.iter().copied().take(target_count));
 
     while sizes.len() < target_count {
-        sizes.push(rng.range(48) + 48);
+        let family = fallback_shape_family(cached);
+        let base = match family {
+            FallbackShapeFamily::NginxLike => 96,
+            FallbackShapeFamily::BoringSslLike => 80,
+            FallbackShapeFamily::RustlsLike => 112,
+        };
+        sizes.push(base + rng.range(64));
     }
 
     sizes
@@ -287,21 +380,23 @@ fn build_profiled_server_hello_extensions(
     let mut saw_supported_versions = false;
     let mut saw_key_share = false;
 
-    for ext in &cached.server_hello_template.extensions {
-        replay_profiled_server_hello_extension(
-            ext,
-            &mut extensions,
-            server_key_share,
-            &mut saw_supported_versions,
-            &mut saw_key_share,
-        );
+    if should_replay_profiled_server_hello_shape(cached) {
+        for ext in &cached.server_hello_template.extensions {
+            replay_profiled_server_hello_extension(
+                ext,
+                &mut extensions,
+                server_key_share,
+                &mut saw_supported_versions,
+                &mut saw_key_share,
+            );
+        }
     }
 
-    if !saw_key_share {
-        push_key_share_extension(&mut extensions, server_key_share);
-    }
     if !saw_supported_versions {
         push_supported_versions_extension(&mut extensions);
+    }
+    if !saw_key_share {
+        push_key_share_extension(&mut extensions, server_key_share);
     }
 
     extensions
@@ -594,10 +689,16 @@ mod tests {
     fn profiled_server_hello_key_share_group_reads_raw_x25519_profile() {
         let mut cached = make_cached(None);
         cached.behavior_profile.source = TlsProfileSource::Raw;
-        cached.server_hello_template.extensions = vec![TlsExtension {
-            ext_type: 0x0033,
-            data: server_key_share_extension_data(TLS_NAMED_GROUP_X25519, 32),
-        }];
+        cached.server_hello_template.extensions = vec![
+            TlsExtension {
+                ext_type: 0x002b,
+                data: vec![0x03, 0x04],
+            },
+            TlsExtension {
+                ext_type: 0x0033,
+                data: server_key_share_extension_data(TLS_NAMED_GROUP_X25519, 32),
+            },
+        ];
 
         assert_eq!(
             profiled_server_hello_key_share_group(&cached),
@@ -702,6 +803,82 @@ mod tests {
             &test_server_key_share(),
             &rng,
             Some(b"h2".to_vec()),
+            0,
+        );
+
+        assert_eq!(
+            server_hello_extension_types(&response),
+            vec![0x002b, 0x0033]
+        );
+    }
+
+    #[test]
+    fn test_build_emulated_server_hello_replays_safe_raw_extension_order() {
+        let mut cached = make_cached(None);
+        cached.behavior_profile.source = TlsProfileSource::Raw;
+        cached.server_hello_template.extensions = vec![
+            TlsExtension {
+                ext_type: 0x0033,
+                data: server_key_share_extension_data(TLS_NAMED_GROUP_X25519, 32),
+            },
+            TlsExtension {
+                ext_type: 0x002b,
+                data: vec![0x03, 0x04],
+            },
+        ];
+        let rng = SecureRandom::new();
+        let response = build_emulated_server_hello(
+            b"secret",
+            &[0x21; 32],
+            &[0x22; 16],
+            &cached,
+            false,
+            true,
+            ClientHelloTlsVersion::Tls13,
+            [0x13, 0x01],
+            &test_server_key_share(),
+            &rng,
+            None,
+            0,
+        );
+
+        assert_eq!(
+            server_hello_extension_types(&response),
+            vec![0x0033, 0x002b]
+        );
+    }
+
+    #[test]
+    fn test_build_emulated_server_hello_uses_canonical_order_for_unsafe_raw_shape() {
+        let mut cached = make_cached(None);
+        cached.behavior_profile.source = TlsProfileSource::Raw;
+        cached.server_hello_template.extensions = vec![
+            TlsExtension {
+                ext_type: 0x0010,
+                data: vec![0x00, 0x03, 0x02, b'h', b'2'],
+            },
+            TlsExtension {
+                ext_type: 0x0033,
+                data: server_key_share_extension_data(TLS_NAMED_GROUP_X25519, 32),
+            },
+            TlsExtension {
+                ext_type: 0x002b,
+                data: vec![0x03, 0x04],
+            },
+        ];
+        let rng = SecureRandom::new();
+        let response = build_emulated_server_hello(
+            b"secret",
+            &[0x21; 32],
+            &[0x22; 16],
+            &cached,
+            false,
+            true,
+            ClientHelloTlsVersion::Tls13,
+            [0x13, 0x01],
+            &test_server_key_share(),
+            &rng,
+            None,
             0,
         );
 

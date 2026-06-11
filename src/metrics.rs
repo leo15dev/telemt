@@ -3937,10 +3937,20 @@ mod tests {
                         session_id: Vec::new(),
                         cipher_suite: [0x13, 0x01],
                         compression: 0,
-                        extensions: vec![crate::tls_front::types::TlsExtension {
-                            ext_type: 0x0033,
-                            data: vec![0x00, 0x1d, 0x00, 0x20],
-                        }],
+                        extensions: {
+                            let mut key_share = vec![0x00, 0x1d, 0x00, 0x20];
+                            key_share.resize(36, 0x42);
+                            vec![
+                                crate::tls_front::types::TlsExtension {
+                                    ext_type: 0x002b,
+                                    data: vec![0x03, 0x04],
+                                },
+                                crate::tls_front::types::TlsExtension {
+                                    ext_type: 0x0033,
+                                    data: key_share,
+                                },
+                            ]
+                        },
                     },
                     cert_info: None,
                     cert_payload: Some(TlsCertPayload {
@@ -3981,12 +3991,12 @@ mod tests {
         );
         assert!(
             output.contains(
-                "telemt_tls_front_profile_server_hello_bytes{domain=\"primary.example\"} 52"
+                "telemt_tls_front_profile_server_hello_bytes{domain=\"primary.example\"} 90"
             )
         );
         assert!(
             output.contains(
-                "telemt_tls_front_profile_server_hello_extensions{domain=\"primary.example\"} 1"
+                "telemt_tls_front_profile_server_hello_extensions{domain=\"primary.example\"} 2"
             )
         );
         assert!(
