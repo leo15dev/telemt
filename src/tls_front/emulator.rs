@@ -74,19 +74,13 @@ fn ensure_payload_capacity(mut sizes: Vec<usize>, payload_len: usize) -> Vec<usi
 fn emulated_app_data_sizes(cached: &CachedTlsData) -> Vec<usize> {
     match cached.behavior_profile.source {
         TlsProfileSource::Raw | TlsProfileSource::Merged => {
-            return cached
-                .app_data_records_sizes
-                .first()
-                .copied()
-                .or_else(|| {
-                    cached
-                        .behavior_profile
-                        .app_data_record_sizes
-                        .first()
-                        .copied()
-                })
-                .map(|size| vec![size])
-                .unwrap_or_else(|| vec![cached.total_app_data_len.max(1024)]);
+            if !cached.behavior_profile.app_data_record_sizes.is_empty() {
+                return cached.behavior_profile.app_data_record_sizes.clone();
+            }
+            if !cached.app_data_records_sizes.is_empty() {
+                return cached.app_data_records_sizes.clone();
+            }
+            return vec![cached.total_app_data_len.max(1024)];
         }
         TlsProfileSource::Default | TlsProfileSource::Rustls => {}
     }
@@ -383,6 +377,7 @@ pub fn build_emulated_server_hello(
     // ALPN selection is encrypted inside EncryptedExtensions in real TLS 1.3.
     // Keeping the FakeTLS record body opaque avoids a stable plaintext marker.
     let _ = alpn;
+    let mut payload_offset = 0usize;
     for size in sizes {
         let mut rec = Vec::with_capacity(5 + size);
         rec.push(TLS_RECORD_APPLICATION);
@@ -392,10 +387,11 @@ pub fn build_emulated_server_hello(
         if let Some(payload) = selected_payload {
             if size > 17 {
                 let body_len = size - 17;
-                let remaining = payload.len();
+                let remaining = payload.len().saturating_sub(payload_offset);
                 let copy_len = remaining.min(body_len);
                 if copy_len > 0 {
-                    rec.extend_from_slice(&payload[..copy_len]);
+                    rec.extend_from_slice(&payload[payload_offset..payload_offset + copy_len]);
+                    payload_offset += copy_len;
                 }
                 if body_len > copy_len {
                     rec.extend_from_slice(&rng.bytes(body_len - copy_len));
@@ -791,11 +787,15 @@ mod tests {
 
         let hello_len = u16::from_be_bytes([response[3], response[4]]) as usize;
         let ccs_start = 5 + hello_len;
-        let app_start = ccs_start + 6;
-        let app_len =
-            u16::from_be_bytes([response[app_start + 3], response[app_start + 4]]) as usize;
-        assert_eq!(response[app_start], TLS_RECORD_APPLICATION);
-        assert_eq!(app_len, 64);
-        assert_eq!(app_start + 5 + app_len, response.len());
+        let mut pos = ccs_start + 6;
+        let mut app_lens = Vec::new();
+        while pos + 5 <= response.len() {
+            let record_len = u16::from_be_bytes([response[pos + 3], response[pos + 4]]) as usize;
+            assert_eq!(response[pos], TLS_RECORD_APPLICATION);
+            app_lens.push(record_len);
+            pos += 5 + record_len;
+        }
+        assert_eq!(app_lens, vec![64, 3905, 537]);
+        assert_eq!(pos, response.len());
     }
 }

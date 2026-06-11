@@ -97,7 +97,7 @@ fn emulated_server_hello_does_not_emit_profile_ticket_tail_when_disabled() {
     );
 
     let app_records = record_lengths_by_type(&response, TLS_RECORD_APPLICATION);
-    assert_eq!(app_records, vec![1200]);
+    assert_eq!(app_records, vec![1200, 900]);
 }
 
 #[test]
@@ -120,5 +120,5 @@ fn emulated_server_hello_uses_profile_ticket_lengths_when_enabled() {
     );
 
     let app_records = record_lengths_by_type(&response, TLS_RECORD_APPLICATION);
-    assert_eq!(app_records, vec![1200, 220, 180]);
+    assert_eq!(app_records, vec![1200, 900, 220, 180]);
 }

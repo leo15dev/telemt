@@ -1036,13 +1036,11 @@ where
     let mut app_sizes = behavior_profile.app_data_record_sizes.clone();
     app_sizes.extend_from_slice(&behavior_profile.ticket_record_sizes);
     let total_app_data_len = app_sizes.iter().sum::<usize>().max(1024);
-    let app_data_records_sizes = behavior_profile
-        .app_data_record_sizes
-        .first()
-        .copied()
-        .or_else(|| behavior_profile.ticket_record_sizes.first().copied())
-        .map(|size| vec![size])
-        .unwrap_or_else(|| vec![total_app_data_len]);
+    let app_data_records_sizes = if app_sizes.is_empty() {
+        vec![total_app_data_len]
+    } else {
+        app_sizes
+    };
 
     Ok(TlsFetchResult {
         server_hello_parsed: parsed,
