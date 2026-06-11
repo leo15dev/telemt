@@ -86,17 +86,64 @@ fn make_valid_tls_client_hello(secret: &[u8], timestamp: u32, tls_len: usize, fi
         "TLS length must fit into record header"
     );
 
-    let total_len = 5 + tls_len;
-    let mut handshake = vec![fill; total_len];
-
-    handshake[0] = 0x16;
-    handshake[1] = 0x03;
-    handshake[2] = 0x01;
-    handshake[3..5].copy_from_slice(&(tls_len as u16).to_be_bytes());
-
+    const TLS_AES_128_GCM_SHA256: [u8; 2] = [0x13, 0x01];
+    const TLS_EXTENSION_KEY_SHARE: u16 = 0x0033;
+    const TLS_EXTENSION_PADDING: u16 = 0x0015;
+    const X25519_KEY_SHARE_LEN: usize = 32;
     let session_id_len: usize = 32;
-    handshake[tls::TLS_DIGEST_POS + tls::TLS_DIGEST_LEN] = session_id_len as u8;
 
+    let mut extensions = Vec::new();
+    let mut key_share = Vec::new();
+    key_share.extend_from_slice(&tls::TLS_NAMED_GROUP_X25519.to_be_bytes());
+    key_share.extend_from_slice(&(X25519_KEY_SHARE_LEN as u16).to_be_bytes());
+    key_share.push(9);
+    key_share.resize(key_share.len() + X25519_KEY_SHARE_LEN - 1, 0);
+
+    let mut key_share_extension = Vec::new();
+    key_share_extension.extend_from_slice(&(key_share.len() as u16).to_be_bytes());
+    key_share_extension.extend_from_slice(&key_share);
+    extensions.extend_from_slice(&TLS_EXTENSION_KEY_SHARE.to_be_bytes());
+    extensions.extend_from_slice(&(key_share_extension.len() as u16).to_be_bytes());
+    extensions.extend_from_slice(&key_share_extension);
+
+    let base_tls_len =
+        4 + 2 + 32 + 1 + session_id_len + 2 + TLS_AES_128_GCM_SHA256.len() + 1 + 1 + 2
+            + extensions.len();
+    assert!(
+        tls_len == base_tls_len || tls_len >= base_tls_len + 4,
+        "TLS length must leave room for a complete padding extension"
+    );
+    if tls_len > base_tls_len {
+        let padding_len = tls_len - base_tls_len - 4;
+        extensions.extend_from_slice(&TLS_EXTENSION_PADDING.to_be_bytes());
+        extensions.extend_from_slice(&(padding_len as u16).to_be_bytes());
+        extensions.resize(extensions.len() + padding_len, fill);
+    }
+
+    let body_len = tls_len - 4;
+    let mut body = Vec::with_capacity(body_len);
+    body.extend_from_slice(&TLS_VERSION);
+    body.extend_from_slice(&[fill; 32]);
+    body.push(session_id_len as u8);
+    body.extend_from_slice(&[fill; 32]);
+    body.extend_from_slice(&(TLS_AES_128_GCM_SHA256.len() as u16).to_be_bytes());
+    body.extend_from_slice(&TLS_AES_128_GCM_SHA256);
+    body.push(1);
+    body.push(0);
+    body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
+    body.extend_from_slice(&extensions);
+    assert_eq!(body.len(), body_len);
+
+    let mut handshake = Vec::with_capacity(5 + tls_len);
+    handshake.push(0x16);
+    handshake.extend_from_slice(&[0x03, 0x01]);
+    handshake.extend_from_slice(&(tls_len as u16).to_be_bytes());
+    handshake.push(0x01);
+    let body_len_bytes = (body_len as u32).to_be_bytes();
+    handshake.extend_from_slice(&body_len_bytes[1..4]);
+    handshake.extend_from_slice(&body);
+
+    // The proxy authenticates TLS-fronted clients through the random field.
     handshake[tls::TLS_DIGEST_POS..tls::TLS_DIGEST_POS + tls::TLS_DIGEST_LEN].fill(0);
     let computed = sha256_hmac(secret, &handshake);
     let mut digest = computed;
@@ -183,10 +230,11 @@ async fn run_tls_success_mtproto_fail_capture(
     assert_eq!(tls_response_head[0], 0x16);
     read_and_discard_tls_record_body(&mut client_side, tls_response_head).await;
 
-    client_side.write_all(&bad_mtproto_record).await.unwrap();
+    let mut client_payload = bad_mtproto_record;
     for record in trailing_records {
-        client_side.write_all(&record).await.unwrap();
+        client_payload.extend_from_slice(&record);
     }
+    client_side.write_all(&client_payload).await.unwrap();
 
     let got = tokio::time::timeout(Duration::from_secs(4), accept_task)
         .await
@@ -435,11 +483,9 @@ async fn blackhat_campaign_06_replayed_tls_hello_is_masked_without_serverhello()
                 client_side.read_exact(&mut head).await.unwrap();
                 assert_eq!(head[0], 0x16);
                 read_and_discard_tls_record_body(&mut client_side, head).await;
-                client_side
-                    .write_all(&invalid_mtproto_record)
-                    .await
-                    .unwrap();
-                client_side.write_all(&first_tail).await.unwrap();
+                let mut client_payload = invalid_mtproto_record;
+                client_payload.extend_from_slice(&first_tail);
+                client_side.write_all(&client_payload).await.unwrap();
             } else {
                 let mut one = [0u8; 1];
                 let no_server_hello = tokio::time::timeout(
@@ -741,8 +787,9 @@ async fn blackhat_campaign_12_parallel_tls_success_mtproto_fail_sessions_keep_is
             let mut head = [0u8; 5];
             client_side.read_exact(&mut head).await.unwrap();
             read_and_discard_tls_record_body(&mut client_side, head).await;
-            client_side.write_all(&bad).await.unwrap();
-            client_side.write_all(&tail).await.unwrap();
+            let mut client_payload = bad;
+            client_payload.extend_from_slice(&tail);
+            client_side.write_all(&client_payload).await.unwrap();
             client_side.shutdown().await.unwrap();
 
             let result = tokio::time::timeout(Duration::from_secs(5), handler)
