@@ -31,6 +31,7 @@ fn make_cached(cert_payload: Option<crate::tls_front::types::TlsCertPayload>) ->
             app_data_record_sizes: vec![64],
             ticket_record_sizes: Vec::new(),
             source: TlsProfileSource::Default,
+            ..TlsBehaviorProfile::default()
         },
         fetched_at: SystemTime::now(),
         domain: "example.com".to_string(),

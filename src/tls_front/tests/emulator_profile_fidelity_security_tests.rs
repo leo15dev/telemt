@@ -31,6 +31,7 @@ fn make_cached() -> CachedTlsData {
             app_data_record_sizes: vec![1200, 900],
             ticket_record_sizes: vec![220, 180],
             source: TlsProfileSource::Merged,
+            ..TlsBehaviorProfile::default()
         },
         fetched_at: SystemTime::now(),
         domain: "example.com".to_string(),

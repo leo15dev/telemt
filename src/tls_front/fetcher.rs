@@ -838,6 +838,7 @@ fn derive_behavior_profile(records: &[(u8, Vec<u8>)]) -> TlsBehaviorProfile {
         app_data_record_sizes,
         ticket_record_sizes,
         source: TlsProfileSource::Raw,
+        ..TlsBehaviorProfile::default()
     }
 }
 
@@ -1087,14 +1088,18 @@ where
     }
 
     let mut server_hello = None;
+    let mut server_hello_record_len = 0usize;
     for (t, body) in &records {
         if *t == TLS_RECORD_HANDSHAKE && server_hello.is_none() {
             server_hello = parse_server_hello(body);
+            server_hello_record_len = body.len();
         }
     }
 
     let parsed = server_hello.ok_or_else(|| anyhow!("ServerHello not received"))?;
-    let behavior_profile = derive_behavior_profile(&records);
+    let mut behavior_profile = derive_behavior_profile(&records);
+    behavior_profile.server_hello_record_len = server_hello_record_len;
+    behavior_profile.refresh_server_hello_summary(&parsed);
     let mut app_sizes = behavior_profile.app_data_record_sizes.clone();
     app_sizes.extend_from_slice(&behavior_profile.ticket_record_sizes);
     let total_app_data_len = app_sizes.iter().sum::<usize>().max(1024);
@@ -1272,6 +1277,7 @@ where
             app_data_record_sizes: app_data_records_sizes,
             ticket_record_sizes: Vec::new(),
             source: TlsProfileSource::Rustls,
+            ..TlsBehaviorProfile::default()
         },
         cert_info,
         cert_payload,
@@ -1471,6 +1477,7 @@ pub async fn fetch_real_tls_with_strategy(
                 raw.cert_info = rustls.cert_info;
                 raw.cert_payload = rustls.cert_payload;
                 raw.behavior_profile.source = TlsProfileSource::Merged;
+                raw.behavior_profile.refresh_quality();
                 debug!(sni = %sni, "Fetched TLS metadata via adaptive raw probe + rustls cert chain");
                 Ok(raw)
             } else {

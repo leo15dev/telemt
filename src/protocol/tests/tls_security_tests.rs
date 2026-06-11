@@ -1447,6 +1447,7 @@ fn emulated_server_hello_never_places_alpn_in_server_hello_extensions() {
             app_data_record_sizes: vec![1024],
             ticket_record_sizes: Vec::new(),
             source: TlsProfileSource::Default,
+            ..TlsBehaviorProfile::default()
         },
         fetched_at: SystemTime::now(),
         domain: "example.com".to_string(),
