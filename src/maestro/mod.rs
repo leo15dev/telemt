@@ -907,11 +907,11 @@ async fn run_telemt_core(
         std::process::exit(1);
     }
 
-    synlimit_control::reconcile_synlimit_rules(&config).await;
-    synlimit_control::spawn_synlimit_controller(config_rx.clone());
-
     // On Unix, caller supplies privilege drop after bind (may require root for port < 1024).
     drop_after_bind();
+
+    synlimit_control::reconcile_synlimit_rules(&config).await;
+    synlimit_control::spawn_synlimit_controller(config_rx.clone());
 
     runtime_tasks::apply_runtime_log_filter(
         has_rust_log,

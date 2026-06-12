@@ -2219,10 +2219,10 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
 | [`ip`](#ip) | `IpAddr` | — | `✘` |
 | [`port`](#port-serverlisteners) | `u16` | `server.port` | `✘` |
 | [`client_mss`](#client_mss-serverlisteners) | `String` | `[server].client_mss` | `✘` |
-| [`synlimit`](#synlimit-serverlisteners) | `false`, `"iptables"`, or `"nftables"` | `false` | `✘` |
-| [`synlimit_seconds`](#synlimit_seconds-serverlisteners) | `u32` | `1` | `✘` |
-| [`synlimit_hitcount`](#synlimit_hitcount-serverlisteners) | `u32` | `1` | `✘` |
-| [`synlimit_burst`](#synlimit_burst-serverlisteners) | `u32` | `3` | `✘` |
+| [`synlimit`](#synlimit-serverlisteners) | `false`, `"iptables"`, or `"nftables"` | `false` | `✔` |
+| [`synlimit_seconds`](#synlimit_seconds-serverlisteners) | `u32` | `1` | `✔` |
+| [`synlimit_hitcount`](#synlimit_hitcount-serverlisteners) | `u32` | `1` | `✔` |
+| [`synlimit_burst`](#synlimit_burst-serverlisteners) | `u32` | `2` | `✔` |
 | [`announce`](#announce) | `String` | — | `✘` |
 | [`announce_ip`](#announce_ip) | `IpAddr` | — | `✘` |
 | [`proxy_protocol`](#proxy_protocol) | `bool` | — | `✘` |
@@ -2260,7 +2260,7 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     ```
 ## synlimit (server.listeners)
   - **Constraints / validation**: `false`, `"iptables"`, or `"nftables"`. Omitted or `false` disables SYN limiting for this listener.
-  - **Description**: Installs per-listener Linux netfilter SYN limiter rules for the listener port. `"iptables"` uses `iptables`/`ip6tables` filter rules with the `hashlimit` match as a per-source token bucket. `"nftables"` uses per-source `meter` rules with `limit rate over` and auto-detects whether the host already uses `inet`, `ip`, or `ip6` table families before creating Telemt-owned tables. The token-bucket rate is `synlimit_hitcount / synlimit_seconds`; `synlimit_burst` controls the burst size. Rules are reconciled at runtime and removed during graceful Telemt shutdown; `SIGKILL` cannot be cleaned up by the process. Requires CAP_NET_ADMIN and listener restart/rebind for config changes.
+  - **Description**: Installs per-listener Linux netfilter SYN limiter rules for the listener port. `"iptables"` uses `iptables`/`ip6tables` filter rules with the `hashlimit` match as a per-source token bucket. `"nftables"` uses per-source `meter` rules with `limit rate over` and auto-detects whether the host already uses `inet`, `ip`, or `ip6` table families before creating Telemt-owned tables. The token-bucket rate is `synlimit_hitcount / synlimit_seconds`; `synlimit_burst` controls the burst size. Rules are reconciled at runtime and removed during graceful Telemt shutdown; `SIGKILL` cannot be cleaned up by the process. Requires CAP_NET_ADMIN. `synlimit*` changes hot-reload for existing listener endpoints; changing listener `ip` or `port` still requires restart/rebind.
   - **Example**:
 
     ```toml
@@ -2299,7 +2299,7 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     synlimit_hitcount = 1
     ```
 ## synlimit_burst (server.listeners)
-  - **Constraints / validation**: `u32`, must be `> 0`. Default is `3`.
+  - **Constraints / validation**: `u32`, must be `> 0`. Default is `2`.
   - **Description**: Token-bucket burst size for both SYN limiter backends. Higher values allow short connection bursts from the same source IP before the steady-state `synlimit_hitcount / synlimit_seconds` rate is enforced.
   - **Example**:
 
@@ -2308,7 +2308,7 @@ Note: This section also accepts the legacy alias `[server.admin_api]` (same sche
     ip = "0.0.0.0"
     port = 443
     synlimit = "iptables"
-    synlimit_burst = 3
+    synlimit_burst = 2
     ```
 ## announce
   - **Constraints / validation**: `String` (optional). Must not be empty when set.

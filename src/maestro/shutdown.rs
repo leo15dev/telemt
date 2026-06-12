@@ -103,7 +103,9 @@ async fn perform_shutdown(
     let uptime_secs = process_started_at.elapsed().as_secs();
     info!("Uptime: {}", format_uptime(uptime_secs));
 
-    synlimit_control::clear_synlimit_rules_all_backends().await;
+    if let Err(error) = synlimit_control::clear_synlimit_rules_all_backends().await {
+        warn!(error = %error, "Failed to clear SYN limiter rules during shutdown");
+    }
 
     // Graceful ME pool shutdown
     if let Some(pool) = &me_pool {
