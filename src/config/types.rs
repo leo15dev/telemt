@@ -63,6 +63,86 @@ impl std::fmt::Display for LogLevel {
     }
 }
 
+/// Logging output destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LoggingDestination {
+    /// Write logs to stderr.
+    #[default]
+    Stderr,
+    /// Write logs to syslog on Unix platforms.
+    Syslog,
+    /// Write logs to a file.
+    File,
+}
+
+/// Time-based log rotation interval for file logging.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LogRotation {
+    /// Do not rotate logs by time.
+    #[default]
+    Never,
+    /// Rotate once per minute.
+    Minutely,
+    /// Rotate once per hour.
+    Hourly,
+    /// Rotate once per day.
+    Daily,
+    /// Rotate once per week.
+    Weekly,
+}
+
+impl LogRotation {
+    /// Parse a CLI rotation value.
+    pub fn from_cli_arg(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "never" | "none" | "off" => Some(Self::Never),
+            "minutely" | "minute" => Some(Self::Minutely),
+            "hourly" | "hour" => Some(Self::Hourly),
+            "daily" | "day" => Some(Self::Daily),
+            "weekly" | "week" => Some(Self::Weekly),
+            _ => None,
+        }
+    }
+}
+
+/// File logging and retention settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    /// Effective logging destination.
+    #[serde(default)]
+    pub destination: LoggingDestination,
+    /// File path used when `destination = "file"`.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Time rotation interval for file logs.
+    #[serde(default)]
+    pub rotation: LogRotation,
+    /// Maximum active log file size before rotating. `0` disables size rotation.
+    #[serde(default)]
+    pub max_size_bytes: u64,
+    /// Maximum number of matching log files to keep. `0` disables count retention.
+    #[serde(default)]
+    pub max_files: usize,
+    /// Maximum age for rotated log files in seconds. `0` disables age retention.
+    #[serde(default)]
+    pub max_age_secs: u64,
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            destination: LoggingDestination::Stderr,
+            path: None,
+            rotation: LogRotation::Never,
+            max_size_bytes: 0,
+            max_files: 0,
+            max_age_secs: 0,
+        }
+    }
+}
+
 /// Middle-End telemetry verbosity level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -429,7 +509,7 @@ pub struct GeneralConfig {
     pub ad_tag: Option<String>,
 
     /// Public IP override for middle-proxy NAT environments.
-    /// When set, this IP is used in ME key derivation and RPC_PROXY_REQ "our_addr".
+    /// When set, this IP is used in ME key derivation and local address translation.
     #[serde(default)]
     pub middle_proxy_nat_ip: Option<IpAddr>,
 
@@ -1527,6 +1607,15 @@ pub struct ServerConfig {
     #[serde(default)]
     pub client_mss: Option<String>,
 
+    /// Client-facing TCP MSS to switch to AFTER the TLS handshake (ServerHello)
+    /// is sent. Lets `client_mss` fragment ONLY the handshake (the DPI-inspected
+    /// part) while the bulk transfer uses normal-size packets — avoids the ~10x
+    /// packets-per-second blowup that triggers anti-DDoS abuse blocks on
+    /// pps-policing hosts. Empty/omitted = keep the handshake MSS for the whole
+    /// connection (previous behavior). Same preset/int grammar as `client_mss`.
+    #[serde(default)]
+    pub client_mss_bulk: Option<String>,
+
     /// Accept HAProxy PROXY protocol headers on incoming connections.
     /// When enabled, real client IPs are extracted from PROXY v1/v2 headers.
     #[serde(default)]
@@ -1594,6 +1683,7 @@ impl Default for ServerConfig {
             listen_unix_sock_perm: None,
             listen_tcp: None,
             client_mss: None,
+            client_mss_bulk: None,
             proxy_protocol: false,
             proxy_protocol_header_timeout_ms: default_proxy_protocol_header_timeout_ms(),
             proxy_protocol_trusted_cidrs: default_proxy_protocol_trusted_cidrs(),
@@ -2217,6 +2307,11 @@ impl ServerConfig {
     /// Resolves the global client-facing TCP MSS setting.
     pub fn client_mss_value(&self) -> std::result::Result<Option<u16>, String> {
         parse_client_mss(self.client_mss.as_deref())
+    }
+
+    /// Resolves the post-handshake (bulk transfer) client MSS, if configured.
+    pub fn client_mss_bulk_value(&self) -> std::result::Result<Option<u16>, String> {
+        parse_client_mss(self.client_mss_bulk.as_deref())
     }
 }
 

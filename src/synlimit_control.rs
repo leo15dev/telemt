@@ -124,6 +124,10 @@ pub(crate) async fn reconcile_synlimit_rules(cfg: &ProxyConfig) {
 }
 
 pub(crate) async fn clear_synlimit_rules_all_backends() -> Result<(), String> {
+    if !has_cap_net_admin() {
+        return Ok(());
+    }
+
     let mut errors = Vec::new();
     if let Err(error) = clear_nft_synlimit_rules_all_families().await {
         errors.push(error);

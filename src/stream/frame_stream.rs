@@ -5,21 +5,47 @@
 use super::traits::{FrameMeta, LayeredStream};
 use crate::crypto::{SecureRandom, crc32};
 use crate::protocol::constants::*;
+use crate::protocol::framing::{encode_intermediate_header, parse_intermediate_header};
 use bytes::Bytes;
 use std::io::{Error, ErrorKind, Result};
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
+const DEFAULT_MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
+
+fn reject_oversize_frame(len: usize, max_frame_size: usize, protocol: &str) -> Result<()> {
+    if len > max_frame_size {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("{protocol} frame too large: {len} bytes (max {max_frame_size})"),
+        ));
+    }
+
+    Ok(())
+}
 
 // ============= Abridged (Compact) Frame =============
 
 /// Reader for abridged MTProto framing
 pub struct AbridgedFrameReader<R> {
     upstream: R,
+    max_frame_size: usize,
 }
 
 impl<R> AbridgedFrameReader<R> {
+    /// Creates a reader with the default maximum frame size.
     pub fn new(upstream: R) -> Self {
-        Self { upstream }
+        Self {
+            upstream,
+            max_frame_size: DEFAULT_MAX_FRAME_SIZE,
+        }
+    }
+
+    fn with_max_frame_size(upstream: R, max_frame_size: usize) -> Self {
+        Self {
+            upstream,
+            max_frame_size,
+        }
     }
 }
 
@@ -47,10 +73,12 @@ impl<R: AsyncRead + Unpin> AbridgedFrameReader<R> {
             len = u32::from_le_bytes([len_bytes[0], len_bytes[1], len_bytes[2], 0]) as usize;
         }
 
-        // Length is in 4-byte words
-        let byte_len = len * 4;
+        // Length is in 4-byte words.
+        let byte_len = len
+            .checked_mul(4)
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "abridged frame length overflow"))?;
+        reject_oversize_frame(byte_len, self.max_frame_size, "abridged")?;
 
-        // Read data
         let mut data = vec![0u8; byte_len];
         self.upstream.read_exact(&mut data).await?;
 
@@ -105,10 +133,17 @@ impl<W: AsyncWrite + Unpin> AbridgedFrameWriter<W> {
 
         if len_div_4 < 0x7f {
             // Short length (1 byte)
-            self.upstream.write_all(&[len_div_4 as u8]).await?;
+            let mut first = len_div_4 as u8;
+            if meta.quickack {
+                first |= 0x80;
+            }
+            self.upstream.write_all(&[first]).await?;
         } else if len_div_4 < (1 << 24) {
             // Long length (4 bytes: 0x7f + 3 bytes)
             let mut header = [0x7f, 0, 0, 0];
+            if meta.quickack {
+                header[0] |= 0x80;
+            }
             header[1..4].copy_from_slice(&(len_div_4 as u32).to_le_bytes()[..3]);
             self.upstream.write_all(&header).await?;
         } else {
@@ -144,11 +179,23 @@ impl<W> LayeredStream<W> for AbridgedFrameWriter<W> {
 /// Reader for intermediate MTProto framing
 pub struct IntermediateFrameReader<R> {
     upstream: R,
+    max_frame_size: usize,
 }
 
 impl<R> IntermediateFrameReader<R> {
+    /// Creates a reader with the default maximum frame size.
     pub fn new(upstream: R) -> Self {
-        Self { upstream }
+        Self {
+            upstream,
+            max_frame_size: DEFAULT_MAX_FRAME_SIZE,
+        }
+    }
+
+    fn with_max_frame_size(upstream: R, max_frame_size: usize) -> Self {
+        Self {
+            upstream,
+            max_frame_size,
+        }
     }
 }
 
@@ -160,15 +207,11 @@ impl<R: AsyncRead + Unpin> IntermediateFrameReader<R> {
         let mut len_bytes = [0u8; 4];
         self.upstream.read_exact(&mut len_bytes).await?;
 
-        let mut len = u32::from_le_bytes(len_bytes) as usize;
+        let header = parse_intermediate_header(len_bytes);
+        let len = header.wire_len;
+        meta.quickack = header.quickack;
+        reject_oversize_frame(len, self.max_frame_size, "intermediate")?;
 
-        // Check QuickACK flag (high bit)
-        if len > 0x80000000 {
-            meta.quickack = true;
-            len -= 0x80000000;
-        }
-
-        // Read data
         let mut data = vec![0u8; len];
         self.upstream.read_exact(&mut data).await?;
 
@@ -204,7 +247,13 @@ impl<W: AsyncWrite + Unpin> IntermediateFrameWriter<W> {
         if meta.simple_ack {
             self.upstream.write_all(data).await?;
         } else {
-            let len_bytes = (data.len() as u32).to_le_bytes();
+            let len = encode_intermediate_header(data.len(), meta.quickack).ok_or_else(|| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("Frame too large: {} bytes", data.len()),
+                )
+            })?;
+            let len_bytes = len.to_le_bytes();
             self.upstream.write_all(&len_bytes).await?;
             self.upstream.write_all(data).await?;
         }
@@ -233,11 +282,23 @@ impl<W> LayeredStream<W> for IntermediateFrameWriter<W> {
 /// Reader for secure intermediate MTProto framing (with padding)
 pub struct SecureIntermediateFrameReader<R> {
     upstream: R,
+    max_frame_size: usize,
 }
 
 impl<R> SecureIntermediateFrameReader<R> {
+    /// Creates a reader with the default maximum frame size.
     pub fn new(upstream: R) -> Self {
-        Self { upstream }
+        Self {
+            upstream,
+            max_frame_size: DEFAULT_MAX_FRAME_SIZE,
+        }
+    }
+
+    fn with_max_frame_size(upstream: R, max_frame_size: usize) -> Self {
+        Self {
+            upstream,
+            max_frame_size,
+        }
     }
 }
 
@@ -249,24 +310,19 @@ impl<R: AsyncRead + Unpin> SecureIntermediateFrameReader<R> {
         let mut len_bytes = [0u8; 4];
         self.upstream.read_exact(&mut len_bytes).await?;
 
-        let mut len = u32::from_le_bytes(len_bytes) as usize;
-
-        // Check QuickACK flag
-        if len > 0x80000000 {
-            meta.quickack = true;
-            len -= 0x80000000;
-        }
-
-        // Read data (including padding)
-        let mut data = vec![0u8; len];
-        self.upstream.read_exact(&mut data).await?;
-
+        let header = parse_intermediate_header(len_bytes);
+        let len = header.wire_len;
+        meta.quickack = header.quickack;
+        reject_oversize_frame(len, self.max_frame_size, "secure intermediate")?;
         let payload_len = secure_payload_len_from_wire_len(len).ok_or_else(|| {
             Error::new(
                 ErrorKind::InvalidData,
                 format!("Invalid secure frame length: {len}"),
             )
         })?;
+
+        let mut data = vec![0u8; len];
+        self.upstream.read_exact(&mut data).await?;
         data.truncate(payload_len);
 
         Ok((Bytes::from(data), meta))
@@ -311,12 +367,21 @@ impl<W: AsyncWrite + Unpin> SecureIntermediateFrameWriter<W> {
             ));
         }
 
-        // Add padding so total length is never divisible by 4 (MTProto Secure)
+        // Telegram Desktop VersionD uses a 4-bit random padding length.
         let padding_len = secure_padding_len(data.len(), &self.rng);
         let padding = self.rng.bytes(padding_len);
 
-        let total_len = data.len() + padding_len;
-        let len_bytes = (total_len as u32).to_le_bytes();
+        let total_len = data
+            .len()
+            .checked_add(padding_len)
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "secure frame length overflow"))?;
+        let len = encode_intermediate_header(total_len, meta.quickack).ok_or_else(|| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                format!("Frame too large: {total_len} bytes"),
+            )
+        })?;
+        let len_bytes = len.to_le_bytes();
 
         self.upstream.write_all(&len_bytes).await?;
         self.upstream.write_all(data).await?;
@@ -495,15 +560,22 @@ pub enum FrameReaderKind<R> {
 }
 
 impl<R: AsyncRead + Unpin> FrameReaderKind<R> {
+    /// Creates a frame reader with the default maximum frame size.
     pub fn new(upstream: R, proto_tag: ProtoTag) -> Self {
+        Self::with_max_frame_size(upstream, proto_tag, DEFAULT_MAX_FRAME_SIZE)
+    }
+
+    fn with_max_frame_size(upstream: R, proto_tag: ProtoTag, max_frame_size: usize) -> Self {
         match proto_tag {
-            ProtoTag::Abridged => FrameReaderKind::Abridged(AbridgedFrameReader::new(upstream)),
-            ProtoTag::Intermediate => {
-                FrameReaderKind::Intermediate(IntermediateFrameReader::new(upstream))
-            }
-            ProtoTag::Secure => {
-                FrameReaderKind::SecureIntermediate(SecureIntermediateFrameReader::new(upstream))
-            }
+            ProtoTag::Abridged => FrameReaderKind::Abridged(
+                AbridgedFrameReader::with_max_frame_size(upstream, max_frame_size),
+            ),
+            ProtoTag::Intermediate => FrameReaderKind::Intermediate(
+                IntermediateFrameReader::with_max_frame_size(upstream, max_frame_size),
+            ),
+            ProtoTag::Secure => FrameReaderKind::SecureIntermediate(
+                SecureIntermediateFrameReader::with_max_frame_size(upstream, max_frame_size),
+            ),
         }
     }
 
@@ -557,7 +629,18 @@ mod tests {
     use super::*;
     use crate::crypto::SecureRandom;
     use std::sync::Arc;
-    use tokio::io::duplex;
+    use tokio::io::{AsyncWriteExt, duplex};
+    use tokio::time::{Duration, timeout};
+
+    fn assert_secure_decoded_payload(decoded: &[u8], original: &[u8]) {
+        assert!(decoded.starts_with(original));
+        assert!(
+            (original.len()..=original.len() + 12).contains(&decoded.len()),
+            "Secure decoded payload may retain up to 12 bytes of full-word padding, got {}",
+            decoded.len()
+        );
+        assert_eq!(decoded.len() % 4, 0);
+    }
 
     #[tokio::test]
     async fn test_abridged_roundtrip() {
@@ -614,6 +697,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_intermediate_quickack_zero_length_roundtrip() {
+        let (client, server) = duplex(1024);
+
+        let mut writer = IntermediateFrameWriter::new(client);
+        let mut reader = IntermediateFrameReader::new(server);
+
+        writer
+            .write_frame(&[], &FrameMeta::new().with_quickack())
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+
+        let (received, meta) = reader.read_frame().await.unwrap();
+        assert!(received.is_empty());
+        assert!(meta.quickack);
+    }
+
+    #[tokio::test]
+    async fn test_abridged_quickack_roundtrip() {
+        let (client, server) = duplex(1024);
+
+        let mut writer = AbridgedFrameWriter::new(client);
+        let mut reader = AbridgedFrameReader::new(server);
+
+        let data = vec![1u8, 2, 3, 4];
+        writer
+            .write_frame(&data, &FrameMeta::new().with_quickack())
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+
+        let (received, meta) = reader.read_frame().await.unwrap();
+        assert_eq!(&received[..], &data[..]);
+        assert!(meta.quickack);
+    }
+
+    #[tokio::test]
+    async fn abridged_reader_rejects_oversize_frame_before_body_read() {
+        let (mut client, server) = duplex(1024);
+        let mut reader = AbridgedFrameReader::new(server);
+        let len_words = (DEFAULT_MAX_FRAME_SIZE / 4) + 1;
+        let encoded = (len_words as u32).to_le_bytes();
+
+        client
+            .write_all(&[0x7f, encoded[0], encoded[1], encoded[2]])
+            .await
+            .unwrap();
+        let err = timeout(Duration::from_millis(50), reader.read_frame())
+            .await
+            .unwrap()
+            .unwrap_err();
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[tokio::test]
+    async fn intermediate_reader_rejects_oversize_frame_before_body_read() {
+        let (mut client, server) = duplex(1024);
+        let mut reader = IntermediateFrameReader::new(server);
+        let len = encode_intermediate_header(DEFAULT_MAX_FRAME_SIZE + 1, false).unwrap();
+
+        client.write_all(&len.to_le_bytes()).await.unwrap();
+        let err = timeout(Duration::from_millis(50), reader.read_frame())
+            .await
+            .unwrap()
+            .unwrap_err();
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[tokio::test]
+    async fn secure_reader_rejects_oversize_frame_before_body_read() {
+        let (mut client, server) = duplex(1024);
+        let mut reader = SecureIntermediateFrameReader::new(server);
+        let len = encode_intermediate_header(DEFAULT_MAX_FRAME_SIZE + 4, false).unwrap();
+
+        client.write_all(&len.to_le_bytes()).await.unwrap();
+        let err = timeout(Duration::from_millis(50), reader.read_frame())
+            .await
+            .unwrap()
+            .unwrap_err();
+
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+    }
+
+    #[tokio::test]
     async fn test_secure_intermediate_padding() {
         let (client, server) = duplex(1024);
 
@@ -625,7 +794,7 @@ mod tests {
         writer.flush().await.unwrap();
 
         let (received, _meta) = reader.read_frame().await.unwrap();
-        assert_eq!(received.len(), data.len());
+        assert_secure_decoded_payload(&received, &data);
     }
 
     #[tokio::test]

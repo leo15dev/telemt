@@ -5,16 +5,41 @@
 //! - syslog (Unix only, for traditional init systems)
 //! - file (with optional rotation)
 
-#![allow(dead_code)] // Infrastructure module - used via CLI flags
+// Infrastructure module used via CLI flags.
+#![allow(dead_code)]
 
 use std::path::Path;
+
+use crate::config::{LogRotation, LoggingConfig, LoggingDestination};
 
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt, reload};
 
+// Submodules:
+// - file: bounded file appender for size and retention controls.
+mod file;
+
+#[cfg(test)]
+mod tests;
+
+/// File logging and retention options resolved from config and CLI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileLogOptions {
+    /// Log file path or rolling filename prefix path.
+    pub path: String,
+    /// Time rotation interval.
+    pub rotation: LogRotation,
+    /// Maximum active file size before size rotation. `0` disables it.
+    pub max_size_bytes: u64,
+    /// Maximum number of matching log files to keep. `0` disables it.
+    pub max_files: usize,
+    /// Maximum rotated file age in seconds. `0` disables it.
+    pub max_age_secs: u64,
+}
+
 /// Log destination configuration.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum LogDestination {
     /// Log to stderr (default, captured by systemd journald).
     #[default]
@@ -24,10 +49,27 @@ pub enum LogDestination {
     Syslog,
     /// Log to a file with optional rotation.
     File {
-        path: String,
-        /// Rotate daily if true.
-        rotate_daily: bool,
+        /// Resolved file logging options.
+        options: FileLogOptions,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LogCliDestination {
+    Stderr,
+    Syslog,
+    File,
+}
+
+/// Logging-related CLI overrides.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LogCliOptions {
+    destination: Option<LogCliDestination>,
+    path: Option<String>,
+    rotation: Option<LogRotation>,
+    max_size_bytes: Option<u64>,
+    max_files: Option<usize>,
+    max_age_secs: Option<u64>,
 }
 
 /// Logging options parsed from CLI/config.
@@ -101,23 +143,29 @@ pub fn init_logging(
             (filter_handle, LoggingGuard::noop())
         }
 
-        LogDestination::File { path, rotate_daily } => {
-            let (non_blocking, guard) = if *rotate_daily {
-                // Extract directory and filename prefix
-                let path = Path::new(path);
-                let dir = path.parent().unwrap_or(Path::new("/var/log"));
-                let prefix = path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("telemt");
-
-                let file_appender = tracing_appender::rolling::daily(dir, prefix);
+        LogDestination::File { options } => {
+            let (non_blocking, guard) = if options.max_size_bytes > 0
+                || options.max_files > 0
+                || options.max_age_secs > 0
+            {
+                let file_appender = file::BoundedFileAppender::new(options.clone())
+                    .expect("Failed to open log file");
+                tracing_appender::non_blocking(file_appender)
+            } else if !matches!(options.rotation, LogRotation::Never) {
+                let path = Path::new(&options.path);
+                let dir = log_file_dir(path);
+                let prefix = log_file_name(path);
+                let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
+                    .rotation(to_tracing_rotation(options.rotation))
+                    .filename_prefix(prefix)
+                    .build(dir)
+                    .expect("Failed to open log file");
                 tracing_appender::non_blocking(file_appender)
             } else {
                 let file = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
-                    .open(path)
+                    .open(&options.path)
                     .expect("Failed to open log file");
                 tracing_appender::non_blocking(file)
             };
@@ -134,6 +182,28 @@ pub fn init_logging(
 
             (filter_handle, LoggingGuard::new(Some(guard)))
         }
+    }
+}
+
+fn log_file_dir(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+fn log_file_name(path: &Path) -> &str {
+    path.file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("telemt")
+}
+
+fn to_tracing_rotation(rotation: LogRotation) -> tracing_appender::rolling::Rotation {
+    match rotation {
+        LogRotation::Never => tracing_appender::rolling::Rotation::NEVER,
+        LogRotation::Minutely => tracing_appender::rolling::Rotation::MINUTELY,
+        LogRotation::Hourly => tracing_appender::rolling::Rotation::HOURLY,
+        LogRotation::Daily => tracing_appender::rolling::Rotation::DAILY,
+        LogRotation::Weekly => tracing_appender::rolling::Rotation::WEEKLY,
     }
 }
 
@@ -223,121 +293,172 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for SyslogMakeWriter {
     }
 }
 
-/// Parse log destination from CLI arguments.
-pub fn parse_log_destination(args: &[String]) -> LogDestination {
+/// Parse logging overrides from CLI arguments.
+pub fn parse_log_cli_options(args: &[String]) -> Result<LogCliOptions, String> {
+    let mut options = LogCliOptions::default();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             #[cfg(unix)]
             "--syslog" => {
-                return LogDestination::Syslog;
+                options.destination = Some(LogCliDestination::Syslog);
+            }
+            #[cfg(not(unix))]
+            "--syslog" => {
+                options.destination = Some(LogCliDestination::Syslog);
             }
             "--log-file" => {
                 i += 1;
                 if i < args.len() {
-                    return LogDestination::File {
-                        path: args[i].clone(),
-                        rotate_daily: false,
-                    };
+                    options.destination = Some(LogCliDestination::File);
+                    options.path = Some(args[i].clone());
+                } else {
+                    return Err("Missing value for --log-file".to_string());
                 }
             }
             s if s.starts_with("--log-file=") => {
-                return LogDestination::File {
-                    path: s.trim_start_matches("--log-file=").to_string(),
-                    rotate_daily: false,
-                };
+                options.destination = Some(LogCliDestination::File);
+                options.path = Some(s.trim_start_matches("--log-file=").to_string());
             }
             "--log-file-daily" => {
                 i += 1;
                 if i < args.len() {
-                    return LogDestination::File {
-                        path: args[i].clone(),
-                        rotate_daily: true,
-                    };
+                    options.destination = Some(LogCliDestination::File);
+                    options.path = Some(args[i].clone());
+                    options.rotation = Some(LogRotation::Daily);
+                } else {
+                    return Err("Missing value for --log-file-daily".to_string());
                 }
             }
             s if s.starts_with("--log-file-daily=") => {
-                return LogDestination::File {
-                    path: s.trim_start_matches("--log-file-daily=").to_string(),
-                    rotate_daily: true,
-                };
+                options.destination = Some(LogCliDestination::File);
+                options.path = Some(s.trim_start_matches("--log-file-daily=").to_string());
+                options.rotation = Some(LogRotation::Daily);
+            }
+            "--log-rotation" => {
+                i += 1;
+                if i < args.len() {
+                    options.rotation = Some(parse_rotation_cli_value(&args[i])?);
+                } else {
+                    return Err("Missing value for --log-rotation".to_string());
+                }
+            }
+            s if s.starts_with("--log-rotation=") => {
+                options.rotation = Some(parse_rotation_cli_value(
+                    s.trim_start_matches("--log-rotation="),
+                )?);
+            }
+            "--log-max-size-bytes" => {
+                i += 1;
+                if i < args.len() {
+                    options.max_size_bytes =
+                        Some(parse_u64_cli_value("--log-max-size-bytes", &args[i])?);
+                } else {
+                    return Err("Missing value for --log-max-size-bytes".to_string());
+                }
+            }
+            s if s.starts_with("--log-max-size-bytes=") => {
+                options.max_size_bytes = Some(parse_u64_cli_value(
+                    "--log-max-size-bytes",
+                    s.trim_start_matches("--log-max-size-bytes="),
+                )?);
+            }
+            "--log-max-files" => {
+                i += 1;
+                if i < args.len() {
+                    options.max_files = Some(parse_usize_cli_value("--log-max-files", &args[i])?);
+                } else {
+                    return Err("Missing value for --log-max-files".to_string());
+                }
+            }
+            s if s.starts_with("--log-max-files=") => {
+                options.max_files = Some(parse_usize_cli_value(
+                    "--log-max-files",
+                    s.trim_start_matches("--log-max-files="),
+                )?);
+            }
+            "--log-max-age-secs" => {
+                i += 1;
+                if i < args.len() {
+                    options.max_age_secs =
+                        Some(parse_u64_cli_value("--log-max-age-secs", &args[i])?);
+                } else {
+                    return Err("Missing value for --log-max-age-secs".to_string());
+                }
+            }
+            s if s.starts_with("--log-max-age-secs=") => {
+                options.max_age_secs = Some(parse_u64_cli_value(
+                    "--log-max-age-secs",
+                    s.trim_start_matches("--log-max-age-secs="),
+                )?);
             }
             _ => {}
         }
         i += 1;
     }
-    LogDestination::Stderr
+    Ok(options)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn parse_rotation_cli_value(value: &str) -> Result<LogRotation, String> {
+    LogRotation::from_cli_arg(value).ok_or_else(|| {
+        format!(
+            "Invalid --log-rotation value '{value}'. Expected never|minutely|hourly|daily|weekly"
+        )
+    })
+}
 
-    #[test]
-    fn test_parse_log_destination_default() {
-        let args: Vec<String> = vec![];
-        assert!(matches!(
-            parse_log_destination(&args),
-            LogDestination::Stderr
-        ));
-    }
+fn parse_u64_cli_value(flag: &str, value: &str) -> Result<u64, String> {
+    value
+        .parse::<u64>()
+        .map_err(|_| format!("Invalid {flag} value '{value}'. Expected unsigned integer"))
+}
 
-    #[test]
-    fn test_parse_log_destination_file() {
-        let args = vec!["--log-file".to_string(), "/var/log/telemt.log".to_string()];
-        match parse_log_destination(&args) {
-            LogDestination::File { path, rotate_daily } => {
-                assert_eq!(path, "/var/log/telemt.log");
-                assert!(!rotate_daily);
+fn parse_usize_cli_value(flag: &str, value: &str) -> Result<usize, String> {
+    value
+        .parse::<usize>()
+        .map_err(|_| format!("Invalid {flag} value '{value}'. Expected unsigned integer"))
+}
+
+/// Resolve effective logging destination from config and CLI overrides.
+pub fn resolve_log_destination(
+    config: &LoggingConfig,
+    cli: &LogCliOptions,
+) -> Result<LogDestination, String> {
+    let destination = cli.destination.unwrap_or(match config.destination {
+        LoggingDestination::Stderr => LogCliDestination::Stderr,
+        LoggingDestination::Syslog => LogCliDestination::Syslog,
+        LoggingDestination::File => LogCliDestination::File,
+    });
+
+    match destination {
+        LogCliDestination::Stderr => Ok(LogDestination::Stderr),
+        LogCliDestination::Syslog => {
+            #[cfg(unix)]
+            {
+                Ok(LogDestination::Syslog)
             }
-            _ => panic!("Expected File destination"),
-        }
-    }
-
-    #[test]
-    fn test_parse_log_destination_file_daily() {
-        let args = vec!["--log-file-daily=/var/log/telemt".to_string()];
-        match parse_log_destination(&args) {
-            LogDestination::File { path, rotate_daily } => {
-                assert_eq!(path, "/var/log/telemt");
-                assert!(rotate_daily);
+            #[cfg(not(unix))]
+            {
+                Err("Syslog logging is only supported on Unix platforms".to_string())
             }
-            _ => panic!("Expected File destination"),
         }
-    }
+        LogCliDestination::File => {
+            let path = cli.path.as_ref().or(config.path.as_ref()).ok_or_else(|| {
+                "logging.path or --log-file must be set when file logging is enabled".to_string()
+            })?;
+            if path.trim().is_empty() {
+                return Err("Log file path cannot be empty".to_string());
+            }
 
-    #[cfg(unix)]
-    #[test]
-    fn test_parse_log_destination_syslog() {
-        let args = vec!["--syslog".to_string()];
-        assert!(matches!(
-            parse_log_destination(&args),
-            LogDestination::Syslog
-        ));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_syslog_priority_for_level_mapping() {
-        assert_eq!(
-            syslog_priority_for_level(&tracing::Level::ERROR),
-            libc::LOG_ERR
-        );
-        assert_eq!(
-            syslog_priority_for_level(&tracing::Level::WARN),
-            libc::LOG_WARNING
-        );
-        assert_eq!(
-            syslog_priority_for_level(&tracing::Level::INFO),
-            libc::LOG_INFO
-        );
-        assert_eq!(
-            syslog_priority_for_level(&tracing::Level::DEBUG),
-            libc::LOG_DEBUG
-        );
-        assert_eq!(
-            syslog_priority_for_level(&tracing::Level::TRACE),
-            libc::LOG_DEBUG
-        );
+            Ok(LogDestination::File {
+                options: FileLogOptions {
+                    path: path.clone(),
+                    rotation: cli.rotation.unwrap_or(config.rotation),
+                    max_size_bytes: cli.max_size_bytes.unwrap_or(config.max_size_bytes),
+                    max_files: cli.max_files.unwrap_or(config.max_files),
+                    max_age_secs: cli.max_age_secs.unwrap_or(config.max_age_secs),
+                },
+            })
+        }
     }
 }

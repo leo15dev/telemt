@@ -114,6 +114,7 @@ fn normalize_exclusive_mask_target(target: &str, field: &str) -> Result<String> 
 
 const TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "general",
+    "logging",
     "network",
     "server",
     "timeouts",
@@ -300,6 +301,7 @@ const SERVER_CONFIG_KEYS: &[&str] = &[
     "listen_unix_sock_perm",
     "listen_tcp",
     "client_mss",
+    "client_mss_bulk",
     "proxy_protocol",
     "proxy_protocol_header_timeout_ms",
     "proxy_protocol_trusted_cidrs",
@@ -458,6 +460,14 @@ const UPSTREAM_CONFIG_KEYS: &[&str] = &[
 const PROXY_MODES_CONFIG_KEYS: &[&str] = &["classic", "secure", "tls"];
 const TELEMETRY_CONFIG_KEYS: &[&str] = &["core_enabled", "user_enabled", "me_level"];
 const LINKS_CONFIG_KEYS: &[&str] = &["show", "public_host", "public_port"];
+const LOGGING_CONFIG_KEYS: &[&str] = &[
+    "destination",
+    "path",
+    "rotation",
+    "max_size_bytes",
+    "max_files",
+    "max_age_secs",
+];
 
 #[derive(Debug)]
 struct UnknownConfigKey {
@@ -499,6 +509,7 @@ fn known_config_keys_for_suggestion() -> Vec<&'static str> {
         PROXY_MODES_CONFIG_KEYS,
         TELEMETRY_CONFIG_KEYS,
         LINKS_CONFIG_KEYS,
+        LOGGING_CONFIG_KEYS,
     ] {
         keys.extend_from_slice(group);
     }
@@ -631,6 +642,13 @@ fn collect_unknown_config_keys(parsed_toml: &toml::Value) -> Vec<UnknownConfigKe
         &known_for_suggestion,
         &["general", "links"],
         LINKS_CONFIG_KEYS,
+    );
+    check_known_table(
+        parsed_toml,
+        &mut unknown,
+        &known_for_suggestion,
+        &["logging"],
+        LOGGING_CONFIG_KEYS,
     );
     check_known_table(
         parsed_toml,
@@ -997,6 +1015,24 @@ fn sanitize_ad_tag(ad_tag: &mut Option<String>) {
     }
 }
 
+fn validate_logging_config(logging: &LoggingConfig) -> Result<()> {
+    if let Some(path) = logging.path.as_ref()
+        && path.trim().is_empty()
+    {
+        return Err(ProxyError::Config(
+            "logging.path cannot be empty when provided".to_string(),
+        ));
+    }
+
+    if matches!(logging.destination, LoggingDestination::File) && logging.path.is_none() {
+        return Err(ProxyError::Config(
+            "logging.path must be set when logging.destination=\"file\"".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn validate_upstreams(config: &ProxyConfig) -> Result<()> {
     let has_enabled_shadowsocks = config.upstreams.iter().any(|upstream| {
         upstream.enabled && matches!(upstream.upstream_type, UpstreamType::Shadowsocks { .. })
@@ -1057,12 +1093,16 @@ fn normalize_upstream_family_policy(config: &mut ProxyConfig) {
     }
 }
 
-// ============= Main Config =============
+// Main runtime configuration loaded from TOML.
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProxyConfig {
     #[serde(default)]
     pub general: GeneralConfig,
+
+    /// Runtime logging destination, rotation, and retention configuration.
+    #[serde(default)]
+    pub logging: LoggingConfig,
 
     #[serde(default)]
     pub network: NetworkConfig,
@@ -1940,6 +1980,13 @@ impl ProxyConfig {
             ));
         }
 
+        if config.server.listen_backlog == 0 || config.server.listen_backlog > i32::MAX as u32 {
+            return Err(ProxyError::Config(format!(
+                "server.listen_backlog must be within [1, {}]",
+                i32::MAX
+            )));
+        }
+
         config
             .server
             .client_mss_value()
@@ -2280,6 +2327,7 @@ impl ProxyConfig {
             .entry("203".to_string())
             .or_insert_with(|| vec!["91.105.192.100:443".to_string()]);
 
+        validate_logging_config(&config.logging)?;
         validate_upstreams(&config)?;
         config.rebuild_runtime_user_auth()?;
 
@@ -2304,6 +2352,8 @@ impl ProxyConfig {
         if self.access.users.is_empty() {
             return Err(ProxyError::Config("No users configured".to_string()));
         }
+
+        validate_logging_config(&self.logging)?;
 
         if !self.general.modes.classic && !self.general.modes.secure && !self.general.modes.tls {
             return Err(ProxyError::Config("No modes enabled".to_string()));
@@ -2401,6 +2451,21 @@ mod tests {
         cfg
     }
 
+    fn load_config_error_from_temp_toml(toml: &str) -> String {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("telemt_load_cfg_error_{nonce}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, toml).unwrap();
+        let error = ProxyConfig::load(&path).unwrap_err().to_string();
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir(dir);
+        error
+    }
+
     #[test]
     fn serde_defaults_remain_unchanged_for_present_sections() {
         let toml = r#"
@@ -2411,6 +2476,7 @@ mod tests {
         "#;
         let cfg: ProxyConfig = toml::from_str(toml).unwrap();
 
+        assert_eq!(cfg.logging, LoggingConfig::default());
         assert_eq!(cfg.network.ipv6, default_network_ipv6());
         assert_eq!(cfg.network.stun_use, default_true());
         assert_eq!(cfg.network.stun_tcp_fallback, default_stun_tcp_fallback());
@@ -2576,6 +2642,65 @@ mod tests {
             cfg.access.user_max_unique_ips_window_secs,
             default_user_max_unique_ips_window_secs()
         );
+    }
+
+    #[test]
+    fn logging_config_is_loaded_from_strict_config() {
+        let cfg = load_config_from_temp_toml(
+            r#"
+                [general]
+                config_strict = true
+
+                [general.modes]
+                classic = false
+                secure = false
+                tls = true
+
+                [logging]
+                destination = "file"
+                path = "/tmp/telemt.log"
+                rotation = "daily"
+                max_size_bytes = 1024
+                max_files = 3
+                max_age_secs = 60
+
+                [censorship]
+                tls_domain = "example.com"
+
+                [access.users]
+                user = "00000000000000000000000000000000"
+            "#,
+        );
+
+        assert_eq!(cfg.logging.destination, LoggingDestination::File);
+        assert_eq!(cfg.logging.path.as_deref(), Some("/tmp/telemt.log"));
+        assert_eq!(cfg.logging.rotation, LogRotation::Daily);
+        assert_eq!(cfg.logging.max_size_bytes, 1024);
+        assert_eq!(cfg.logging.max_files, 3);
+        assert_eq!(cfg.logging.max_age_secs, 60);
+    }
+
+    #[test]
+    fn file_logging_requires_path() {
+        let error = load_config_error_from_temp_toml(
+            r#"
+                [general.modes]
+                classic = false
+                secure = false
+                tls = true
+
+                [logging]
+                destination = "file"
+
+                [censorship]
+                tls_domain = "example.com"
+
+                [access.users]
+                user = "00000000000000000000000000000000"
+            "#,
+        );
+
+        assert!(error.contains("logging.path must be set"));
     }
 
     #[test]

@@ -14,6 +14,7 @@ This document lists all configuration keys accepted by `config.toml`.
 
 # Table of contents
  - [Top-level keys](#top-level-keys)
+ - [logging](#logging)
  - [general](#general)
  - [general.modes](#generalmodes)
  - [general.links](#generallinks)
@@ -35,6 +36,7 @@ This document lists all configuration keys accepted by `config.toml`.
 | --- | ---- | ------- | ---------- |
 | [`include`](#include) | `String` (special directive) | — | `✔` |
 | [`show_link`](#show_link) | `"*"` or `String[]` | `[]` (`ShowLink::None`) | `✘` |
+| [`logging`](#logging) | Table | default values | `✘` |
 | [`dc_overrides`](#dc_overrides) | `Map<String, String or String[]>` | `{}` | `✘` |
 | [`default_dc`](#default_dc) | `u8` | — (effective fallback: `2` in ME routing) | `✘` |
 | [`beobachten`](#beobachten) | `bool` | `true` | `✘` |
@@ -81,6 +83,84 @@ This document lists all configuration keys accepted by `config.toml`.
     # When a client requests an unknown/non-standard DC with no override,
     # route it to this default cluster (1..=5).
     default_dc = 2
+    ```
+
+# [logging]
+
+| Key | Type | Default | Hot-Reload |
+| --- | ---- | ------- | ---------- |
+| [`destination`](#loggingdestination) | `"stderr"` / `"syslog"` / `"file"` | `"stderr"` | `✘` |
+| [`path`](#loggingpath) | `String` | — | `✘` |
+| [`rotation`](#loggingrotation) | `"never"` / `"minutely"` / `"hourly"` / `"daily"` / `"weekly"` | `"never"` | `✘` |
+| [`max_size_bytes`](#loggingmax_size_bytes) | `u64` | `0` | `✘` |
+| [`max_files`](#loggingmax_files) | `usize` | `0` | `✘` |
+| [`max_age_secs`](#loggingmax_age_secs) | `u64` | `0` | `✘` |
+
+## logging.destination
+  - **Constraints / validation**: Must be `stderr`, `syslog`, or `file`. `syslog` is supported only on Unix platforms. `file` requires `logging.path`.
+  - **Description**: Selects the runtime log destination. CLI flags override this value.
+  - **Example**:
+
+    ```toml
+    [logging]
+    destination = "file"
+    path = "/var/log/telemt.log"
+    ```
+## logging.path
+  - **Constraints / validation**: Required when `logging.destination = "file"`; must not be empty.
+  - **Description**: File path used for file logging. With time rotation, the file name is used as the rolling prefix.
+  - **Example**:
+
+    ```toml
+    [logging]
+    destination = "file"
+    path = "/var/log/telemt.log"
+    ```
+## logging.rotation
+  - **Constraints / validation**: Must be `never`, `minutely`, `hourly`, `daily`, or `weekly`.
+  - **Description**: Time-based file rotation interval. `weekly` rotates at the Sunday UTC boundary. `never` writes to the exact `logging.path` unless size rotation is enabled.
+  - **Example**:
+
+    ```toml
+    [logging]
+    destination = "file"
+    path = "/var/log/telemt.log"
+    rotation = "daily"
+    ```
+## logging.max_size_bytes
+  - **Constraints / validation**: `0` disables size rotation.
+  - **Description**: Rotates file logs before writing the next record when the active file is non-empty and that record would exceed this byte limit. Records are written whole and are not split.
+  - **Example**:
+
+    ```toml
+    [logging]
+    destination = "file"
+    path = "/var/log/telemt.log"
+    max_size_bytes = 104857600
+    ```
+## logging.max_files
+  - **Constraints / validation**: `0` disables count-based retention.
+  - **Description**: Keeps at most this many matching file logs, counting the active file and rotated archives. The active file is never deleted by retention cleanup.
+  - **Example**:
+
+    ```toml
+    [logging]
+    destination = "file"
+    path = "/var/log/telemt.log"
+    rotation = "daily"
+    max_files = 14
+    ```
+## logging.max_age_secs
+  - **Constraints / validation**: `0` disables age-based retention.
+  - **Description**: Removes rotated file logs older than this many seconds based on file modification time. The active file is never deleted by retention cleanup.
+  - **Example**:
+
+    ```toml
+    [logging]
+    destination = "file"
+    path = "/var/log/telemt.log"
+    rotation = "daily"
+    max_age_secs = 1209600
     ```
 
 # [general]
@@ -1806,6 +1886,7 @@ This document lists all configuration keys accepted by `config.toml`.
 | [`listen_unix_sock_perm`](#listen_unix_sock_perm) | `String` | — | `✘` |
 | [`listen_tcp`](#listen_tcp) | `bool` | — (auto) | `✘` |
 | [`client_mss`](#client_mss) | `String` | `""` | `✘` |
+| [`client_mss_bulk`](#client_mss_bulk) | `String` | `""` | `✘` |
 | [`proxy_protocol`](#proxy_protocol) | `bool` | `false` | `✘` |
 | [`proxy_protocol_header_timeout_ms`](#proxy_protocol_header_timeout_ms) | `u64` | `500` | `✘` |
 | [`proxy_protocol_trusted_cidrs`](#proxy_protocol_trusted_cidrs) | `IpNetwork[]` | `[]` | `✘` |
@@ -1897,6 +1978,16 @@ This document lists all configuration keys accepted by `config.toml`.
     ```toml
     [server]
     client_mss = "tspu"
+    ```
+## client_mss_bulk
+  - **Constraints / validation**: `String`. Same grammar as [`client_mss`](#client_mss) (empty/omitted, presets `"extreme-low"`/`"tspu"`/`"2in8"`, or a decimal in `88..=4096`).
+  - **Description**: Optional bulk-phase MSS. When set, the low `client_mss` is applied only while the TLS handshake (including the DPI-inspected ServerHello) is sent; once the connection transitions to relaying, the client socket MSS is raised to `client_mss_bulk` for the bulk data phase. This keeps the anti-DPI handshake fragmentation but restores normal-size packets for payload, cutting outgoing packets-per-second by roughly the `client_mss` segment multiplier (e.g. ~10x with `"tspu"`). Useful on hosts whose abuse detection counts packets-per-second rather than bandwidth. When empty/omitted, the handshake MSS is kept for the whole connection (previous behavior). Linux only; a no-op elsewhere.
+  - **Example**:
+
+    ```toml
+    [server]
+    client_mss = "tspu"
+    client_mss_bulk = "1400"
     ```
 ## proxy_protocol
   - **Constraints / validation**: `bool`.

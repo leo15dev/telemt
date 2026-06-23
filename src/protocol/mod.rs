@@ -2,6 +2,7 @@
 
 pub mod constants;
 pub mod frame;
+pub(crate) mod framing;
 pub mod obfuscation;
 pub mod tls;
 pub mod tls_fingerprint;

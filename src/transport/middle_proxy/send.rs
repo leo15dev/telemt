@@ -464,8 +464,7 @@ impl MePool {
                 if !self.writer_accepts_new_binding(w) {
                     continue;
                 }
-                let effective_our_addr = SocketAddr::new(w.source_ip, our_addr.port());
-                let (payload, meta) = build_routed_payload(effective_our_addr);
+                let (payload, meta) = build_routed_payload(our_addr);
                 match w.tx.clone().try_reserve_owned() {
                     Ok(permit) => {
                         if !self.registry.bind_writer(conn_id, w.id, meta).await {
@@ -520,8 +519,7 @@ impl MePool {
             }
             self.stats
                 .increment_me_writer_pick_blocking_fallback_total();
-            let effective_our_addr = SocketAddr::new(w.source_ip, our_addr.port());
-            let (payload, meta) = build_routed_payload(effective_our_addr);
+            let (payload, meta) = build_routed_payload(our_addr);
             let reserve_result =
                 if let Some(timeout) = self.route_runtime.me_route_blocking_send_timeout {
                     match tokio::time::timeout(timeout, w.tx.clone().reserve_owned()).await {

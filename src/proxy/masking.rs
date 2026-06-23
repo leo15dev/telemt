@@ -3,12 +3,15 @@
 use crate::config::ProxyConfig;
 use crate::network::dns_overrides::resolve_socket_addr;
 use crate::protocol::tls;
+use crate::proxy::shared_state::ProxySharedState;
 use crate::stats::beobachten::BeobachtenStore;
 use crate::transport::proxy_protocol::{ProxyProtocolV1Builder, ProxyProtocolV2Builder};
+use crate::transport::socket::configure_tcp_socket;
 #[cfg(unix)]
 use nix::ifaddrs::getifaddrs;
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
+use std::io::{Error as IoError, ErrorKind};
 use std::net::{IpAddr, SocketAddr};
 use std::str;
 #[cfg(test)]
@@ -17,9 +20,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant as StdInstant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
+use tokio::net::{TcpStream, lookup_host};
 #[cfg(unix)]
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::{Instant, timeout};
@@ -36,6 +39,8 @@ const MASK_RELAY_TIMEOUT: Duration = Duration::from_millis(200);
 #[cfg(test)]
 const MASK_RELAY_IDLE_TIMEOUT: Duration = Duration::from_millis(100);
 const MASK_BUFFER_SIZE: usize = 8192;
+const MASK_BUFFER_GROW_AFTER_BYTES: usize = 256 * 1024;
+const MASK_BUFFER_MAX_SIZE: usize = 64 * 1024;
 #[cfg(unix)]
 #[cfg(not(test))]
 const LOCAL_INTERFACE_CACHE_TTL: Duration = Duration::from_secs(300);
@@ -53,6 +58,27 @@ struct MaskTcpTarget<'a> {
     port: u16,
 }
 
+fn mask_copy_read_len(total: usize, byte_cap: usize) -> usize {
+    // Keep short scanner probes on the small baseline buffer and grow only
+    // after the session has proven to be sustained masking relay traffic.
+    let active_buffer_size = if total >= MASK_BUFFER_GROW_AFTER_BYTES {
+        MASK_BUFFER_MAX_SIZE
+    } else {
+        MASK_BUFFER_SIZE
+    };
+
+    if byte_cap == 0 {
+        return active_buffer_size;
+    }
+
+    let remaining_budget = byte_cap.saturating_sub(total);
+    if remaining_budget == 0 {
+        return 0;
+    }
+
+    remaining_budget.min(active_buffer_size)
+}
+
 async fn copy_with_idle_timeout<R, W>(
     reader: &mut R,
     writer: &mut W,
@@ -64,21 +90,18 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let mut buf = Box::new([0u8; MASK_BUFFER_SIZE]);
+    let mut buf = vec![0u8; MASK_BUFFER_SIZE];
     let mut total = 0usize;
     let mut ended_by_eof = false;
-    let unlimited = byte_cap == 0;
 
     loop {
-        let read_len = if unlimited {
-            MASK_BUFFER_SIZE
-        } else {
-            let remaining_budget = byte_cap.saturating_sub(total);
-            if remaining_budget == 0 {
-                break;
-            }
-            remaining_budget.min(MASK_BUFFER_SIZE)
-        };
+        let read_len = mask_copy_read_len(total, byte_cap);
+        if read_len == 0 {
+            break;
+        }
+        if buf.len() < read_len {
+            buf.resize(read_len, 0);
+        }
         let read_res = timeout(idle_timeout, reader.read(&mut buf[..read_len])).await;
         let n = match read_res {
             Ok(Ok(n)) => n,
@@ -248,6 +271,32 @@ async fn consume_client_data_with_timeout_and_cap<R>(
     {
         debug!("Timed out while consuming client data on masking fallback path");
     }
+}
+
+fn mask_failure_drain_cap(config: &ProxyConfig) -> usize {
+    let configured_cap = config.censorship.mask_relay_max_bytes;
+    if configured_cap == 0 {
+        return MASK_BUFFER_SIZE;
+    }
+
+    configured_cap.min(MASK_BUFFER_SIZE)
+}
+
+async fn consume_mask_failure_path<R>(
+    reader: R,
+    config: &ProxyConfig,
+    relay_timeout: Duration,
+    idle_timeout: Duration,
+) where
+    R: AsyncRead + Unpin,
+{
+    consume_client_data_with_timeout_and_cap(
+        reader,
+        mask_failure_drain_cap(config),
+        relay_timeout,
+        idle_timeout,
+    )
+    .await;
 }
 
 async fn wait_mask_connect_budget(started: Instant) {
@@ -478,6 +527,32 @@ fn parse_mask_host_ip_literal(host: &str) -> Option<IpAddr> {
         return host[1..host.len() - 1].parse::<IpAddr>().ok();
     }
     host.parse::<IpAddr>().ok()
+}
+
+async fn resolve_mask_target_addrs(
+    mask_host: &str,
+    mask_port: u16,
+) -> std::io::Result<Vec<SocketAddr>> {
+    if let Some(addr) = resolve_socket_addr(mask_host, mask_port) {
+        return Ok(vec![addr]);
+    }
+
+    if let Some(ip) = parse_mask_host_ip_literal(mask_host) {
+        return Ok(vec![SocketAddr::new(ip, mask_port)]);
+    }
+
+    let addrs = timeout(MASK_TIMEOUT, lookup_host((mask_host, mask_port)))
+        .await
+        .map_err(|_| IoError::new(ErrorKind::TimedOut, "mask target DNS lookup timed out"))??;
+    let addrs = addrs.collect::<Vec<_>>();
+    if addrs.is_empty() {
+        return Err(IoError::new(
+            ErrorKind::NotFound,
+            "mask target DNS lookup returned no addresses",
+        ));
+    }
+
+    Ok(addrs)
 }
 
 fn matching_tls_domain_for_sni<'a>(config: &'a ProxyConfig, sni: &str) -> Option<&'a str> {
@@ -761,7 +836,7 @@ fn is_mask_target_local_listener_with_interfaces(
     mask_host: &str,
     mask_port: u16,
     local_addr: SocketAddr,
-    resolved_override: Option<SocketAddr>,
+    resolved_addrs: &[SocketAddr],
     interface_ips: &[IpAddr],
 ) -> bool {
     if mask_port != local_addr.port() {
@@ -771,7 +846,7 @@ fn is_mask_target_local_listener_with_interfaces(
     let local_ip = canonical_ip(local_addr.ip());
     let literal_mask_ip = parse_mask_host_ip_literal(mask_host).map(canonical_ip);
 
-    if let Some(addr) = resolved_override {
+    for addr in resolved_addrs {
         let resolved_ip = canonical_ip(addr.ip());
         if resolved_ip == local_ip {
             return true;
@@ -808,7 +883,7 @@ fn is_mask_target_local_listener(
     mask_host: &str,
     mask_port: u16,
     local_addr: SocketAddr,
-    resolved_override: Option<SocketAddr>,
+    resolved_addrs: &[SocketAddr],
 ) -> bool {
     if mask_port != local_addr.port() {
         return false;
@@ -819,7 +894,7 @@ fn is_mask_target_local_listener(
         mask_host,
         mask_port,
         local_addr,
-        resolved_override,
+        resolved_addrs,
         &interfaces,
     )
 }
@@ -828,7 +903,7 @@ async fn is_mask_target_local_listener_async(
     mask_host: &str,
     mask_port: u16,
     local_addr: SocketAddr,
-    resolved_override: Option<SocketAddr>,
+    resolved_addrs: &[SocketAddr],
 ) -> bool {
     if mask_port != local_addr.port() {
         return false;
@@ -839,7 +914,7 @@ async fn is_mask_target_local_listener_async(
         mask_host,
         mask_port,
         local_addr,
-        resolved_override,
+        resolved_addrs,
         &interfaces,
     )
 }
@@ -877,7 +952,13 @@ fn build_mask_proxy_header(
     }
 }
 
-/// Handle a bad client by forwarding to mask host
+fn configure_mask_backend_socket(stream: &TcpStream) {
+    if let Err(e) = configure_tcp_socket(stream, false, Duration::from_secs(0)) {
+        debug!(error = %e, "Failed to configure mask backend socket");
+    }
+}
+
+/// Handles a bad client by forwarding it to the configured mask target.
 pub async fn handle_bad_client<R, W>(
     reader: R,
     writer: W,
@@ -886,6 +967,34 @@ pub async fn handle_bad_client<R, W>(
     local_addr: SocketAddr,
     config: &ProxyConfig,
     beobachten: &BeobachtenStore,
+) where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    let shared = ProxySharedState::new();
+    handle_bad_client_with_shared(
+        reader,
+        writer,
+        initial_data,
+        peer,
+        local_addr,
+        config,
+        beobachten,
+        shared.as_ref(),
+    )
+    .await;
+}
+
+/// Handles a bad client with shared pre-auth fallback admission state.
+pub(crate) async fn handle_bad_client_with_shared<R, W>(
+    reader: R,
+    writer: W,
+    initial_data: &[u8],
+    peer: SocketAddr,
+    local_addr: SocketAddr,
+    config: &ProxyConfig,
+    beobachten: &BeobachtenStore,
+    shared: &ProxySharedState,
 ) where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
@@ -910,6 +1019,17 @@ pub async fn handle_bad_client<R, W>(
         .await;
         return;
     }
+
+    let Some(_masking_permit) = shared.try_acquire_masking_fallback_permit() else {
+        let outcome_started = Instant::now();
+        debug!(
+            client_type = client_type,
+            "Masking fallback concurrency limit reached"
+        );
+        consume_mask_failure_path(reader, config, relay_timeout, idle_timeout).await;
+        wait_mask_outcome_budget(outcome_started, config).await;
+        return;
+    };
 
     let client_sni = tls::extract_sni_from_client_hello(initial_data);
     let exclusive_tcp_target = client_sni
@@ -973,24 +1093,12 @@ pub async fn handle_bad_client<R, W>(
             Ok(Err(e)) => {
                 wait_mask_connect_budget_if_needed(connect_started, config).await;
                 debug!(error = %e, "Failed to connect to mask unix socket");
-                consume_client_data_with_timeout_and_cap(
-                    reader,
-                    config.censorship.mask_relay_max_bytes,
-                    relay_timeout,
-                    idle_timeout,
-                )
-                .await;
+                consume_mask_failure_path(reader, config, relay_timeout, idle_timeout).await;
                 wait_mask_outcome_budget(outcome_started, config).await;
             }
             Err(_) => {
                 debug!("Timeout connecting to mask unix socket");
-                consume_client_data_with_timeout_and_cap(
-                    reader,
-                    config.censorship.mask_relay_max_bytes,
-                    relay_timeout,
-                    idle_timeout,
-                )
-                .await;
+                consume_mask_failure_path(reader, config, relay_timeout, idle_timeout).await;
                 wait_mask_outcome_budget(outcome_started, config).await;
             }
         }
@@ -1003,11 +1111,27 @@ pub async fn handle_bad_client<R, W>(
     let mask_host = mask_target.host;
     let mask_port = mask_target.port;
 
+    let resolved_mask_addrs = match resolve_mask_target_addrs(mask_host, mask_port).await {
+        Ok(addrs) => addrs,
+        Err(e) => {
+            let outcome_started = Instant::now();
+            debug!(
+                client_type = client_type,
+                host = %mask_host,
+                port = mask_port,
+                error = %e,
+                "Failed to resolve mask target"
+            );
+            consume_mask_failure_path(reader, config, relay_timeout, idle_timeout).await;
+            wait_mask_outcome_budget(outcome_started, config).await;
+            return;
+        }
+    };
+
     // Fail closed when fallback points at our own listener endpoint.
     // Self-referential masking can create recursive proxy loops under
     // misconfiguration and leak distinguishable load spikes to adversaries.
-    let resolved_mask_addr = resolve_socket_addr(mask_host, mask_port);
-    if is_mask_target_local_listener_async(mask_host, mask_port, local_addr, resolved_mask_addr)
+    if is_mask_target_local_listener_async(mask_host, mask_port, local_addr, &resolved_mask_addrs)
         .await
     {
         let outcome_started = Instant::now();
@@ -1018,13 +1142,7 @@ pub async fn handle_bad_client<R, W>(
             local = %local_addr,
             "Mask target resolves to local listener; refusing self-referential masking fallback"
         );
-        consume_client_data_with_timeout_and_cap(
-            reader,
-            config.censorship.mask_relay_max_bytes,
-            relay_timeout,
-            idle_timeout,
-        )
-        .await;
+        consume_mask_failure_path(reader, config, relay_timeout, idle_timeout).await;
         wait_mask_outcome_budget(outcome_started, config).await;
         return;
     }
@@ -1039,14 +1157,15 @@ pub async fn handle_bad_client<R, W>(
         "Forwarding bad client to mask host"
     );
 
-    // Apply runtime DNS override for mask target when configured.
-    let mask_addr = resolved_mask_addr
-        .map(|addr| addr.to_string())
-        .unwrap_or_else(|| format!("{}:{}", mask_host, mask_port));
     let connect_started = Instant::now();
-    let connect_result = timeout(MASK_TIMEOUT, TcpStream::connect(&mask_addr)).await;
+    let connect_result = timeout(
+        MASK_TIMEOUT,
+        TcpStream::connect(resolved_mask_addrs.as_slice()),
+    )
+    .await;
     match connect_result {
         Ok(Ok(stream)) => {
+            configure_mask_backend_socket(&stream);
             let proxy_header =
                 build_mask_proxy_header(config.censorship.mask_proxy_protocol, peer, local_addr);
 
@@ -1085,24 +1204,12 @@ pub async fn handle_bad_client<R, W>(
         Ok(Err(e)) => {
             wait_mask_connect_budget_if_needed(connect_started, config).await;
             debug!(error = %e, "Failed to connect to mask host");
-            consume_client_data_with_timeout_and_cap(
-                reader,
-                config.censorship.mask_relay_max_bytes,
-                relay_timeout,
-                idle_timeout,
-            )
-            .await;
+            consume_mask_failure_path(reader, config, relay_timeout, idle_timeout).await;
             wait_mask_outcome_budget(outcome_started, config).await;
         }
         Err(_) => {
             debug!("Timeout connecting to mask host");
-            consume_client_data_with_timeout_and_cap(
-                reader,
-                config.censorship.mask_relay_max_bytes,
-                relay_timeout,
-                idle_timeout,
-            )
-            .await;
+            consume_mask_failure_path(reader, config, relay_timeout, idle_timeout).await;
             wait_mask_outcome_budget(outcome_started, config).await;
         }
     }
@@ -1190,20 +1297,17 @@ async fn consume_client_data<R: AsyncRead + Unpin>(
     idle_timeout: Duration,
 ) {
     // Keep drain path fail-closed under slow-loris stalls.
-    let mut buf = Box::new([0u8; MASK_BUFFER_SIZE]);
+    let mut buf = vec![0u8; MASK_BUFFER_SIZE];
     let mut total = 0usize;
-    let unlimited = byte_cap == 0;
 
     loop {
-        let read_len = if unlimited {
-            MASK_BUFFER_SIZE
-        } else {
-            let remaining_budget = byte_cap.saturating_sub(total);
-            if remaining_budget == 0 {
-                break;
-            }
-            remaining_budget.min(MASK_BUFFER_SIZE)
-        };
+        let read_len = mask_copy_read_len(total, byte_cap);
+        if read_len == 0 {
+            break;
+        }
+        if buf.len() < read_len {
+            buf.resize(read_len, 0);
+        }
         let n = match timeout(idle_timeout, reader.read(&mut buf[..read_len])).await {
             Ok(Ok(n)) => n,
             Ok(Err(_)) | Err(_) => break,
@@ -1214,7 +1318,7 @@ async fn consume_client_data<R: AsyncRead + Unpin>(
         }
 
         total = total.saturating_add(n);
-        if !unlimited && total >= byte_cap {
+        if byte_cap != 0 && total >= byte_cap {
             break;
         }
     }
@@ -1331,6 +1435,10 @@ mod masking_interface_cache_concurrency_security_tests;
 #[cfg(test)]
 #[path = "tests/masking_production_cap_regression_security_tests.rs"]
 mod masking_production_cap_regression_security_tests;
+
+#[cfg(test)]
+#[path = "tests/masking_relay_manual_perf_tests.rs"]
+mod masking_relay_manual_perf_tests;
 
 #[cfg(test)]
 #[path = "tests/masking_extended_attack_surface_security_tests.rs"]

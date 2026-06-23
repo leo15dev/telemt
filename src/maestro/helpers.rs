@@ -9,7 +9,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::cli;
 use crate::config::ProxyConfig;
-use crate::logging::LogDestination;
+use crate::logging::LogCliOptions;
 use crate::transport::UpstreamManager;
 use crate::transport::middle_proxy::{
     ProxyConfigData, fetch_proxy_config_with_raw_via_upstream, load_proxy_config_cache,
@@ -113,7 +113,7 @@ pub(crate) struct CliArgs {
     pub data_path: Option<PathBuf>,
     pub silent: bool,
     pub log_level: Option<String>,
-    pub log_destination: LogDestination,
+    pub log_cli_options: LogCliOptions,
 }
 
 pub(crate) fn parse_cli() -> CliArgs {
@@ -125,8 +125,13 @@ pub(crate) fn parse_cli() -> CliArgs {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // Parse log destination
-    let log_destination = crate::logging::parse_log_destination(&args);
+    let log_cli_options = match crate::logging::parse_log_cli_options(&args) {
+        Ok(options) => options,
+        Err(error) => {
+            eprintln!("[telemt] {error}");
+            std::process::exit(2);
+        }
+    };
 
     // Check for --init first (handled before tokio)
     if let Some(init_opts) = cli::parse_init_args(&args) {
@@ -180,6 +185,21 @@ pub(crate) fn parse_cli() -> CliArgs {
             s if s.starts_with("--log-level=") => {
                 log_level = Some(s.trim_start_matches("--log-level=").to_string());
             }
+            "--log-file" | "--log-file-daily" => {
+                i += 1;
+            }
+            s if s.starts_with("--log-file=") || s.starts_with("--log-file-daily=") => {}
+            "--log-rotation"
+            | "--log-max-size-bytes"
+            | "--log-max-files"
+            | "--log-max-age-secs" => {
+                i += 1;
+            }
+            s if s.starts_with("--log-rotation=")
+                || s.starts_with("--log-max-size-bytes=")
+                || s.starts_with("--log-max-files=")
+                || s.starts_with("--log-max-age-secs=") => {}
+            "--syslog" => {}
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -192,7 +212,8 @@ pub(crate) fn parse_cli() -> CliArgs {
             "--daemon" | "-d" | "--foreground" | "-f" => {}
             s if s.starts_with("--pid-file") => {
                 if !s.contains('=') {
-                    i += 1; // skip value
+                    // Skip the pid-file value consumed by daemon argument parsing.
+                    i += 1;
                 }
             }
             s if s.starts_with("--run-as-user") => {
@@ -224,7 +245,7 @@ pub(crate) fn parse_cli() -> CliArgs {
         data_path,
         silent,
         log_level,
-        log_destination,
+        log_cli_options,
     }
 }
 
@@ -254,6 +275,10 @@ fn print_help() {
     eprintln!("Logging options:");
     eprintln!("  --log-file <PATH>       Log to file (default: stderr)");
     eprintln!("  --log-file-daily <PATH> Log to file with daily rotation");
+    eprintln!("  --log-rotation <MODE>   never|minutely|hourly|daily|weekly");
+    eprintln!("  --log-max-size-bytes N  Rotate file logs when active file exceeds N bytes");
+    eprintln!("  --log-max-files N       Keep at most N matching file logs (0 disables)");
+    eprintln!("  --log-max-age-secs N    Remove rotated file logs older than N seconds");
     #[cfg(unix)]
     eprintln!("  --syslog                Log to syslog (Unix only)");
     eprintln!();

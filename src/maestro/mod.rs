@@ -108,7 +108,7 @@ async fn run_telemt_core(
     let data_path = cli_args.data_path;
     let cli_silent = cli_args.silent;
     let cli_log_level = cli_args.log_level;
-    let log_destination = cli_args.log_destination;
+    let log_cli_options = cli_args.log_cli_options;
     let startup_cwd = match std::env::current_dir() {
         Ok(cwd) => cwd,
         Err(e) => {
@@ -331,6 +331,14 @@ async fn run_telemt_core(
     };
 
     let initial_filter_spec = runtime_tasks::log_filter_spec(has_rust_log, &effective_log_level);
+    let log_destination =
+        match crate::logging::resolve_log_destination(&config.logging, &log_cli_options) {
+            Ok(destination) => destination,
+            Err(error) => {
+                eprintln!("[telemt] {error}");
+                std::process::exit(1);
+            }
+        };
     let (filter_layer, filter_handle) =
         reload::Layer::new(EnvFilter::new(initial_filter_spec.clone()));
     startup_tracker

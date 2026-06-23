@@ -55,6 +55,37 @@ pub(super) fn classify_me_d2c_flush_reason(
     MeD2cFlushReason::QueueDrain
 }
 
+pub(super) fn me_d2c_flush_reason_requires_client_flush(reason: MeD2cFlushReason) -> bool {
+    !matches!(reason, MeD2cFlushReason::QueueDrain)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queue_drain_is_not_a_physical_flush_trigger() {
+        assert!(!me_d2c_flush_reason_requires_client_flush(
+            MeD2cFlushReason::QueueDrain
+        ));
+        assert!(me_d2c_flush_reason_requires_client_flush(
+            MeD2cFlushReason::AckImmediate
+        ));
+        assert!(me_d2c_flush_reason_requires_client_flush(
+            MeD2cFlushReason::BatchFrames
+        ));
+        assert!(me_d2c_flush_reason_requires_client_flush(
+            MeD2cFlushReason::BatchBytes
+        ));
+        assert!(me_d2c_flush_reason_requires_client_flush(
+            MeD2cFlushReason::MaxDelay
+        ));
+        assert!(me_d2c_flush_reason_requires_client_flush(
+            MeD2cFlushReason::Close
+        ));
+    }
+}
+
 pub(super) fn observe_me_d2c_flush_event(
     stats: &Stats,
     reason: MeD2cFlushReason,
@@ -276,20 +307,13 @@ pub(in crate::proxy::middle_relay) fn compute_intermediate_secure_wire_len(
     let wire_len = data_len
         .checked_add(padding_len)
         .ok_or_else(|| ProxyError::Proxy("Frame length overflow".into()))?;
-    if wire_len > 0x7fff_ffffusize {
-        return Err(ProxyError::Proxy(format!(
-            "Intermediate/Secure frame too large: {wire_len}"
-        )));
-    }
-
+    let len_val = crate::protocol::framing::encode_intermediate_header(wire_len, quickack)
+        .ok_or_else(|| {
+            ProxyError::Proxy(format!("Intermediate/Secure frame too large: {wire_len}"))
+        })?;
     let total = 4usize
         .checked_add(wire_len)
         .ok_or_else(|| ProxyError::Proxy("Frame buffer size overflow".into()))?;
-    let mut len_val = u32::try_from(wire_len)
-        .map_err(|_| ProxyError::Proxy("Frame length conversion overflow".into()))?;
-    if quickack {
-        len_val |= 0x8000_0000;
-    }
     Ok((len_val, total))
 }
 

@@ -4,7 +4,6 @@
 
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
-use hmac::{Hmac, Mac};
 #[cfg(test)]
 use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
@@ -33,8 +32,10 @@ use crate::stream::{CryptoReader, CryptoWriter, FakeTlsReader, FakeTlsWriter};
 use crate::tls_front::{TlsFrontCache, emulator};
 #[cfg(test)]
 use rand::RngExt;
-use sha2::Sha256;
-use subtle::ConstantTimeEq;
+
+mod tls_auth;
+
+use self::tls_auth::{parse_tls_auth_material, validate_tls_secret_candidate};
 
 const ACCESS_SECRET_BYTES: usize = 16;
 const UNKNOWN_SNI_WARN_COOLDOWN_SECS: u64 = 5;
@@ -57,8 +58,6 @@ const OVERLOAD_CANDIDATE_BUDGET_HINTED: usize = 16;
 const OVERLOAD_CANDIDATE_BUDGET_UNHINTED: usize = 8;
 const EXPENSIVE_INVALID_SCAN_SATURATION_THRESHOLD: usize = 64;
 const RECENT_USER_RING_SCAN_LIMIT: usize = 32;
-
-type HmacSha256 = Hmac<Sha256>;
 
 #[cfg(test)]
 const AUTH_PROBE_BACKOFF_BASE_MS: u64 = 1;
@@ -102,23 +101,6 @@ fn should_emit_unknown_sni_warn_in(shared: &ProxySharedState, now: Instant) -> b
     }
     *guard = Some(now + Duration::from_secs(UNKNOWN_SNI_WARN_COOLDOWN_SECS));
     true
-}
-
-#[derive(Clone, Copy)]
-struct ParsedTlsAuthMaterial {
-    digest: [u8; tls::TLS_DIGEST_LEN],
-    session_id: [u8; 32],
-    session_id_len: usize,
-    now: i64,
-    ignore_time_skew: bool,
-    boot_time_cap_secs: u32,
-}
-
-#[derive(Clone, Copy)]
-struct TlsCandidateValidation {
-    digest: [u8; tls::TLS_DIGEST_LEN],
-    session_id: [u8; 32],
-    session_id_len: usize,
 }
 
 struct MtprotoCandidateValidation {
@@ -249,104 +231,6 @@ fn budget_for_validation(total_users: usize, overload: bool, has_hint: bool) -> 
         OVERLOAD_CANDIDATE_BUDGET_UNHINTED
     };
     total_users.min(cap.max(1))
-}
-
-fn parse_tls_auth_material(
-    handshake: &[u8],
-    ignore_time_skew: bool,
-    replay_window_secs: u64,
-) -> Option<ParsedTlsAuthMaterial> {
-    if handshake.len() < tls::TLS_DIGEST_POS + tls::TLS_DIGEST_LEN + 1 {
-        return None;
-    }
-
-    let digest: [u8; tls::TLS_DIGEST_LEN] = handshake
-        [tls::TLS_DIGEST_POS..tls::TLS_DIGEST_POS + tls::TLS_DIGEST_LEN]
-        .try_into()
-        .ok()?;
-
-    let session_id_len_pos = tls::TLS_DIGEST_POS + tls::TLS_DIGEST_LEN;
-    let session_id_len = usize::from(handshake.get(session_id_len_pos).copied()?);
-    if session_id_len > 32 {
-        return None;
-    }
-    let session_id_start = session_id_len_pos + 1;
-    if handshake.len() < session_id_start + session_id_len {
-        return None;
-    }
-
-    let mut session_id = [0u8; 32];
-    session_id[..session_id_len]
-        .copy_from_slice(&handshake[session_id_start..session_id_start + session_id_len]);
-
-    let now = if !ignore_time_skew {
-        let d = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()?;
-        i64::try_from(d.as_secs()).ok()?
-    } else {
-        0_i64
-    };
-
-    let replay_window_u32 = u32::try_from(replay_window_secs).unwrap_or(u32::MAX);
-    let boot_time_cap_secs = if ignore_time_skew {
-        0
-    } else {
-        tls::BOOT_TIME_MAX_SECS
-            .min(replay_window_u32)
-            .min(tls::BOOT_TIME_COMPAT_MAX_SECS)
-    };
-
-    Some(ParsedTlsAuthMaterial {
-        digest,
-        session_id,
-        session_id_len,
-        now,
-        ignore_time_skew,
-        boot_time_cap_secs,
-    })
-}
-
-fn compute_tls_hmac_zeroed_digest(secret: &[u8], handshake: &[u8]) -> [u8; 32] {
-    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC accepts any key length");
-    mac.update(&handshake[..tls::TLS_DIGEST_POS]);
-    mac.update(&[0u8; tls::TLS_DIGEST_LEN]);
-    mac.update(&handshake[tls::TLS_DIGEST_POS + tls::TLS_DIGEST_LEN..]);
-    mac.finalize().into_bytes().into()
-}
-
-fn validate_tls_secret_candidate(
-    parsed: &ParsedTlsAuthMaterial,
-    handshake: &[u8],
-    secret: &[u8],
-) -> Option<TlsCandidateValidation> {
-    let computed = compute_tls_hmac_zeroed_digest(secret, handshake);
-    if !bool::from(parsed.digest[..28].ct_eq(&computed[..28])) {
-        return None;
-    }
-
-    let timestamp = u32::from_le_bytes([
-        parsed.digest[28] ^ computed[28],
-        parsed.digest[29] ^ computed[29],
-        parsed.digest[30] ^ computed[30],
-        parsed.digest[31] ^ computed[31],
-    ]);
-
-    if !parsed.ignore_time_skew {
-        let is_boot_time = parsed.boot_time_cap_secs > 0 && timestamp < parsed.boot_time_cap_secs;
-        if !is_boot_time {
-            let time_diff = parsed.now - i64::from(timestamp);
-            if !(tls::TIME_SKEW_MIN..=tls::TIME_SKEW_MAX).contains(&time_diff) {
-                return None;
-            }
-        }
-    }
-
-    Some(TlsCandidateValidation {
-        digest: parsed.digest,
-        session_id: parsed.session_id,
-        session_id_len: parsed.session_id_len,
-    })
 }
 
 fn validate_mtproto_secret_candidate(
@@ -1857,7 +1741,16 @@ where
             return HandshakeResult::BadClient { reader, writer };
         }
 
-        let validation = matched_validation.expect("validation must exist when matched");
+        let Some(validation) = matched_validation else {
+            auth_probe_record_failure_in(shared, peer.ip(), Instant::now());
+            maybe_apply_server_hello_delay(config).await;
+            warn!(
+                peer = %peer,
+                user = %matched_user,
+                "MTProto handshake matched user without validation material"
+            );
+            return HandshakeResult::BadClient { reader, writer };
+        };
 
         if config
             .access

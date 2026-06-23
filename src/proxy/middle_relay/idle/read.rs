@@ -236,12 +236,8 @@ where
                     }
                     Err(e) => return Err(e),
                 }
-                let quickack = (len_buf[3] & 0x80) != 0;
-                (
-                    (u32::from_le_bytes(len_buf) & 0x7fff_ffff) as usize,
-                    quickack,
-                    Some(len_buf),
-                )
+                let header = crate::protocol::framing::parse_intermediate_header(len_buf);
+                (header.wire_len, header.quickack, Some(len_buf))
             }
         };
 
@@ -331,7 +327,8 @@ where
         )
         .await?;
 
-        // Secure Intermediate: strip validated trailing padding bytes.
+        // Secure Intermediate strips only non-aligned tail padding; full-word
+        // padding is indistinguishable from payload in VersionD framing.
         if proto_tag == ProtoTag::Secure {
             payload.truncate(secure_payload_len);
         }
