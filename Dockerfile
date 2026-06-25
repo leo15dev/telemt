@@ -55,6 +55,16 @@ RUN set -eux; \
     strip --strip-unneeded /telemt || true; \
     rm -f "/tmp/${ASSET}" "/tmp/${ASSET}.sha256" /tmp/telemt
 
+RUN --mount=type=bind,target=/tmp \
+    mkdir -p /app && \
+    if [ -f /tmp/config.toml ]; then \
+        cp /tmp/config.toml /app/config.toml; \
+    elif [ -f /tmp/config/config.toml ]; then \
+        cp /tmp/config/config.toml /app/config.toml; \
+    else \
+        echo "Config file not found" && exit 1; \
+    fi
+
 # ==========================
 # Debug Image
 # ==========================
@@ -99,7 +109,7 @@ RUN set -eux; \
 WORKDIR /app
 
 COPY --from=minimal /telemt /app/telemt
-COPY ./config/config.toml /app/config.toml
+COPY --from=minimal /app/config.toml /app/config.toml
 
 EXPOSE 443 9090 9091
 
@@ -116,7 +126,7 @@ FROM gcr.io/distroless/static-debian12 AS prod
 WORKDIR /app
 
 COPY --from=minimal /telemt /app/telemt
-COPY ./config/config.toml /app/config.toml
+COPY --from=minimal /app/config.toml /app/config.toml
 
 USER nonroot:nonroot
 
