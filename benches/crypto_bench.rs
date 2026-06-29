@@ -2,11 +2,11 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
 #[allow(unused_imports)]
-#[path = "../src/error.rs"]
-mod error;
-#[allow(unused_imports)]
 #[path = "../src/crypto/aes.rs"]
 mod aes_impl;
+#[allow(unused_imports)]
+#[path = "../src/error.rs"]
+mod error;
 
 use aes_impl::AesCtr;
 
