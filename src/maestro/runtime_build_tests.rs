@@ -31,7 +31,7 @@ fn process_socket_and_logging_changes_are_deferred() {
     new.server.listen_backlog = new.server.listen_backlog.saturating_add(1);
     new.general.disable_colors = !new.general.disable_colors;
 
-    let fields = deferred_process_fields(&old, &new);
+    let fields = deferred_process_fields(&old, &new).unwrap();
     assert!(fields.contains(&"server.listeners".to_string()));
     assert!(fields.contains(&"general.disable_colors".to_string()));
 }
@@ -43,7 +43,7 @@ fn global_mss_profiles_are_deferred_with_the_listener_socket_group() {
     desired.server.client_mss = Some("92".to_string());
     desired.server.client_mss_bulk = Some("1400".to_string());
 
-    let resolved = resolve_reload_config(&old, &desired);
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
 
     assert_eq!(
         resolved.deferred_process_fields,
@@ -64,7 +64,7 @@ fn mixed_reload_retains_process_state_and_applies_runtime_state() {
     desired.server.client_mss = Some("92".to_string());
     desired.censorship.tls_domain = "reload.example".to_string();
 
-    let resolved = resolve_reload_config(&old, &desired);
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
 
     assert_eq!(resolved.effective.server.client_mss, old.server.client_mss);
     assert_eq!(
@@ -105,7 +105,7 @@ fn listener_announcement_is_runtime_owned_when_bind_identity_is_stable() {
     let mut desired = old.clone();
     desired.server.listeners[0].announce = Some("proxy.example".to_string());
 
-    let resolved = resolve_reload_config(&old, &desired);
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
 
     assert!(resolved.deferred_process_fields.is_empty());
     assert_eq!(
@@ -128,7 +128,7 @@ fn process_field_labels_are_stable_ordered_and_unique() {
         .saturating_add(1);
     desired.general.disable_colors = !desired.general.disable_colors;
 
-    let resolved = resolve_reload_config(&old, &desired);
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
 
     assert_eq!(
         resolved.deferred_process_fields,
@@ -146,7 +146,7 @@ fn runtime_only_change_does_not_require_process_rebind() {
     let old = ProxyConfig::default();
     let mut new = old.clone();
     new.censorship.tls_domain = "reload.example".to_string();
-    assert!(deferred_process_fields(&old, &new).is_empty());
+    assert!(deferred_process_fields(&old, &new).unwrap().is_empty());
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn web_allocation_limits_are_deferred_until_restart() {
     let mut desired = old.clone();
     desired.web.limits.max_sessions_global += 1;
 
-    let resolved = resolve_reload_config(&old, &desired);
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
 
     assert_eq!(
         resolved.deferred_process_fields,
@@ -171,6 +171,65 @@ fn web_allocation_limits_are_deferred_until_restart() {
 }
 
 #[test]
+fn enabling_learning_is_deferred_when_retained_capacity_is_too_small() {
+    let mut old = ProxyConfig::default();
+    old.web.limits.max_carrier_learning_entries = 1;
+    old.web.carriers = crate::config::WebCarriers::Disabled;
+    old.web.carrier_learning = false;
+    old.rebuild_runtime_user_auth().unwrap();
+    old.rebuild_runtime_web().unwrap();
+    let mut desired = old.clone();
+    desired.web.limits.max_carrier_learning_entries = 3;
+    desired.web.carriers = crate::config::WebCarriers::Enabled(vec![
+        crate::config::WebCarrier::Websocket,
+        crate::config::WebCarrier::Https,
+    ]);
+    desired.web.carrier_learning = true;
+
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
+
+    assert_eq!(
+        resolved.deferred_process_fields,
+        vec!["web.limits".to_string(), "web.carrier_learning".to_string()]
+    );
+    assert_eq!(
+        resolved.effective.web.limits.max_carrier_learning_entries,
+        1
+    );
+    assert!(resolved.effective.web.carrier_negotiation_enabled());
+    assert!(!resolved.effective.web.carrier_learning);
+}
+
+#[test]
+fn enabling_carriers_is_deferred_for_dormant_learning_with_small_capacity() {
+    let mut old = ProxyConfig::default();
+    old.web.limits.max_carrier_learning_entries = 1;
+    old.web.carriers = crate::config::WebCarriers::Disabled;
+    old.web.carrier_learning = true;
+    old.rebuild_runtime_user_auth().unwrap();
+    old.rebuild_runtime_web().unwrap();
+    let mut desired = old.clone();
+    desired.web.limits.max_carrier_learning_entries = 3;
+    desired.web.carriers = crate::config::WebCarriers::Enabled(vec![
+        crate::config::WebCarrier::Websocket,
+        crate::config::WebCarrier::Https,
+    ]);
+
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
+
+    assert_eq!(
+        resolved.deferred_process_fields,
+        vec!["web.limits".to_string(), "web.carriers".to_string()]
+    );
+    assert_eq!(
+        resolved.effective.web.limits.max_carrier_learning_entries,
+        1
+    );
+    assert!(!resolved.effective.web.carrier_negotiation_enabled());
+    assert!(resolved.effective.web.carrier_learning);
+}
+
+#[test]
 fn web_debug_prefix_dependent_on_new_capacity_is_deferred_with_limits() {
     let mut old = ProxyConfig::default();
     old.rebuild_runtime_user_auth().unwrap();
@@ -179,7 +238,7 @@ fn web_debug_prefix_dependent_on_new_capacity_is_deferred_with_limits() {
     desired.web.limits.max_body_bytes = 4 * 1024 * 1024;
     desired.web.debug.body_prefix_bytes = 3 * 1024 * 1024;
 
-    let resolved = resolve_reload_config(&old, &desired);
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
 
     assert_eq!(
         resolved.deferred_process_fields,
@@ -206,7 +265,7 @@ fn endpoint_only_listener_move_is_runtime_rebindable() {
     let mut desired = old.clone();
     desired.server.listeners[0].port = Some(8443);
 
-    let resolved = resolve_reload_config(&old, &desired);
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
 
     assert!(resolved.deferred_process_fields.is_empty());
     assert_eq!(resolved.effective.server.listeners[0].port, Some(8443));
@@ -221,7 +280,7 @@ fn synlimited_endpoint_move_remains_restart_only() {
     let mut desired = old.clone();
     desired.server.listeners[0].port = Some(8443);
 
-    let resolved = resolve_reload_config(&old, &desired);
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
 
     assert_eq!(
         resolved.deferred_process_fields,
@@ -253,11 +312,5 @@ fn deferred_listener_identity_cannot_create_an_effective_decoy_loop() {
     ];
 
     assert!(desired.validate_web_decoy_listener_separation().is_ok());
-    let resolved = resolve_reload_config(&old, &desired);
-    assert!(
-        resolved
-            .effective
-            .validate_web_decoy_listener_separation()
-            .is_err()
-    );
+    assert!(resolve_reload_config(&old, &desired).is_err());
 }

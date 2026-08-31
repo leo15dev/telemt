@@ -11,6 +11,7 @@ use super::{CarrierRequest, ProfileKey, TOKEN_BYTES, TokenHash};
 use crate::config::{WebCarrier, WebRuntimeConfig, WebRuntimeProfile, WebTimeoutsConfig};
 use crate::maestro::generation::RuntimeGeneration;
 use crate::web::session::WebSession;
+use crate::web::telemetry::WebCarrierSelectionDisposition;
 
 const WEB_PROFILE_OWNER_CONTEXT: &[u8] = b"telemt-web-profile-owner-v1\0";
 
@@ -75,6 +76,8 @@ pub(super) struct Bootstrap {
     pub(super) carrier_failures: [Option<WebCarrier>; 3],
     /// Learning-policy epoch frozen by the first automatic attempt.
     pub(super) carrier_learning_epoch: u64,
+    /// Frozen reason learning did or did not influence carrier ordering.
+    pub(super) carrier_learning_disposition: WebCarrierSelectionDisposition,
     /// DELETE observed before an in-flight replacement committed its swap.
     pub(super) close_requested: bool,
     /// Effective address frozen by the first session-creation request.

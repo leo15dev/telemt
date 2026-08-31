@@ -248,6 +248,18 @@ impl ListenerManager {
         );
     }
 
+    /// Publishes one generation through the process-owned WEB policy fence.
+    pub(crate) fn activate_runtime_generation(
+        &self,
+        generation: Arc<RuntimeGeneration>,
+    ) -> Arc<RuntimeGeneration> {
+        if let Some(runtime) = &self.web_runtime {
+            runtime.activate_generation(generation)
+        } else {
+            self.active_runtime.swap(generation)
+        }
+    }
+
     /// Stops every accept task and applies one deadline to the complete WEB ingress.
     pub(crate) async fn shutdown(&mut self) -> Result<(), String> {
         self.web_control.publish(

@@ -19,6 +19,7 @@ use super::{
 use crate::config::{WebCarrier, WebRuntimeProfile};
 use crate::web::frame;
 use crate::web::session::WebSession;
+use crate::web::telemetry::WebCarrierSelectionDisposition;
 use crate::web::trace::TraceLifecycleEvent;
 
 struct Replacement {
@@ -31,6 +32,7 @@ struct Replacement {
     request: CarrierRequest,
     scores: [i16; 4],
     learning_epoch: u64,
+    learning_disposition: WebCarrierSelectionDisposition,
     ip_learning_eligible: bool,
     carrier_deadline_at: Instant,
 }
@@ -185,6 +187,7 @@ impl WebProcessRuntime {
                 request: carrier_request,
                 scores: entry.carrier_scores,
                 learning_epoch: entry.carrier_learning_epoch,
+                learning_disposition: entry.carrier_learning_disposition,
                 ip_learning_eligible,
                 carrier_deadline_at: entry.carrier_deadline_at.ok_or(ManagerError::Protocol)?,
             };
@@ -223,51 +226,70 @@ impl WebProcessRuntime {
             config.web.carrier_negotiation_enabled() && config.web.carrier_learning,
             config.web.carrier_negotiation_aggressiveness,
             Duration::from_secs(config.web.timeouts.carrier_learning_secs),
+            Duration::from_secs(config.web.timeouts.carrier_health_secs),
         );
-        let (candidates, scores, learning_epoch) = if capability_selection
+        let (candidates, scores, learning_epoch, learning_disposition) = if capability_selection
             && profile.carrier_learning
+            && learning_policy.0
         {
             let learning = self.learning.lock();
-            if let Some(epoch) =
-                learning.epoch_for_policy(learning_policy.0, learning_policy.1, learning_policy.2)
-            {
-                let (candidates, scores) = learning.rank(
-                    now,
-                    &profile.carriers,
-                    carrier_request,
-                    profile_key,
-                    client_ip,
-                    ip_learning_eligible,
-                );
-                (candidates, scores, Some(epoch))
-            } else {
-                (
-                    profile
-                        .carriers
-                        .iter()
-                        .copied()
-                        .filter(|carrier| carrier_request.supports(*carrier))
-                        .collect(),
+            match learning.epoch_for_policy(
+                    generation.id,
+                    learning_policy.0,
+                    learning_policy.1,
+                    learning_policy.2,
+                    learning_policy.3,
+                ) {
+                super::learning::CarrierLearningEpoch::Ready(epoch) => {
+                    let (candidates, scores) = learning.rank(
+                        now,
+                        &profile.carriers,
+                        carrier_request,
+                        profile_key,
+                        client_ip,
+                        ip_learning_eligible,
+                    );
+                    let disposition = if scores.iter().any(|score| *score != 0) {
+                        WebCarrierSelectionDisposition::Applied
+                    } else {
+                        WebCarrierSelectionDisposition::Cold
+                    };
+                    (candidates, scores, Some(epoch), disposition)
+                }
+                super::learning::CarrierLearningEpoch::Pending => (
+                    supported_candidates(&profile.carriers, carrier_request),
                     [0; 4],
                     None,
-                )
+                    WebCarrierSelectionDisposition::PolicyPending,
+                ),
+                super::learning::CarrierLearningEpoch::Exhausted => (
+                    supported_candidates(&profile.carriers, carrier_request),
+                    [0; 4],
+                    None,
+                    WebCarrierSelectionDisposition::EpochExhausted,
+                ),
             }
         } else if capability_selection {
             (
-                profile
-                    .carriers
-                    .iter()
-                    .copied()
-                    .filter(|carrier| carrier_request.supports(*carrier))
-                    .collect(),
+                supported_candidates(&profile.carriers, carrier_request),
                 [0; 4],
                 None,
+                if learning_policy.0 {
+                    WebCarrierSelectionDisposition::ProfileDisabled
+                } else {
+                    WebCarrierSelectionDisposition::PolicyDisabled
+                },
             )
         } else if carrier_request.uses_capabilities() && !carrier_request.supports(profile.carrier)
         {
             return Err(ManagerError::Protocol);
         } else {
-            (vec![profile.carrier], [0; 4], None)
+            (
+                vec![profile.carrier],
+                [0; 4],
+                None,
+                WebCarrierSelectionDisposition::ProfileDisabled,
+            )
         };
         let Some(carrier) = candidates.first().copied() else {
             return Err(ManagerError::Protocol);
@@ -331,6 +353,7 @@ impl WebProcessRuntime {
             entry.carrier_deadline_at = carrier_deadline_at;
             entry.carrier_failures = [None; 3];
             entry.carrier_learning_epoch = learning_epoch.unwrap_or(0);
+            entry.carrier_learning_disposition = learning_disposition;
             entry.expires_at = now + Duration::from_secs(issued_timeouts.bootstrap_lifetime_secs);
             entry.session_client_ip = Some(client_ip);
             entry.session_ip_learning_eligible = ip_learning_eligible;
@@ -367,6 +390,8 @@ impl WebProcessRuntime {
             },
         );
         drop(state);
+        self.telemetry
+            .record_carrier_selection(carrier, learning_disposition);
         self.trace.record_carrier_lifecycle(
             client_ip,
             identity.clone(),
@@ -397,6 +422,17 @@ impl WebProcessRuntime {
         );
         Ok(result)
     }
+}
+
+fn supported_candidates(
+    configured: &[WebCarrier],
+    request: CarrierRequest,
+) -> Vec<WebCarrier> {
+    configured
+        .iter()
+        .copied()
+        .filter(|carrier| request.supports(*carrier))
+        .collect()
 }
 
 // Atomic pre-commit carrier replacement and frozen-policy transfer.

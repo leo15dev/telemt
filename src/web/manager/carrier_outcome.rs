@@ -9,7 +9,24 @@ use super::{
 };
 use crate::config::WebCarrier;
 use crate::web::session::WebSession;
+use crate::web::telemetry::WebCarrierLearningOutcome;
 use crate::web::trace::{TraceIdentity, TraceLifecycleEvent};
+
+/// Typed result of publishing one exact session health transition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CarrierHealthPublicationOutcome {
+    /// Manager ownership was confirmed and the attempt became healthy.
+    Published(WebCarrierLearningOutcome),
+    /// Manager or transport ownership rejected the publication.
+    Rejected(WebCarrierLearningOutcome),
+}
+
+impl CarrierHealthPublicationOutcome {
+    /// Returns whether manager state accepted the health transition.
+    pub(crate) const fn published(self) -> bool {
+        matches!(self, Self::Published(_))
+    }
+}
 
 impl WebProcessRuntime {
     /// Returns authenticated current chain metadata after a committed retry conflict.
@@ -123,30 +140,75 @@ impl WebProcessRuntime {
         learning_context: Option<CarrierLearningContext>,
         client_ip: IpAddr,
         identity: TraceIdentity,
-    ) {
-        let (scores, failures) = {
+        websocket_owner: Option<u64>,
+    ) -> CarrierHealthPublicationOutcome {
+        if carrier.uses_websocket()
+            && websocket_owner.is_none_or(|owner| {
+                !self.claim_websocket_health(owner, session_hash)
+            })
+        {
+            let outcome = WebCarrierLearningOutcome::OwnerNotLive;
+            self.telemetry.record_carrier_learning(carrier, outcome);
+            return CarrierHealthPublicationOutcome::Rejected(outcome);
+        }
+        let scores = {
             let mut state = self.state.lock();
             let Some(entry) = state.bootstraps.get_mut(&bootstrap_hash) else {
-                return;
+                let outcome = WebCarrierLearningOutcome::MissingChain;
+                self.telemetry.record_carrier_learning(carrier, outcome);
+                return CarrierHealthPublicationOutcome::Rejected(outcome);
             };
-            if entry.carrier_attempt != attempt
-                || entry.carrier_phase != CarrierChainPhase::CommittedPendingHealth
-                || entry
-                    .session
-                    .as_ref()
-                    .is_none_or(|session| session.token_hash() != session_hash)
-            {
-                return;
+            if entry.carrier_phase != CarrierChainPhase::CommittedPendingHealth {
+                let outcome = WebCarrierLearningOutcome::PhaseMismatch;
+                self.telemetry.record_carrier_learning(carrier, outcome);
+                return CarrierHealthPublicationOutcome::Rejected(outcome);
+            }
+            let Some(session) = entry.session.as_ref().filter(|session| {
+                entry.carrier_attempt == attempt && session.token_hash() == session_hash
+            }) else {
+                let outcome = WebCarrierLearningOutcome::SessionMismatch;
+                self.telemetry.record_carrier_learning(carrier, outcome);
+                return CarrierHealthPublicationOutcome::Rejected(outcome);
+            };
+            if !session.publish_carrier_health() {
+                let outcome = WebCarrierLearningOutcome::ClosedBeforeHealth;
+                self.telemetry.record_carrier_learning(carrier, outcome);
+                return CarrierHealthPublicationOutcome::Rejected(outcome);
             }
             entry.carrier_phase = CarrierChainPhase::Healthy;
-            (entry.carrier_scores, entry.carrier_failures)
+            entry.carrier_scores
         };
-        if let Some(context) = learning_context {
+        let learning_outcome = if let Some(context) = learning_context {
             let now = Instant::now();
-            let mut learning = self.learning.lock();
-            let failures = failures.into_iter().flatten().collect::<Vec<_>>();
-            learning.record_chain(now, context.epoch, context, &failures, carrier);
-        }
+            let outcome = self.learning.lock().record_chain(
+                now,
+                context.epoch,
+                context,
+                &[],
+                carrier,
+            );
+            match outcome {
+                super::learning::CarrierLearningRecordOutcome::Recorded => {
+                    WebCarrierLearningOutcome::Recorded
+                }
+                super::learning::CarrierLearningRecordOutcome::PolicyDisabled => {
+                    WebCarrierLearningOutcome::PolicyDisabled
+                }
+                super::learning::CarrierLearningRecordOutcome::StaleEpoch => {
+                    WebCarrierLearningOutcome::StaleEpoch
+                }
+                super::learning::CarrierLearningRecordOutcome::CapacityRejected => {
+                    WebCarrierLearningOutcome::CapacityRejected
+                }
+                super::learning::CarrierLearningRecordOutcome::SequenceExhausted => {
+                    WebCarrierLearningOutcome::SequenceExhausted
+                }
+            }
+        } else {
+            WebCarrierLearningOutcome::NotEligible
+        };
+        self.telemetry
+            .record_carrier_learning(carrier, learning_outcome);
         self.trace.record_carrier_lifecycle(
             client_ip,
             identity,
@@ -157,5 +219,6 @@ impl WebProcessRuntime {
             scores,
             None,
         );
+        CarrierHealthPublicationOutcome::Published(learning_outcome)
     }
 }

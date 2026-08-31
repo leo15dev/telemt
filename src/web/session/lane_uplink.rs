@@ -39,7 +39,7 @@ impl WebSession {
         let digest: TokenHash = Sha256::digest(body).into();
         let mut opened = Vec::new();
         let mut committed = false;
-        let mut healthy = false;
+        let mut healthy = None;
         let result = {
             let mut state = self.state.lock();
             if state.closed {
@@ -172,8 +172,8 @@ impl WebSession {
         if committed {
             self.finish_carrier_commit();
         }
-        if healthy {
-            self.finish_carrier_health();
+        if let Some(claim) = healthy {
+            self.finish_carrier_health(claim);
         }
         self.lane_open_notify.notify_waiters();
         for completion in opened {

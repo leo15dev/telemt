@@ -19,7 +19,9 @@ use crate::web::manager::{ControlError, OperatorLifecycleError, SessionDetail, W
 mod request;
 // Ingress, capacity, and decoy telemetry remain separate availability planes.
 mod observability;
-use observability::{WebCapacityStatus, WebDecoyUpstreamStatus, WebIngressStatus};
+use observability::{
+    WebCapacityStatus, WebCarrierNegotiationStatus, WebDecoyUpstreamStatus, WebIngressStatus,
+};
 use request::{
     CloseRequest, DrainRequest, RuntimeInstanceRequest, parse_session_query, parse_session_ref,
     valid_runtime_instance,
@@ -269,6 +271,7 @@ struct WebStatusData {
     ingress: WebIngressStatus,
     capacity: WebCapacityStatus,
     decoy_upstream: WebDecoyUpstreamStatus,
+    carrier_negotiation: WebCarrierNegotiationStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_lifecycle: Option<crate::web::manager::OperatorLifecycleStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -302,6 +305,7 @@ impl WebStatusData {
         let ingress = WebIngressStatus::new(&publication, runtime.is_some());
         let capacity = WebCapacityStatus::new(&publication, runtime, config);
         let decoy_upstream = WebDecoyUpstreamStatus::new(&publication);
+        let carrier_negotiation = WebCarrierNegotiationStatus::new(&publication);
         Self {
             lifecycle: publication.lifecycle.as_str(),
             lifecycle_epoch: publication.epoch,
@@ -317,6 +321,7 @@ impl WebStatusData {
             ingress,
             capacity,
             decoy_upstream,
+            carrier_negotiation,
             operator_lifecycle,
             runtime: runtime.map(WebProcessRuntime::try_status),
         }

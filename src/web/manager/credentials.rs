@@ -147,6 +147,8 @@ impl WebProcessRuntime {
                 carrier_deadline_at: None,
                 carrier_failures: [None; 3],
                 carrier_learning_epoch: 0,
+                carrier_learning_disposition:
+                    crate::web::telemetry::WebCarrierSelectionDisposition::ProfileDisabled,
                 close_requested: false,
                 session_client_ip: None,
                 session_ip_learning_eligible: false,
@@ -218,6 +220,7 @@ impl WebProcessRuntime {
         &self,
         hash: TokenHash,
         host: &str,
+        failure: Option<super::CarrierFailure>,
     ) -> std::result::Result<(), ManagerError> {
         let mut state = self.state.lock();
         let session = state
@@ -225,7 +228,8 @@ impl WebProcessRuntime {
             .get(&hash)
             .filter(|session| session.matches_host(host))
             .cloned();
-        if session.is_some() {
+        let mut failure_phase = None;
+        if let Some(session) = &session {
             for bootstrap in state.bootstraps.values_mut() {
                 if bootstrap
                     .session
@@ -233,6 +237,15 @@ impl WebProcessRuntime {
                     .is_some_and(|current| current.token_hash() == hash)
                 {
                     bootstrap.close_requested = true;
+                    failure_phase = Some(if matches!(
+                        bootstrap.carrier_phase,
+                        CarrierChainPhase::CommittedPendingHealth | CarrierChainPhase::Healthy
+                    ) || session.is_carrier_committed()
+                    {
+                        crate::web::telemetry::WebCarrierFailurePhase::Committed
+                    } else {
+                        crate::web::telemetry::WebCarrierFailurePhase::Provisional
+                    });
                     break;
                 }
             }
@@ -243,7 +256,12 @@ impl WebProcessRuntime {
             .is_some_and(|closed| closed.host == host);
         drop(state);
         if let Some(session) = session {
-            session.close();
+            if session.close()
+                && let (Some(failure), Some(phase)) = (failure, failure_phase)
+            {
+                self.telemetry
+                    .record_carrier_failure(session.carrier(), phase, failure);
+            }
             return Ok(());
         }
         closed.then_some(()).ok_or(ManagerError::Authentication)

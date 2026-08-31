@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize};
 use std::task::{Context, Poll, Waker};
 use std::time::Instant;
 
@@ -39,6 +39,7 @@ pub(crate) use websocket::WebSocketLaneReservation;
 pub(crate) use websocket::WebSocketProbeReservation;
 // Carrier commit and health evidence share one session-locked state machine.
 mod negotiation;
+use negotiation::CarrierHealthPublicationState;
 // Session closure and carrier-attempt transitions share one cancellation boundary.
 mod lifecycle;
 // Uplink batches own exactly-once sequencing and client-frame validation.
@@ -175,7 +176,6 @@ struct SessionState {
     carrier_health_uplink: bool,
     carrier_health_downlink: bool,
     carrier_commit_published: bool,
-    carrier_health_reported: bool,
     websocket_carrier_active: bool,
     websocket_commit_ack_pending: bool,
     websocket_commit_ack_owner: Option<u64>,
@@ -212,6 +212,7 @@ pub(crate) struct WebSession {
     limits: WebLimitsConfig,
     timeouts: WebTimeoutsConfig,
     state: Mutex<SessionState>,
+    carrier_health_publication: AtomicU8,
     down_notify: Arc<Notify>,
     lane_open_notify: Arc<Notify>,
     cancel: CancellationToken,
@@ -304,7 +305,6 @@ impl WebSession {
                 carrier_health_uplink: false,
                 carrier_health_downlink: false,
                 carrier_commit_published: false,
-                carrier_health_reported: false,
                 websocket_carrier_active: false,
                 websocket_commit_ack_pending: false,
                 websocket_commit_ack_owner: None,
@@ -313,6 +313,9 @@ impl WebSession {
                 close_requested: false,
                 closed: false,
             }),
+            carrier_health_publication: AtomicU8::new(
+                CarrierHealthPublicationState::Awaiting as u8,
+            ),
             down_notify: Arc::new(Notify::new()),
             lane_open_notify: Arc::new(Notify::new()),
             cancel: CancellationToken::new(),

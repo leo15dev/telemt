@@ -223,7 +223,7 @@ fn optional_canonical_u8_header<B>(request: &Request<B>, name: &'static str) -> 
         .map(Some)
 }
 
-fn optional_failure_header<B>(request: &Request<B>) -> Option<Option<CarrierFailure>> {
+pub(super) fn optional_failure_header<B>(request: &Request<B>) -> Option<Option<CarrierFailure>> {
     if !request.headers().contains_key("x-carrier-failure") {
         return Some(None);
     }

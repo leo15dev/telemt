@@ -43,6 +43,26 @@ pub(crate) enum CarrierFailure {
 }
 
 impl CarrierFailure {
+    /// Complete fixed bridge failure set in stable metric order.
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Timeout,
+        Self::Network,
+        Self::Upgrade,
+        Self::Http,
+        Self::Protocol,
+    ];
+
+    /// Returns the stable fixed-slot index used by process telemetry.
+    pub(crate) const fn index(self) -> usize {
+        match self {
+            Self::Timeout => 0,
+            Self::Network => 1,
+            Self::Upgrade => 2,
+            Self::Http => 3,
+            Self::Protocol => 4,
+        }
+    }
+
     /// Parses one canonical bridge failure token.
     pub(crate) const fn parse(value: &str) -> Option<Self> {
         match value.as_bytes() {

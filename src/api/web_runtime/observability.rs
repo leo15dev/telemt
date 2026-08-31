@@ -4,6 +4,9 @@ use crate::config::{ProxyConfig, WebHttpConnectionCapacityAction};
 use crate::web::control::{WebRuntimeLifecycle, WebRuntimePublication};
 use crate::web::manager::{WebCapacityResourceStatus, WebCapacitySnapshot, WebProcessRuntime};
 use crate::web::telemetry::{WebOutcomeCounter, WebRejectionCounter};
+use crate::web::telemetry::{
+    WebCarrierFailureCounter, WebCarrierLearningCounter, WebCarrierSelectionCounter,
+};
 
 /// Private WEB ingress state owned by this Telemt process.
 #[derive(Serialize)]
@@ -117,6 +120,25 @@ impl WebDecoyUpstreamStatus {
     }
 }
 
+/// Fixed-cardinality process-lifetime carrier negotiation counters.
+#[derive(Serialize)]
+pub(super) struct WebCarrierNegotiationStatus {
+    selections: Vec<WebCarrierSelectionCounter>,
+    reported_failures: Vec<WebCarrierFailureCounter>,
+    learning_outcomes: Vec<WebCarrierLearningCounter>,
+}
+
+impl WebCarrierNegotiationStatus {
+    /// Builds counters from publication ownership even when runtime state is unavailable.
+    pub(super) fn new(publication: &WebRuntimePublication) -> Self {
+        Self {
+            selections: publication.telemetry.carrier_selection_counters(),
+            reported_failures: publication.telemetry.carrier_failure_counters(),
+            learning_outcomes: publication.telemetry.carrier_learning_counters(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::ProxyConfig;
@@ -143,6 +165,8 @@ mod tests {
             serde_json::to_value(super::WebCapacityStatus::new(&publication, None, &config))
                 .unwrap();
         let decoy = serde_json::to_value(super::WebDecoyUpstreamStatus::new(&publication)).unwrap();
+        let carrier =
+            serde_json::to_value(super::WebCarrierNegotiationStatus::new(&publication)).unwrap();
 
         assert_eq!(
             capacity["rejections"].as_array().unwrap().len(),
@@ -160,5 +184,21 @@ mod tests {
             crate::web::telemetry::WebDecoyUpstreamOutcome::ALL.len()
         );
         assert_eq!(capacity["partial"][0], "runtime");
+        assert_eq!(
+            carrier["selections"].as_array().unwrap().len(),
+            crate::config::WebCarrier::ALL.len()
+                * crate::web::telemetry::WebCarrierSelectionDisposition::ALL.len()
+        );
+        assert_eq!(
+            carrier["reported_failures"].as_array().unwrap().len(),
+            crate::config::WebCarrier::ALL.len()
+                * crate::web::telemetry::WebCarrierFailurePhase::ALL.len()
+                * crate::web::manager::CarrierFailure::ALL.len()
+        );
+        assert_eq!(
+            carrier["learning_outcomes"].as_array().unwrap().len(),
+            crate::config::WebCarrier::ALL.len()
+                * crate::web::telemetry::WebCarrierLearningOutcome::ALL.len()
+        );
     }
 }

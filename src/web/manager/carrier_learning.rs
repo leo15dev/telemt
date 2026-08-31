@@ -8,6 +8,10 @@ use super::ProfileKey;
 use super::negotiation::{CarrierClientClass, CarrierLearningContext};
 use crate::config::{WebCarrier, WebCarrierNegotiationAggressiveness};
 
+#[path = "carrier_learning/status.rs"]
+mod status;
+pub(super) use status::{CarrierLearningEpoch, CarrierLearningRecordOutcome};
+
 const PROFILE_WEIGHT: i16 = 32;
 const USER_AGENT_WEIGHT: i16 = 32;
 const IP_WEIGHT: i16 = 1;
@@ -117,6 +121,23 @@ struct LearningPolicy {
     enabled: bool,
     aggressiveness: WebCarrierNegotiationAggressiveness,
     lifetime: Duration,
+    health_window: Duration,
+}
+
+/// Evidence detached under the policy lock and released by its caller.
+pub(super) struct DetachedCarrierEvidence {
+    entries: HashMap<EvidenceKey, Evidence>,
+    insertion_order: VecDeque<(EvidenceKey, u64)>,
+}
+
+/// Result of one generation-fenced policy reconciliation.
+pub(super) struct CarrierLearningPolicyOutcome {
+    /// Current epoch after the reconciliation.
+    pub(super) epoch: Option<u64>,
+    /// Whether this generation was current enough to apply.
+    pub(super) applied: bool,
+    /// Retired evidence whose allocation is released outside the policy lock.
+    pub(super) detached: Option<DetachedCarrierEvidence>,
 }
 
 #[derive(Clone, Copy)]
@@ -160,35 +181,8 @@ pub(super) struct CarrierLearning {
     insertion_sequence: u64,
     epoch: Option<u64>,
     policy: Option<LearningPolicy>,
+    applied_generation: Option<u64>,
     policy_started_at: Instant,
-}
-
-/// Bounded control-plane summary of carrier-learning state.
-#[derive(Clone, Copy)]
-pub(crate) struct CarrierLearningStatus {
-    /// Whether outcome learning is active in the effective policy.
-    pub(crate) enabled: bool,
-    /// Effective evidence thresholds.
-    pub(crate) aggressiveness: WebCarrierNegotiationAggressiveness,
-    /// Current evidence epoch, or none after counter exhaustion.
-    pub(crate) epoch: Option<u64>,
-    /// Retained evidence entries.
-    pub(crate) entries: usize,
-    /// Restart-owned evidence ceiling.
-    pub(crate) capacity: usize,
-    /// Effective evidence lifetime.
-    pub(crate) lifetime_secs: u64,
-    /// Monotonic age of the current policy epoch.
-    pub(crate) age_ms: u64,
-}
-
-/// Result of one epoch-fenced learning reset.
-#[derive(Clone, Copy)]
-pub(crate) struct CarrierLearningResetOutcome {
-    /// Evidence entries detached by the reset.
-    pub(crate) entries_cleared: usize,
-    /// New epoch fencing pre-reset outcomes.
-    pub(crate) epoch: u64,
 }
 
 impl CarrierLearning {
@@ -201,70 +195,80 @@ impl CarrierLearning {
             insertion_sequence: 1,
             epoch: Some(0),
             policy: None,
+            applied_generation: None,
             policy_started_at: Instant::now(),
         }
     }
 
-    fn status(&self, now: Instant) -> CarrierLearningStatus {
-        let policy = self.policy.unwrap_or(LearningPolicy {
-            enabled: false,
-            aggressiveness: WebCarrierNegotiationAggressiveness::Conservative,
-            lifetime: Duration::ZERO,
-        });
-        CarrierLearningStatus {
-            enabled: policy.enabled,
-            aggressiveness: policy.aggressiveness,
-            epoch: self.epoch,
-            entries: self.entries.len(),
-            capacity: self.capacity,
-            lifetime_secs: policy.lifetime.as_secs(),
-            age_ms: millis(now.saturating_duration_since(self.policy_started_at)),
-        }
-    }
-
-    /// Applies hot-reloaded learning policy and returns its outcome epoch.
+    /// Applies one semantic policy unless a newer generation already owns the store.
     pub(super) fn apply_policy(
         &mut self,
         now: Instant,
+        generation: u64,
         enabled: bool,
         aggressiveness: WebCarrierNegotiationAggressiveness,
         lifetime: Duration,
-    ) -> Option<u64> {
+        health_window: Duration,
+    ) -> CarrierLearningPolicyOutcome {
+        if self
+            .applied_generation
+            .is_some_and(|applied| generation < applied)
+        {
+            return CarrierLearningPolicyOutcome {
+                epoch: self.epoch,
+                applied: false,
+                detached: None,
+            };
+        }
         let policy = LearningPolicy {
             enabled,
             aggressiveness,
             lifetime,
+            health_window,
         };
+        self.applied_generation = Some(generation);
+        let mut detached = None;
         if self.policy != Some(policy) {
-            self.entries.clear();
-            self.insertion_order.clear();
-            if !enabled {
-                self.entries.shrink_to_fit();
-                self.insertion_order.shrink_to_fit();
-            }
+            detached = Some(DetachedCarrierEvidence {
+                entries: std::mem::take(&mut self.entries),
+                insertion_order: std::mem::take(&mut self.insertion_order),
+            });
             self.insertion_sequence = 1;
             self.epoch = self.epoch.and_then(|epoch| epoch.checked_add(1));
             self.policy = Some(policy);
             self.policy_started_at = now;
         }
-        self.epoch
+        CarrierLearningPolicyOutcome {
+            epoch: self.epoch,
+            applied: true,
+            detached,
+        }
     }
 
-    /// Returns the current epoch only when the request snapshot matches owner policy.
+    /// Matches a request to the exact applied generation and semantic policy.
     pub(super) fn epoch_for_policy(
         &self,
+        generation: u64,
         enabled: bool,
         aggressiveness: WebCarrierNegotiationAggressiveness,
         lifetime: Duration,
-    ) -> Option<u64> {
-        (self.policy
-            == Some(LearningPolicy {
-                enabled,
-                aggressiveness,
-                lifetime,
-            }))
-        .then_some(self.epoch)
-        .flatten()
+        health_window: Duration,
+    ) -> CarrierLearningEpoch {
+        if self.applied_generation != Some(generation)
+            || self.policy
+                != Some(LearningPolicy {
+                    enabled,
+                    aggressiveness,
+                    lifetime,
+                    health_window,
+                })
+        {
+            return CarrierLearningEpoch::Pending;
+        }
+        self.epoch.map_or(
+            CarrierLearningEpoch::Exhausted,
+            CarrierLearningEpoch::Ready,
+        )
     }
 
     /// Ranks supported configured candidates without scanning the evidence store.
@@ -348,12 +352,12 @@ impl CarrierLearning {
         context: CarrierLearningContext,
         failures: &[WebCarrier],
         winner: WebCarrier,
-    ) {
+    ) -> CarrierLearningRecordOutcome {
         let Some(policy) = self.policy.filter(|policy| policy.enabled) else {
-            return;
+            return CarrierLearningRecordOutcome::PolicyDisabled;
         };
         if Some(epoch) != self.epoch {
-            return;
+            return CarrierLearningRecordOutcome::StaleEpoch;
         }
         let mut deltas = [0i8; 4];
         let _ = failures;
@@ -369,21 +373,39 @@ impl CarrierLearning {
             (context.ip_learning_eligible && thresholds.ip.is_some())
                 .then_some(EvidenceKey::Ip(context.profile_key, context.client_ip)),
         ];
-        self.make_room(&keys);
         let missing = keys
             .iter()
             .flatten()
             .filter(|key| !self.entries.contains_key(key))
             .count();
-        if self.entries.len().saturating_add(missing) > self.capacity {
-            return;
+        if self
+            .insertion_sequence
+            .checked_add(missing as u64)
+            .is_none()
+        {
+            return CarrierLearningRecordOutcome::SequenceExhausted;
         }
+        let evictions_needed = self
+            .entries
+            .len()
+            .saturating_add(missing)
+            .saturating_sub(self.capacity);
+        let evictable = self
+            .entries
+            .keys()
+            .filter(|key| !keys.contains(&Some(**key)))
+            .count();
+        if evictions_needed > evictable {
+            return CarrierLearningRecordOutcome::CapacityRejected;
+        }
+        self.make_room(&keys);
         let slot = bucket_slot(self.policy_started_at, now, policy.lifetime);
         let cohort = cohort_hash(context);
         for (index, key) in keys.into_iter().enumerate() {
             let Some(key) = key else { continue };
             self.update_key(key, slot, deltas, (index == 0).then_some(cohort));
         }
+        CarrierLearningRecordOutcome::Recorded
     }
 
     /// Reclaims a fixed number of entries outside both half-window buckets.
@@ -452,9 +474,8 @@ impl CarrierLearning {
             entry.update(slot, deltas, cohort);
             return;
         }
-        let Some(insertion_sequence) = self.next_insertion_sequence() else {
-            return;
-        };
+        let insertion_sequence = self.insertion_sequence;
+        self.insertion_sequence += 1;
         self.entries.insert(key, Evidence::new(insertion_sequence));
         self.insertion_order.push_back((key, insertion_sequence));
         if let Some(entry) = self.entries.get_mut(&key) {
@@ -462,56 +483,6 @@ impl CarrierLearning {
         }
     }
 
-    fn next_insertion_sequence(&mut self) -> Option<u64> {
-        let sequence = self.insertion_sequence;
-        self.insertion_sequence = sequence.checked_add(1)?;
-        Some(sequence)
-    }
-}
-
-impl super::WebProcessRuntime {
-    /// Captures learning state without waiting for a contended evidence lock.
-    pub(crate) fn try_carrier_learning_status(&self) -> Option<CarrierLearningStatus> {
-        self.learning
-            .try_lock()
-            .map(|learning| learning.status(Instant::now()))
-    }
-
-    /// Clears all evidence under a new epoch without changing the active policy.
-    pub(crate) fn reset_carrier_learning(
-        &self,
-    ) -> Result<CarrierLearningResetOutcome, super::ManagerError> {
-        let control = self
-            .control_mutation_guard()
-            .map_err(|_| super::ManagerError::Closed)?;
-        let (outcome, retired_entries, retired_order) = {
-            let mut learning = self.learning.lock();
-            let epoch = learning
-                .epoch
-                .and_then(|epoch| epoch.checked_add(1))
-                .ok_or(super::ManagerError::Closed)?;
-            learning.epoch = Some(epoch);
-            learning.insertion_sequence = 1;
-            learning.policy_started_at = Instant::now();
-            let retired_entries = std::mem::take(&mut learning.entries);
-            let retired_order = std::mem::take(&mut learning.insertion_order);
-            (
-                CarrierLearningResetOutcome {
-                    entries_cleared: retired_entries.len(),
-                    epoch,
-                },
-                retired_entries,
-                retired_order,
-            )
-        };
-        drop(control);
-        drop((retired_entries, retired_order));
-        Ok(outcome)
-    }
-}
-
-fn millis(duration: Duration) -> u64 {
-    duration.as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 fn supported(configured: &[WebCarrier], request: super::CarrierRequest) -> Vec<WebCarrier> {

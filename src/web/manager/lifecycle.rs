@@ -1,4 +1,5 @@
 use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::time::Instant as TokioInstant;
@@ -9,6 +10,7 @@ use super::state::{
     remove_bootstrap_locked, remove_expired_locked,
 };
 use super::{ProfileKey, TokenHash, WebProcessRuntime};
+use crate::maestro::generation::RuntimeGeneration;
 
 /// Result of draining all process-owned WEB work under one absolute deadline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +29,30 @@ pub(crate) struct WebShutdownDrain {
 }
 
 impl WebProcessRuntime {
+    /// Applies learning policy before publishing one new runtime generation.
+    pub(crate) fn activate_generation(
+        &self,
+        generation: Arc<RuntimeGeneration>,
+    ) -> Arc<RuntimeGeneration> {
+        let config = generation.config();
+        let (replaced, detached) = {
+            let mut learning = self.learning.lock();
+            let outcome = learning.apply_policy(
+                Instant::now(),
+                generation.id,
+                config.web.carrier_negotiation_enabled() && config.web.carrier_learning,
+                config.web.carrier_negotiation_aggressiveness,
+                Duration::from_secs(config.web.timeouts.carrier_learning_secs),
+                Duration::from_secs(config.web.timeouts.carrier_health_secs),
+            );
+            debug_assert!(outcome.applied, "runtime generations must increase monotonically");
+            let replaced = self.active_runtime.swap(generation);
+            (replaced, outcome.detached)
+        };
+        drop(detached);
+        replaced
+    }
+
     /// Removes one closed session and retains a bounded host-bound replay marker.
     pub(crate) fn session_finished(
         &self,
@@ -150,15 +176,20 @@ impl WebProcessRuntime {
         let generation = self.active_generation();
         let config = &generation.config().web;
         let learning_enabled = config.carrier_negotiation_enabled() && config.carrier_learning;
-        let mut learning = self.learning.lock();
-        let _ = learning.apply_policy(
-            now,
-            learning_enabled,
-            config.carrier_negotiation_aggressiveness,
-            Duration::from_secs(config.timeouts.carrier_learning_secs),
-        );
-        learning.prune(now);
-        drop(learning);
+        let detached = {
+            let mut learning = self.learning.lock();
+            let outcome = learning.apply_policy(
+                now,
+                generation.id,
+                learning_enabled,
+                config.carrier_negotiation_aggressiveness,
+                Duration::from_secs(config.timeouts.carrier_learning_secs),
+                Duration::from_secs(config.timeouts.carrier_health_secs),
+            );
+            learning.prune(now);
+            outcome.detached
+        };
+        drop(detached);
         let (sessions, expired_chains) = {
             let mut state = self.state.lock();
             state.apply_issuance_policy(generation.id, config.enabled);

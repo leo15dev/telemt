@@ -51,7 +51,8 @@ pub(super) async fn patch_config(
     let active_config = shared.active_runtime.load_full().config();
     let mut prepared =
         prepare_patch_to_path(&shared.config_path, &patch_json, expected_revision).await?;
-    let resolved = resolve_reload_config(&active_config, &prepared.desired_config);
+    let resolved = resolve_reload_config(&active_config, &prepared.desired_config)
+        .map_err(ApiFailure::bad_request)?;
     prepared.response.runtime_reload_required = resolved.runtime_changed;
     prepared.response.process_restart_required = !resolved.deferred_process_fields.is_empty();
     prepared.response.deferred_process_fields = resolved.deferred_process_fields;
@@ -205,7 +206,8 @@ async fn prepare_patch_to_path(
     let revision = compute_snapshot_revision(&candidate);
     let new_cfg = candidate.config;
     let class = classify_config_changes(&old_cfg, &new_cfg);
-    let deferred_process_fields = deferred_process_fields(&old_cfg, &new_cfg);
+    let deferred_process_fields =
+        deferred_process_fields(&old_cfg, &new_cfg).map_err(ApiFailure::bad_request)?;
 
     Ok(PreparedConfigPatch {
         owner_path,

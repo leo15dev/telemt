@@ -207,12 +207,15 @@ impl WebProcessRuntime {
         let limits = config.web.limits.clone();
         let learning_capacity = limits.max_carrier_learning_entries;
         let mut carrier_learning = learning::CarrierLearning::new(learning_capacity);
-        let _ = carrier_learning.apply_policy(
+        let learning_policy = carrier_learning.apply_policy(
             std::time::Instant::now(),
+            initial_generation.id,
             config.web.carrier_negotiation_enabled() && config.web.carrier_learning,
             config.web.carrier_negotiation_aggressiveness,
             Duration::from_secs(config.web.timeouts.carrier_learning_secs),
+            Duration::from_secs(config.web.timeouts.carrier_health_secs),
         );
+        drop(learning_policy.detached);
         let websocket_connections = limits
             .max_http_connections
             .saturating_sub(limits.websocket_http_connection_reserve);

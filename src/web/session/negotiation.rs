@@ -3,6 +3,26 @@ use std::time::{Duration, Instant};
 use super::uplink::AppliedProgress;
 use super::{SessionNegotiationPhase, SessionState, WebSession};
 
+/// Fixed ownership state for one carrier-health publication attempt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub(super) enum CarrierHealthPublicationState {
+    /// No eligible callback has claimed publication.
+    Awaiting,
+    /// One callback is validating manager and transport ownership.
+    Publishing,
+    /// Manager state accepted the health transition.
+    Published,
+    /// Close or ownership validation permanently rejected publication.
+    Rejected,
+}
+
+/// Transport owner captured by the single publication claimant.
+#[derive(Clone, Copy)]
+pub(super) struct CarrierHealthClaim {
+    websocket_owner: Option<u64>,
+}
+
 impl WebSession {
     /// Returns whether accepted carrier progress made this attempt immutable.
     pub(crate) fn is_carrier_committed(&self) -> bool {
@@ -48,21 +68,21 @@ impl WebSession {
         let healthy = {
             let mut state = self.state.lock();
             if state.closed || state.negotiation_phase != SessionNegotiationPhase::Committed {
-                false
+                None
             } else {
                 state.carrier_commit_published = true;
                 self.carrier_health_ready_locked(&mut state, Instant::now())
             }
         };
-        if healthy {
-            self.finish_carrier_health();
+        if let Some(claim) = healthy {
+            self.finish_carrier_health(claim);
         }
     }
 
     /// Publishes complete transport-specific health evidence to process state.
-    pub(super) fn finish_carrier_health(&self) {
+    pub(super) fn finish_carrier_health(&self, claim: CarrierHealthClaim) {
         if let Some(manager) = self.manager.upgrade() {
-            manager.carrier_became_healthy(
+            let outcome = manager.carrier_became_healthy(
                 self.bootstrap_hash,
                 self.token_hash,
                 self.carrier_attempt,
@@ -71,7 +91,13 @@ impl WebSession {
                 self.learning_context,
                 self.client_ip,
                 self.trace_identity(),
+                claim.websocket_owner,
             );
+            if !outcome.published() {
+                self.reject_carrier_health_publication();
+            }
+        } else {
+            self.reject_carrier_health_publication();
         }
     }
 
@@ -80,9 +106,9 @@ impl WebSession {
         &self,
         state: &mut SessionState,
         progress: AppliedProgress,
-    ) -> (bool, bool) {
+    ) -> (bool, Option<CarrierHealthClaim>) {
         if !self.automatic_carrier || !progress.any() {
-            return (false, false);
+            return (false, None);
         }
         if self.selected_carrier.uses_websocket() {
             state.websocket_carrier_active = true;
@@ -109,15 +135,14 @@ impl WebSession {
         &self,
         state: &mut SessionState,
         now: Instant,
-    ) -> bool {
+    ) -> Option<CarrierHealthClaim> {
         if !self.automatic_carrier
             || state.closed
             || state.negotiation_phase != SessionNegotiationPhase::Committed
             || !state.carrier_commit_published
-            || state.carrier_health_reported
             || state.carrier_health_due_at.is_none_or(|due| now < due)
         {
-            return false;
+            return None;
         }
         let evidence = if state.websocket_carrier_active {
             state.websocket_probe_claimed
@@ -132,10 +157,23 @@ impl WebSession {
                     .zip(state.carrier_health_due_at)
                     .is_some_and(|(activity, due)| activity >= due)
         };
-        if evidence {
-            state.carrier_health_reported = true;
+        if !evidence {
+            return None;
         }
-        evidence
+        self.carrier_health_publication
+            .compare_exchange(
+                CarrierHealthPublicationState::Awaiting as u8,
+                CarrierHealthPublicationState::Publishing as u8,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .ok()
+            .map(|_| CarrierHealthClaim {
+                websocket_owner: state
+                    .websocket_carrier_active
+                    .then_some(state.websocket_commit_ack_owner)
+                    .flatten(),
+            })
     }
 
     /// Returns whether the exact automatic WebSocket owner must receive a commit acknowledgement.
@@ -175,17 +213,85 @@ impl WebSession {
             state.carrier_health_activity_at = Some(now);
             self.carrier_health_ready_locked(&mut state, now)
         };
-        if healthy {
-            self.finish_carrier_health();
+        if let Some(claim) = healthy {
+            self.finish_carrier_health(claim);
         }
         true
+    }
+
+    /// Confirms manager ownership as the health publication linearization point.
+    pub(crate) fn publish_carrier_health(&self) -> bool {
+        self.carrier_health_publication
+            .compare_exchange(
+                CarrierHealthPublicationState::Publishing as u8,
+                CarrierHealthPublicationState::Published as u8,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    /// Rejects an in-flight publication after manager validation fails.
+    pub(super) fn reject_carrier_health_publication(&self) {
+        let _ = self.carrier_health_publication.compare_exchange(
+            CarrierHealthPublicationState::Publishing as u8,
+            CarrierHealthPublicationState::Rejected as u8,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        );
+    }
+
+    /// Rejects pending health on close and reports whether no callback was in flight.
+    pub(super) fn reject_carrier_health_on_close(&self) -> bool {
+        loop {
+            let current = self
+                .carrier_health_publication
+                .load(std::sync::atomic::Ordering::Acquire);
+            let count_locally = current == CarrierHealthPublicationState::Awaiting as u8;
+            if current != CarrierHealthPublicationState::Awaiting as u8
+                && current != CarrierHealthPublicationState::Publishing as u8
+            {
+                return false;
+            }
+            if self
+                .carrier_health_publication
+                .compare_exchange(
+                    current,
+                    CarrierHealthPublicationState::Rejected as u8,
+                    std::sync::atomic::Ordering::AcqRel,
+                    std::sync::atomic::Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                return count_locally;
+            }
+        }
+    }
+
+    /// Returns the current fixed health-publication state.
+    pub(super) fn carrier_health_publication_state(&self) -> CarrierHealthPublicationState {
+        match self
+            .carrier_health_publication
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            value if value == CarrierHealthPublicationState::Awaiting as u8 => {
+                CarrierHealthPublicationState::Awaiting
+            }
+            value if value == CarrierHealthPublicationState::Publishing as u8 => {
+                CarrierHealthPublicationState::Publishing
+            }
+            value if value == CarrierHealthPublicationState::Published as u8 => {
+                CarrierHealthPublicationState::Published
+            }
+            _ => CarrierHealthPublicationState::Rejected,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::net::SocketAddr;
-    use std::sync::Arc;
+    use std::sync::{Arc, Barrier};
 
     use super::*;
     use crate::config::{
@@ -229,6 +335,16 @@ mod tests {
         )
     }
 
+    fn arm_http_health(session: &WebSession, now: Instant) {
+        let mut state = session.state.lock();
+        state.negotiation_phase = SessionNegotiationPhase::Committed;
+        state.carrier_commit_published = true;
+        state.carrier_health_due_at = Some(now - Duration::from_secs(1));
+        state.carrier_health_uplink = true;
+        state.carrier_health_downlink = true;
+        state.carrier_health_activity_at = Some(now);
+    }
+
     #[test]
     fn final_deadline_refuses_uncommitted_progress() {
         let session = session(WebCarrier::Https, Instant::now() - Duration::from_secs(1));
@@ -254,9 +370,9 @@ mod tests {
         state.carrier_health_uplink = true;
         state.carrier_health_downlink = true;
         state.carrier_health_activity_at = Some(now - Duration::from_secs(2));
-        assert!(!session.carrier_health_ready_locked(&mut state, now));
+        assert!(session.carrier_health_ready_locked(&mut state, now).is_none());
         state.carrier_health_activity_at = Some(now);
-        assert!(session.carrier_health_ready_locked(&mut state, now));
+        assert!(session.carrier_health_ready_locked(&mut state, now).is_some());
     }
 
     #[test]
@@ -274,9 +390,9 @@ mod tests {
         state.websocket_commit_ack_owner = Some(7);
         state.websocket_commit_ack_written = true;
         state.carrier_health_uplink = true;
-        assert!(!session.carrier_health_ready_locked(&mut state, now));
+        assert!(session.carrier_health_ready_locked(&mut state, now).is_none());
         state.websocket_probe_claimed = true;
-        assert!(session.carrier_health_ready_locked(&mut state, now));
+        assert!(session.carrier_health_ready_locked(&mut state, now).is_some());
     }
 
     #[test]
@@ -290,8 +406,74 @@ mod tests {
         state.carrier_health_downlink = true;
         state.carrier_health_activity_at = Some(now);
 
-        assert!(!session.carrier_health_ready_locked(&mut state, now));
-        assert!(!state.carrier_health_reported);
+        assert!(session.carrier_health_ready_locked(&mut state, now).is_none());
+        assert_eq!(
+            session.carrier_health_publication_state(),
+            CarrierHealthPublicationState::Awaiting
+        );
+    }
+
+    #[test]
+    fn health_publication_claim_is_single_shot() {
+        let session = session(WebCarrier::Https, Instant::now() + Duration::from_secs(60));
+        let now = Instant::now();
+        arm_http_health(&session, now);
+        let mut state = session.state.lock();
+
+        assert!(session.carrier_health_ready_locked(&mut state, now).is_some());
+        assert!(session.carrier_health_ready_locked(&mut state, now).is_none());
+        drop(state);
+        assert_eq!(
+            session.carrier_health_publication_state(),
+            CarrierHealthPublicationState::Publishing
+        );
+        assert!(session.publish_carrier_health());
+        assert!(!session.publish_carrier_health());
+        assert_eq!(
+            session.carrier_health_publication_state(),
+            CarrierHealthPublicationState::Published
+        );
+    }
+
+    #[test]
+    fn concurrent_health_and_close_always_reach_one_terminal_state() {
+        for _ in 0..512 {
+            let session = session(WebCarrier::Https, Instant::now() + Duration::from_secs(60));
+            let now = Instant::now();
+            arm_http_health(&session, now);
+            let barrier = Arc::new(Barrier::new(3));
+            let health_session = Arc::clone(&session);
+            let health_barrier = Arc::clone(&barrier);
+            let health = std::thread::spawn(move || {
+                health_barrier.wait();
+                std::thread::yield_now();
+                let claim = {
+                    let mut state = health_session.state.lock();
+                    health_session.carrier_health_ready_locked(&mut state, now)
+                };
+                if claim.is_some() {
+                    health_session.publish_carrier_health();
+                }
+            });
+            let close_session = Arc::clone(&session);
+            let close_barrier = Arc::clone(&barrier);
+            let close = std::thread::spawn(move || {
+                close_barrier.wait();
+                std::thread::yield_now();
+                close_session.close();
+            });
+            barrier.wait();
+            health.join().unwrap();
+            close.join().unwrap();
+
+            assert!(matches!(
+                session.carrier_health_publication_state(),
+                CarrierHealthPublicationState::Published
+                    | CarrierHealthPublicationState::Rejected
+            ));
+            assert!(!session.publish_carrier_health());
+            assert!(!session.close());
+        }
     }
 
     #[test]

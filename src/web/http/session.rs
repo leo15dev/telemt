@@ -7,7 +7,9 @@ use hyper::{Method, Request, StatusCode};
 
 use super::body::{CollectBodyError, CollectedBody, RequestBody, collect_body};
 use super::decoy::serve_decoy;
-use super::request::{binary_content_type, carrier_ip_learning_eligible, carrier_request};
+use super::request::{
+    binary_content_type, carrier_ip_learning_eligible, carrier_request, optional_failure_header,
+};
 use super::response::{
     carrier_empty, carrier_headers, full_response, insert_header, service_unavailable,
 };
@@ -34,6 +36,9 @@ pub(super) async fn handle_session(
         if request.headers().contains_key(header::CONTENT_TYPE) {
             return serve_decoy(request, vhost, true, &runtime).await;
         }
+        let Some(carrier_failure) = optional_failure_header(&request) else {
+            return serve_decoy(request, vhost, true, &runtime).await;
+        };
         let session = runtime.get_session(token_hash, &vhost.host).ok();
         if let Some(trace) = request_trace(&request)
             && let Some(session) = &session
@@ -56,7 +61,11 @@ pub(super) async fn handle_session(
                 return serve_decoy(request, vhost, true, &runtime).await;
             }
         };
-        if !body.is_empty() || runtime.close_token(token_hash, &vhost.host).is_err() {
+        if !body.is_empty()
+            || runtime
+                .close_token(token_hash, &vhost.host, carrier_failure)
+                .is_err()
+        {
             return serve_decoy(request, vhost, true, &runtime).await;
         }
         return carrier_empty(StatusCode::NO_CONTENT);

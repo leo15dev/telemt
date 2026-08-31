@@ -1,9 +1,13 @@
 use std::fmt::Write;
 
-use crate::config::{ProxyConfig, WebHttpConnectionCapacityAction};
+use crate::config::{
+    ProxyConfig, WebCarrier, WebCarrierNegotiationAggressiveness,
+    WebHttpConnectionCapacityAction,
+};
 use crate::web::control::{WebRuntimeLifecycle, WebRuntimePublication};
-use crate::web::manager::OperatorLifecycleState;
+use crate::web::manager::{CarrierFailure, OperatorLifecycleState};
 use crate::web::telemetry::{
+    WebCarrierFailurePhase, WebCarrierLearningOutcome, WebCarrierSelectionDisposition,
     WebDecoyUpstreamOutcome, WebHttpConnectionOverloadOutcome, WebRejectionReason,
 };
 
@@ -192,7 +196,156 @@ pub(super) fn render(out: &mut String, publication: &WebRuntimePublication, conf
         );
     }
 
+    render_carrier_negotiation(out, publication, runtime.as_deref(), config);
     render_aggregate_totals(out, publication);
+}
+
+fn render_carrier_negotiation(
+    out: &mut String,
+    publication: &WebRuntimePublication,
+    runtime: Option<&crate::web::manager::WebProcessRuntime>,
+    config: &ProxyConfig,
+) {
+    let _ = writeln!(
+        out,
+        "# HELP telemt_web_carrier_selections_total Successful carrier selections by learning disposition"
+    );
+    let _ = writeln!(out, "# TYPE telemt_web_carrier_selections_total counter");
+    for carrier in WebCarrier::ALL {
+        for disposition in WebCarrierSelectionDisposition::ALL {
+            let _ = writeln!(
+                out,
+                "telemt_web_carrier_selections_total{{carrier=\"{}\",disposition=\"{}\"}} {}",
+                carrier.as_str(),
+                disposition.as_str(),
+                publication
+                    .telemetry
+                    .carrier_selection_total(carrier, disposition)
+            );
+        }
+    }
+
+    let _ = writeln!(
+        out,
+        "# HELP telemt_web_carrier_reported_failures_total Canonical client-reported failures for authenticated carrier chains"
+    );
+    let _ = writeln!(
+        out,
+        "# TYPE telemt_web_carrier_reported_failures_total counter"
+    );
+    for carrier in WebCarrier::ALL {
+        for phase in WebCarrierFailurePhase::ALL {
+            for reason in CarrierFailure::ALL {
+                let _ = writeln!(
+                    out,
+                    "telemt_web_carrier_reported_failures_total{{carrier=\"{}\",phase=\"{}\",reason=\"{}\"}} {}",
+                    carrier.as_str(),
+                    phase.as_str(),
+                    reason.as_str(),
+                    publication
+                        .telemetry
+                        .carrier_failure_total(carrier, phase, reason)
+                );
+            }
+        }
+    }
+
+    let _ = writeln!(
+        out,
+        "# HELP telemt_web_carrier_learning_outcomes_total Terminal carrier health and evidence publication outcomes"
+    );
+    let _ = writeln!(
+        out,
+        "# TYPE telemt_web_carrier_learning_outcomes_total counter"
+    );
+    for carrier in WebCarrier::ALL {
+        for outcome in WebCarrierLearningOutcome::ALL {
+            let _ = writeln!(
+                out,
+                "telemt_web_carrier_learning_outcomes_total{{carrier=\"{}\",outcome=\"{}\"}} {}",
+                carrier.as_str(),
+                outcome.as_str(),
+                publication
+                    .telemetry
+                    .carrier_learning_total(carrier, outcome)
+            );
+        }
+    }
+
+    let learning = runtime.and_then(|runtime| runtime.try_carrier_learning_status());
+    let policy_matches = learning.as_ref().is_some_and(|status| {
+        status.policy_generation == runtime.map(|runtime| runtime.active_generation().id)
+            && status.enabled
+                == (config.web.carrier_negotiation_enabled() && config.web.carrier_learning)
+            && status.aggressiveness == config.web.carrier_negotiation_aggressiveness
+            && status.lifetime_secs == config.web.timeouts.carrier_learning_secs
+            && status.health_secs == config.web.timeouts.carrier_health_secs
+    });
+    let active_state = if runtime.is_none() {
+        "unavailable"
+    } else if learning.is_none() {
+        "partial"
+    } else if !policy_matches {
+        "pending"
+    } else if learning.as_ref().is_some_and(|status| status.epoch.is_none()) {
+        "exhausted"
+    } else if learning.as_ref().is_some_and(|status| status.enabled) {
+        "enabled"
+    } else {
+        "disabled"
+    };
+    let _ = writeln!(
+        out,
+        "# HELP telemt_web_carrier_learning_state Current bounded learning policy state"
+    );
+    let _ = writeln!(out, "# TYPE telemt_web_carrier_learning_state gauge");
+    for state in LEARNING_STATES {
+        let _ = writeln!(
+            out,
+            "telemt_web_carrier_learning_state{{state=\"{state}\"}} {}",
+            flag(active_state == state)
+        );
+    }
+
+    let _ = writeln!(
+        out,
+        "# HELP telemt_web_carrier_learning_entries Current bounded evidence entries"
+    );
+    let _ = writeln!(out, "# TYPE telemt_web_carrier_learning_entries gauge");
+    for (kind, value) in [
+        ("used", learning.as_ref().map_or(0, |status| status.entries)),
+        ("limit", learning.as_ref().map_or(0, |status| status.capacity)),
+    ] {
+        let _ = writeln!(
+            out,
+            "telemt_web_carrier_learning_entries{{kind=\"{kind}\"}} {value}"
+        );
+    }
+
+    let _ = writeln!(
+        out,
+        "# HELP telemt_web_carrier_learning_policy Effective learning aggressiveness"
+    );
+    let _ = writeln!(out, "# TYPE telemt_web_carrier_learning_policy gauge");
+    for aggressiveness in [
+        WebCarrierNegotiationAggressiveness::Conservative,
+        WebCarrierNegotiationAggressiveness::Balanced,
+        WebCarrierNegotiationAggressiveness::Aggressive,
+    ] {
+        let token = match aggressiveness {
+            WebCarrierNegotiationAggressiveness::Conservative => "conservative",
+            WebCarrierNegotiationAggressiveness::Balanced => "balanced",
+            WebCarrierNegotiationAggressiveness::Aggressive => "aggressive",
+        };
+        let active = learning
+            .as_ref()
+            .is_some_and(|status| status.aggressiveness == aggressiveness);
+        let _ = writeln!(
+            out,
+            "telemt_web_carrier_learning_policy{{aggressiveness=\"{token}\"}} {}",
+            flag(active)
+        );
+    }
 }
 
 fn render_capacity(out: &mut String, snapshot: &crate::web::manager::WebCapacitySnapshot) {
@@ -328,6 +481,15 @@ const OPERATOR_STATES: [&str; 6] = [
     "drained",
 ];
 
+const LEARNING_STATES: [&str; 6] = [
+    "unavailable",
+    "partial",
+    "pending",
+    "exhausted",
+    "disabled",
+    "enabled",
+];
+
 const fn flag(value: bool) -> u8 {
     if value { 1 } else { 0 }
 }
@@ -361,5 +523,28 @@ mod tests {
             crate::web::telemetry::WebDecoyUpstreamOutcome::ALL.len()
         );
         assert!(output.contains("telemt_web_ingress_lifecycle_state{state=\"starting\"} 1"));
+        assert_eq!(
+            output.matches("telemt_web_carrier_selections_total{").count(),
+            crate::config::WebCarrier::ALL.len()
+                * crate::web::telemetry::WebCarrierSelectionDisposition::ALL.len()
+        );
+        assert_eq!(
+            output
+                .matches("telemt_web_carrier_reported_failures_total{")
+                .count(),
+            crate::config::WebCarrier::ALL.len()
+                * crate::web::telemetry::WebCarrierFailurePhase::ALL.len()
+                * crate::web::manager::CarrierFailure::ALL.len()
+        );
+        assert_eq!(
+            output
+                .matches("telemt_web_carrier_learning_outcomes_total{")
+                .count(),
+            crate::config::WebCarrier::ALL.len()
+                * crate::web::telemetry::WebCarrierLearningOutcome::ALL.len()
+        );
+        assert!(output.contains(
+            "telemt_web_carrier_learning_state{state=\"unavailable\"} 1"
+        ));
     }
 }

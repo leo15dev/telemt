@@ -135,6 +135,17 @@ impl WebProcessRuntime {
         let old_identity = replacement.old_session.trace_identity();
         drop(state);
         supersede.finish();
+        self.telemetry.record_carrier_selection(
+            replacement.carrier,
+            replacement.learning_disposition,
+        );
+        if let Some(failure) = replacement.request.failure() {
+            self.telemetry.record_carrier_failure(
+                replacement.old_session.carrier(),
+                crate::web::telemetry::WebCarrierFailurePhase::Provisional,
+                failure,
+            );
+        }
         self.trace.record_carrier_lifecycle(
             client_ip,
             old_identity.clone(),

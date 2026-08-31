@@ -72,10 +72,12 @@ struct WebSocketStatus {
 struct LearningStatus {
     enabled: bool,
     aggressiveness: WebCarrierNegotiationAggressiveness,
+    policy_generation: Option<u64>,
     epoch: Option<u64>,
     entries: usize,
     capacity: usize,
     lifetime_secs: u64,
+    health_secs: u64,
     age_ms: u64,
 }
 
@@ -267,10 +269,12 @@ impl WebProcessRuntime {
             .map(|status| LearningStatus {
                 enabled: status.enabled,
                 aggressiveness: status.aggressiveness,
+                policy_generation: status.policy_generation,
                 epoch: status.epoch,
                 entries: status.entries,
                 capacity: status.capacity,
                 lifetime_secs: status.lifetime_secs,
+                health_secs: status.health_secs,
                 age_ms: status.age_ms,
             });
         if learning.is_none() {

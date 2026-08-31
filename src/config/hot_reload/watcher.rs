@@ -161,7 +161,17 @@ fn reload_config_with_resolver(
     }
 
     let old_cfg = config_tx.borrow().clone();
-    let applied_cfg = overlay_hot_fields(&old_cfg, &new_cfg);
+    let mut applied_cfg = overlay_hot_fields(&old_cfg, &new_cfg);
+    if let Err(error) = applied_cfg
+        .validate_effective_web()
+        .and_then(|_| applied_cfg.rebuild_runtime_web())
+    {
+        error!(
+            "config reload: effective WEB validation failed: {}; keeping old config",
+            error
+        );
+        return Some(next_manifest);
+    }
     let old_hot = HotFields::from_config(&old_cfg);
     let applied_hot = HotFields::from_config(&applied_cfg);
     let non_hot_changed = !config_equal(&applied_cfg, &new_cfg);

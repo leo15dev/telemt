@@ -8,6 +8,7 @@ struct ReleasedQueues {
     data_items: usize,
     control_bytes: usize,
     control_items: usize,
+    closed_before_health: bool,
 }
 
 /// Deferred queue release after manager publication linearizes a supersede.
@@ -26,11 +27,12 @@ impl CarrierSupersedeCompletion<'_> {
 
 impl WebSession {
     /// Closes carrier state while relay tasks retain their admission until exit.
-    pub(crate) fn close(&self) {
+    pub(crate) fn close(&self) -> bool {
         let Some(released) = self.begin_close(false, None) else {
-            return;
+            return false;
         };
         self.finish_close(released, false);
+        true
     }
 
     /// Atomically prevents first-frame commit while one successor is prepared.
@@ -97,8 +99,8 @@ impl WebSession {
             let mut state = self.state.lock();
             self.carrier_health_ready_locked(&mut state, now)
         };
-        if healthy {
-            self.finish_carrier_health();
+        if let Some(claim) = healthy {
+            self.finish_carrier_health(claim);
         }
         let Some(released) = self.begin_close(false, Some(now)) else {
             return false;
@@ -127,6 +129,9 @@ impl WebSession {
             state.close_requested = true;
             return None;
         }
+        let closed_before_health = self.automatic_carrier
+            && state.negotiation_phase == SessionNegotiationPhase::Committed
+            && self.reject_carrier_health_on_close();
         state.closed = true;
         if superseded {
             state.negotiation_phase = SessionNegotiationPhase::Superseded;
@@ -177,6 +182,7 @@ impl WebSession {
             data_items,
             control_bytes,
             control_items,
+            closed_before_health,
         })
     }
 
@@ -189,6 +195,12 @@ impl WebSession {
             self.lane_open_notify.notify_waiters();
         }
         if let Some(manager) = self.manager.upgrade() {
+            if released.closed_before_health {
+                manager.telemetry().record_carrier_learning(
+                    self.selected_carrier,
+                    crate::web::telemetry::WebCarrierLearningOutcome::ClosedBeforeHealth,
+                );
+            }
             manager.release_pending(
                 self.profile_key,
                 released.data_bytes,

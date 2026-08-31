@@ -1,7 +1,7 @@
-(()=>{
-'use strict';
+(()=>{'use strict';
 const bootstrap="__BOOTSTRAP__";
 const relayOrigin='https://__HOST__',carrierCapabilities='https,https-lanes,websocket,websocket-lanes';
+const responseBody=globalThis.TelemtBridgeResponse;if(!responseBody)throw new Error('missing response runtime');
 const negotiationEnabled=__NEGOTIATION_ENABLED__,candidateCount=__CANDIDATE_COUNT__,candidateDeadlines=[__CARRIER_DEADLINES__];
 const longPollMs=__LONG_POLL_SECS__*1000,bridgeRequestMs=__BRIDGE_REQUEST_SECS__*1000,bridgeRetryMs=__BRIDGE_RETRY_SECS__*1000;
 const probeCoalesceMs=__CARRIER_PROBE_COALESCE_MS__;
@@ -12,10 +12,19 @@ const fragment=location.hash,androidNonce=/^#android=([A-Za-z0-9_-]{43})$/.exec(
 history.replaceState(null,'',location.pathname);
 let initialized=false,closed=false,port=null,sessionToken='',cleanupToken='',createStarted=false,socket=null,socketReady=false,carrier='';
 let queuedBytes=0,queuedItems=0,upSequence=1,downCursor='0',upRunning=false,upLease=null,pollController=null;
-let helloFrame=null,welcomeSent=false,carrierAttempt=1,carrierFailure='',carrierCommitted=false;
+let helloFrame=null,helloTimer=null,welcomeSent=false,carrierAttempt=1,carrierFailure='',carrierCommitted=false,terminalFailure='';
 let negotiationStartedAt=0,carrierTimer=null,probeTimer=null,attemptController=null,attemptEpoch=1,candidateRunning=false,switching=false,currentAttempt=null;
 const pending=[],upPending=[],lanes=new Map(),closedLanes=new Set(),closedLaneOrder=[];
-const status=state=>{if(port&&!closed)port.postMessage({t:'status',state})};
+const canonicalFailures=['timeout','network','upgrade','http','protocol'];
+const failure=(reason,message)=>Object.assign(new Error(message||reason),{telemtReason:reason});
+const failureReason=(error,fallback)=>error&&canonicalFailures.includes(error.telemtReason)?error.telemtReason:fallback;
+const status=(state,phase,reason,deadlineMs)=>{
+ if(!port||closed)return;
+ const currentPhase=phase||(state==='connected'?'committed':state==='reconnecting'?'retrying':state==='failed'?'terminal':createStarted?'negotiating':'starting');
+ let currentDeadline=deadlineMs;
+ if(currentDeadline===undefined)currentDeadline=negotiationStartedAt?Math.max(0,negotiationStartedAt+negotiatedFinalDeadline*1000-Date.now()):0;
+ port.postMessage({t:'status',state,phase:currentPhase,reason:reason||'',deadline_ms:Math.max(0,Math.ceil(currentDeadline))});
+};
 const pause=(milliseconds,signal)=>new Promise((resolve,reject)=>{
  if(signal&&signal.aborted){reject(new Error('request aborted'));return}
  const timer=setTimeout(done,milliseconds);function done(){if(signal)signal.removeEventListener('abort',abort);resolve()}
@@ -152,8 +161,13 @@ function retryAfterMs(response){
  return 0;
 }
 function retryableStatus(status){return status===408||status===429||status===502||status===503||status===504}
+function responsePolicy(path,status){
+ if(path==='/api/v1/session'&&status===200)return {limit:8,exact:true};
+ if(path==='/api/v1/down'&&status===200)return {limit:batchLimit,exact:false};
+ return {limit:0,exact:true};
+}
 async function request(path,frozenOptions){
- let delay=250,attempt=0;const deadline=Date.now()+bridgeRetryMs,external=frozenOptions.signal;
+ let delay=250,attempt=0,lastReason='network';const deadline=Date.now()+bridgeRetryMs,external=frozenOptions.signal;
  const attemptLimit=path==='/api/v1/down'?longPollMs+bridgeRequestMs:bridgeRequestMs;
  while(attempt<9){
   if(closed||(external&&external.aborted))throw new Error('request aborted');
@@ -164,21 +178,31 @@ async function request(path,frozenOptions){
   const timer=setTimeout(abort,Math.max(1,Math.min(attemptLimit,remaining)));
   let response=null,wait=0;
   try{
-   const fetched=await fetch(relayOrigin+path,requestOptions),body=await fetched.arrayBuffer();
-   response={status:fetched.status,headers:fetched.headers,body};
-   if(!retryableStatus(response.status))return response;
-   wait=retryAfterMs(response);
+   const fetched=await fetch(relayOrigin+path,requestOptions);
+   if(retryableStatus(fetched.status)){
+    lastReason='http';wait=retryAfterMs(fetched);responseBody.cancel(fetched);
+   }else{
+    const policy=responsePolicy(path,fetched.status);let body;
+    try{body=await responseBody.read(fetched,policy.limit,policy.exact,controller.signal)}
+    catch(error){controller.abort();throw failure('protocol',error&&error.message)}
+    response={status:fetched.status,headers:fetched.headers,body};return response;
+   }
   }catch(error){
+   controller.abort();
    if(closed||(external&&external.aborted))throw error;
+   if(failureReason(error,'')==='protocol')throw error;
   }finally{clearTimeout(timer);if(external)external.removeEventListener('abort',abort)}
   const after=deadline-Date.now();if(attempt>=9||after<=0)break;
   status('reconnecting');
   const backoff=wait||delay+Math.floor(Math.random()*Math.max(1,delay/4));
   await pause(Math.min(backoff,after),external);delay=Math.min(delay*2,5000);
  }
- throw new Error('carrier retry limit reached');
+ throw failure(lastReason,'carrier retry limit reached');
 }
-function fail(){if(closed)return;status('failed');if(port)port.postMessage({t:'close'});close(true)}
+function fail(reason){
+ if(closed)return;reason=reason||'protocol';if(canonicalFailures.includes(reason))terminalFailure=reason;
+ status('failed','terminal',reason,0);if(port)port.postMessage({t:'close'});close(true);
+}
 function knownCarrier(value){return value==='https'||value==='https-lanes'||value==='websocket'||value==='websocket-lanes'}
 function sessionEcho(response,expectedAttempt,states,exactAttempt){
  const selected=response.headers.get('X-Carrier-Mode')||'',echo=response.headers.get('X-Carrier-Attempt')||'';
@@ -216,39 +240,39 @@ function resetCandidate(){
 function advanceConfirmed(reason,epoch){
  if(closed||carrierCommitted||epoch!==attemptEpoch)return;
  resetCandidate();
- if(carrierAttempt>=negotiatedCandidateCount||Date.now()>=negotiationStartedAt+negotiatedFinalDeadline*1000){switching=false;fail();return}
+ if(carrierAttempt>=negotiatedCandidateCount||Date.now()>=negotiationStartedAt+negotiatedFinalDeadline*1000){switching=false;fail(reason);return}
  carrierAttempt++;carrierFailure=reason;attemptEpoch++;const nextEpoch=attemptEpoch;switching=false;
  status('reconnecting');armCarrierDeadline(nextEpoch);createSession(nextEpoch);
 }
 function advanceCarrier(reason,epoch){
  if(closed||carrierCommitted||epoch!==attemptEpoch||switching)return;
- if(!negotiationEnabled){fail();return}
+ if(!negotiationEnabled){fail(reason);return}
  switching=true;if(carrierTimer)clearTimeout(carrierTimer);carrierTimer=null;clearProbeTimer();
  const snapshot=currentAttempt;if(attemptController)attemptController.abort();attemptController=null;
- if(!snapshot||snapshot.epoch!==epoch){switching=false;fail();return}
+ if(!snapshot||snapshot.epoch!==epoch){switching=false;fail('protocol');return}
  if(snapshot.selected){advanceConfirmed(reason,epoch);return}
  resolveAttempt(reason,epoch,snapshot);
 }
 async function resolveAttempt(reason,epoch,snapshot){
  const controller=new AbortController();attemptController=controller;
  const remaining=negotiationStartedAt+negotiatedFinalDeadline*1000-Date.now();
- if(remaining<=0){switching=false;fail();return}
+ if(remaining<=0){switching=false;fail('timeout');return}
  const timer=setTimeout(()=>controller.abort(),remaining);
  try{
   const frozen=options('POST',bootstrap,snapshot.hello,attemptHeaders(snapshot.attempt,snapshot.failure),controller.signal);
   const response=await request('/api/v1/session',frozen);
   if(closed||epoch!==attemptEpoch)return
-  if(response.status===409){sessionEcho(response,snapshot.attempt,['committed','healthy'],false);switching=false;fail();return}
-  if(response.status!==200){switching=false;fail();return}
+  if(response.status===409){sessionEcho(response,snapshot.attempt,['committed','healthy'],false);switching=false;fail('protocol');return}
+  if(response.status!==200){switching=false;fail('http');return}
   const echo=sessionEcho(response,snapshot.attempt,['provisional','committed','healthy'],true);
   const token=response.headers.get('X-Session-Token')||'',cursor=response.headers.get('X-Down-Cursor')||'';
   if(!token||cursor!=='0'||(snapshot.selected&&echo.selected!==snapshot.selected))throw new Error('changed carrier replay');
   const welcome=response.body;if(closed||epoch!==attemptEpoch)return;
   cleanupToken=token;
-  if(!welcomeSent){welcomeSent=true;port.postMessage(welcome,[welcome])}
-  if(echo.state!=='provisional'){switching=false;fail();return}
+  if(!welcomeSent){welcomeSent=true;port.postMessage(welcome,[welcome]);status('connecting','provisional','',Math.max(0,negotiationStartedAt+negotiatedFinalDeadline*1000-Date.now()))}
+  if(echo.state!=='provisional'){switching=false;fail('protocol');return}
   advanceConfirmed(reason,epoch);
- }catch(error){if(!closed&&epoch===attemptEpoch){switching=false;fail()}}
+ }catch(error){if(!closed&&epoch===attemptEpoch){switching=false;fail(failureReason(error,'protocol'))}}
  finally{clearTimeout(timer);if(attemptController===controller)attemptController=null}
 }
 function startCandidate(probe,epoch){
@@ -262,10 +286,10 @@ function startCandidate(probe,epoch){
 }
 function maybeStartCandidate(){
  if(closed||carrierCommitted||!sessionToken||candidateRunning)return;const epoch=attemptEpoch;
- let probe;try{probe=findProbe(probeCoalesceMs>0)}catch(error){fail();return}if(!probe)return;
+ let probe;try{probe=findProbe(probeCoalesceMs>0)}catch(error){fail('protocol');return}if(!probe)return;
  if(!probeCoalesceMs||probe.hasData){startCandidate(probe,epoch);return}
  if(probeTimer)return;const owner={epoch,timer:null};
- owner.timer=setTimeout(()=>{if(probeTimer!==owner||closed||owner.epoch!==attemptEpoch)return;probeTimer=null;let current;try{current=findProbe(false)}catch(error){fail();return}startCandidate(current,owner.epoch)},probeCoalesceMs);
+ owner.timer=setTimeout(()=>{if(probeTimer!==owner||closed||owner.epoch!==attemptEpoch)return;probeTimer=null;let current;try{current=findProbe(false)}catch(error){fail('protocol');return}startCandidate(current,owner.epoch)},probeCoalesceMs);
  probeTimer=owner;
 }
 async function createSession(epoch){
@@ -276,17 +300,17 @@ async function createSession(epoch){
   const frozen=options('POST',bootstrap,snapshot.hello,attemptHeaders(attempt,failure),controller.signal);
   const response=await request('/api/v1/session',frozen);
   if(closed||epoch!==attemptEpoch)return
-  if(response.status===409){sessionEcho(response,attempt,['committed','healthy'],false);fail();return}
+  if(response.status===409){sessionEcho(response,attempt,['committed','healthy'],false);fail('protocol');return}
   if(response.status!==200){advanceCarrier('http',epoch);return}
   const echo=sessionEcho(response,attempt,['provisional'],true),selected=echo.selected;snapshot.selected=selected;
   const token=response.headers.get('X-Session-Token')||'',cursor=response.headers.get('X-Down-Cursor')||'';
   if(!token||cursor!=='0'){advanceCarrier('protocol',epoch);return}
   const welcome=response.body;if(closed||epoch!==attemptEpoch)return;
   carrier=selected;sessionToken=token;cleanupToken=token;downCursor=cursor;
-  if(!welcomeSent){welcomeSent=true;port.postMessage(welcome,[welcome])}
+  if(!welcomeSent){welcomeSent=true;port.postMessage(welcome,[welcome]);status('connecting','provisional','',Math.max(0,negotiationStartedAt+negotiatedFinalDeadline*1000-Date.now()))}
   if(carrier==='websocket')openCandidateSocket(null,null,epoch);
   maybeStartCandidate();
- }catch(error){if(closed||epoch!==attemptEpoch)return;advanceCarrier('network',epoch)}
+ }catch(error){if(closed||epoch!==attemptEpoch)return;advanceCarrier(failureReason(error,'network'),epoch)}
 }
 async function probeHttp(probe,laneID,epoch){
  try{
@@ -297,15 +321,15 @@ async function probeHttp(probe,laneID,epoch){
   if(response.headers.get('X-Up-Ack')!=='1'){advanceCarrier('protocol',epoch);return}
   if(laneID===null)upSequence=2;else ensureLane(laneID).sequence=2;
   commitCarrier(probe,epoch);
- }catch(error){if(!closed&&epoch===attemptEpoch)advanceCarrier('network',epoch)}
+ }catch(error){if(!closed&&epoch===attemptEpoch)advanceCarrier(failureReason(error,'network'),epoch)}
 }
 function commitCarrier(probe,epoch){
  if(closed||carrierCommitted||epoch!==attemptEpoch)return;
- if(switching){fail();return}
- clearProbeTimer();try{consumeProbe(probe)}catch(error){fail();return}
+ if(switching){fail('protocol');return}
+ clearProbeTimer();try{consumeProbe(probe)}catch(error){fail('protocol');return}
  carrierCommitted=true;candidateRunning=false;if(carrierTimer)clearTimeout(carrierTimer);carrierTimer=null;
  attemptController=null;currentAttempt=null;
- status('connected');
+ status('connected','committed','',0);
  if(carrier==='https')poll();
  else if(carrier==='https-lanes'){const lane=lanes.get(probe.id);if(lane&&!lane.polling)pollLane(lane)}
  for(const data of pending.splice(0)){release(data.byteLength,1,null);queueCarrier(data)}
@@ -315,19 +339,20 @@ function queueCarrier(data){
   if(carrier==='https')queueUp(data);
   else if(carrier==='websocket')queueSocket(data);
   else for(const value of splitFrames(data))queueLane(value);
- }catch(error){fail()}
+ }catch(error){fail('protocol')}
 }
-function queueUp(data){if(!reserve(data,null)){fail();return}upPending.push(data);runUp()}
+function queueUp(data){if(!reserve(data,null)){fail('capacity');return}upPending.push(data);runUp()}
 async function runUp(){
  if(upRunning)return;upRunning=true;let lease=null;
  try{
   while(!closed&&sessionToken&&upPending.length){
    lease=takeBatch(upPending,null);upLease=lease;lease.controller=new AbortController();const sequence=String(upSequence);
    const response=await request('/api/v1/up',options('POST',sessionToken,lease.body,{'X-Up-Seq':sequence},lease.controller.signal));
-   if(response.status!==204||response.headers.get('X-Up-Ack')!==sequence)throw new Error('uplink rejected');
+   if(response.status!==204)throw failure('http','uplink rejected');
+   if(response.headers.get('X-Up-Ack')!==sequence)throw failure('protocol','uplink acknowledgement rejected');
    if(!settleBatch(lease))return;port.postMessage({t:'traffic',up:lease.total,down:0});upSequence++;lease=null;
   }
- }catch(error){if(!closed&&!(lease&&lease.cancelled))fail()}
+ }catch(error){if(!closed&&!(lease&&lease.cancelled))fail(failureReason(error,'network'))}
  finally{upRunning=false;if(!closed&&sessionToken&&upPending.length)runUp()}
 }
 function sendCandidateSocket(next){
@@ -352,17 +377,17 @@ function openCandidateSocket(probe,laneID,epoch){
   try{
    if(state.lane){const values=splitFrames(event.data);for(const value of values)if(value.id!==state.lane.id)throw new Error('cross-lane frame');if(values.some(value=>value.type===3))state.lane.remoteClosed=true}
    else{const bound=frameBound(event.data,4096,batchLimit);if(bound.bytes!==event.data.byteLength)throw new Error('invalid frame batch')}
-  }catch(error){if(state.lane)finishLane(state.lane,true);else fail();return}
+  }catch(error){if(state.lane)finishLane(state.lane,true);else fail('protocol');return}
   port.postMessage({t:'traffic',up:0,down:event.data.byteLength});port.postMessage(event.data,[event.data]);status('connected');
  };
  next.onerror=()=>{};
  next.onclose=()=>{
   const state=next.telemt;if(state.epoch!==attemptEpoch||closed)return;
   if(!carrierCommitted){advanceCarrier(state.opened?'network':'upgrade',state.epoch);return}
-  if(state.lane){state.lane.ready=false;state.lane.socket=null;finishLane(state.lane,true)}else{socketReady=false;fail()}
+  if(state.lane){state.lane.ready=false;state.lane.socket=null;finishLane(state.lane,true)}else{socketReady=false;fail('network')}
  };
 }
-function queueSocket(data){if(!reserve(data,null)){fail();return}upPending.push(data);runSocketUp()}
+function queueSocket(data){if(!reserve(data,null)){fail('capacity');return}upPending.push(data);runSocketUp()}
 async function waitSocket(next,size,limit,signal){
  while(!closed&&next.readyState===WebSocket.OPEN&&next.bufferedAmount>limit-size)await pause(10,signal);
  if(closed||(signal&&signal.aborted)||next.readyState!==WebSocket.OPEN)throw new Error('websocket closed');
@@ -375,7 +400,7 @@ async function runSocketUp(){
    await waitSocket(socket,lease.total,queueLimit,lease.controller.signal);socket.send(lease.body);
    if(!settleBatch(lease))return;port.postMessage({t:'traffic',up:lease.total,down:0});lease=null;
   }
- }catch(error){if(!closed&&!(lease&&lease.cancelled))fail()}
+ }catch(error){if(!closed&&!(lease&&lease.cancelled))fail(failureReason(error,'network'))}
  finally{upRunning=false;if(!closed&&socketReady&&upPending.length)runSocketUp()}
 }
 async function poll(){
@@ -384,12 +409,12 @@ async function poll(){
    pollController=new AbortController();
    const response=await request('/api/v1/down',options('POST',sessionToken,null,{'X-Down-Cursor':downCursor},pollController.signal));
    if(response.status===204){status('connected');continue}
-   if(response.status!==200)throw new Error('downlink rejected');
+   if(response.status!==200)throw failure('http','downlink rejected');
    const next=response.headers.get('X-Down-Cursor')||'',data=response.body;
-   if(!next||!data.byteLength)throw new Error('invalid downlink response');
+   if(!next||!data.byteLength)throw failure('protocol','invalid downlink response');
    if(closed)return;
    port.postMessage({t:'traffic',up:0,down:data.byteLength});port.postMessage(data,[data]);downCursor=next;status('connected');
-  }catch(error){if(!closed)fail();return}
+  }catch(error){if(!closed)fail(failureReason(error,'network'));return}
  }
 }
 function ensureLane(id){
@@ -416,7 +441,7 @@ function queueLane(value){
  if(!lane&&closedLanes.has(value.id))throw new Error('closed lane was reused');
  if(!lane&&value.type!==1)throw new Error('lane did not begin with OPEN');
  lane=lane||ensureLane(value.id);
- if(!reserve(value.data,lane)){fail();return}
+ if(!reserve(value.data,lane)){fail('capacity');return}
  lane.pending.push(value.data);
  if(carrier==='websocket-lanes'){openLaneSocket(lane);runLaneSocketUp(lane)}else runLaneUp(lane);
 }
@@ -449,11 +474,12 @@ async function runLaneUp(lane){
    lease=takeBatch(lane.pending,lane);lane.upLease=lease;lease.controller=new AbortController();
    const sequence=String(lane.sequence),laneID=String(lane.id);
    const response=await request('/api/v1/up',options('POST',sessionToken,lease.body,{'X-Up-Seq':sequence,'X-Lane-ID':laneID},lease.controller.signal));
-   if(response.status!==204||response.headers.get('X-Up-Ack')!==sequence)throw new Error('lane uplink rejected');
+   if(response.status!==204)throw failure('http','lane uplink rejected');
+   if(response.headers.get('X-Up-Ack')!==sequence)throw failure('protocol','lane uplink acknowledgement rejected');
    if(!settleBatch(lease))return;port.postMessage({t:'traffic',up:lease.total,down:0});lane.sequence++;lease=null;
    if(!lane.polling)pollLane(lane);
   }
- }catch(error){if(!closed&&lanes.get(lane.id)===lane&&!(lease&&lease.cancelled))fail()}
+ }catch(error){if(!closed&&lanes.get(lane.id)===lane&&!(lease&&lease.cancelled))fail(failureReason(error,'network'))}
  finally{lane.running=false;if(!closed&&lanes.get(lane.id)===lane&&sessionToken&&lane.pending.length)runLaneUp(lane)}
 }
 async function pollLane(lane){
@@ -466,21 +492,22 @@ async function pollLane(lane){
     if(response.headers.get('X-Lane-Closed')==='1'){finishLane(lane,false);return}
     status('connected');continue;
    }
-   if(response.status!==200)throw new Error('lane downlink rejected');
+   if(response.status!==200)throw failure('http','lane downlink rejected');
    const next=response.headers.get('X-Down-Cursor')||'',data=response.body;
-   if(!next||!data.byteLength)throw new Error('invalid lane downlink response');
+   if(!next||!data.byteLength)throw failure('protocol','invalid lane downlink response');
    for(const value of splitFrames(data))if(value.id!==lane.id)throw new Error('cross-lane frame');
    if(closed)return;
    port.postMessage({t:'traffic',up:0,down:data.byteLength});port.postMessage(data,[data]);lane.cursor=next;status('connected');
   }
- }catch(error){if(!closed)fail()}
+  }catch(error){if(!closed)fail(failureReason(error,'network'))}
  finally{lane.polling=false;lane.controller=null}
 }
 function deleteSession(){
- const token=cleanupToken||sessionToken;if(token)fetch(relayOrigin+'/api/v1/session',options('DELETE',token,null,null,undefined,true)).catch(()=>{});
+ const token=cleanupToken||sessionToken,headers=canonicalFailures.includes(terminalFailure)?{'X-Carrier-Failure':terminalFailure}:null;
+ if(token)fetch(relayOrigin+'/api/v1/session',options('DELETE',token,null,headers,undefined,true)).catch(()=>{});
 }
 function close(notifyServer){
- if(closed)return;closed=true;if(carrierTimer)clearTimeout(carrierTimer);clearProbeTimer();if(attemptController)attemptController.abort();if(pollController)pollController.abort();
+ if(closed)return;closed=true;if(helloTimer)clearTimeout(helloTimer);helloTimer=null;if(carrierTimer)clearTimeout(carrierTimer);clearProbeTimer();if(attemptController)attemptController.abort();if(pollController)pollController.abort();
  if(socket)socket.close();cancelBatch(upLease);releasePending(upPending,null);
  for(const lane of lanes.values()){
   if(lane.controller)lane.controller.abort();cancelBatch(lane.upLease);releasePending(lane.pending,lane);if(lane.socket)lane.socket.close();
@@ -492,15 +519,16 @@ function activatePort(nextPort){
  initialized=true;port=nextPort;
  port.onmessage=message=>{
   if(message.data instanceof ArrayBuffer){
-   if(!createStarted){createStarted=true;helloFrame=message.data;if(negotiationEnabled){negotiationStartedAt=Date.now();armCarrierDeadline(attemptEpoch)}createSession(attemptEpoch)}
-   else if(!carrierCommitted){if(!reserve(message.data,null)){fail();return}pending.push(message.data);maybeStartCandidate()}
+   if(!createStarted){createStarted=true;if(helloTimer)clearTimeout(helloTimer);helloTimer=null;helloFrame=message.data;if(negotiationEnabled){negotiationStartedAt=Date.now();armCarrierDeadline(attemptEpoch)}createSession(attemptEpoch)}
+   else if(!carrierCommitted){if(!reserve(message.data,null)){fail('capacity');return}pending.push(message.data);maybeStartCandidate()}
    else queueCarrier(message.data);
-  }else if(message.data&&message.data.t==='close')close(true);
+  }else if(message.data&&message.data.t==='close'){status('failed','terminal','closed',0);close(true)}
  };
- port.start();status('connecting');
+ port.start();status('connecting','starting','',bridgeRequestMs);helloTimer=setTimeout(()=>fail('timeout'),bridgeRequestMs);
 }
 addEventListener('message',event=>{
- if(initialized||event.source!==parent||event.data===null||typeof event.data!=='object')return;
+ if(event.source!==parent)return;if(initialized){if(event.ports&&event.ports.length===1)event.ports[0].close();return}
+ if(event.data===null||typeof event.data!=='object')return;
  const keys=Object.keys(event.data).sort();
  if(keys.length!==2||keys[0]!=='t'||keys[1]!=='v'||event.data.t!=='tproxy-init'||event.data.v!==1||event.ports.length!==1)return;
  let source;try{source=new URL(event.origin)}catch(error){return}
@@ -511,12 +539,12 @@ const androidBridge=globalThis.TelegramWebProxy;
 if(!initialized&&androidNonce&&androidBridge&&typeof androidBridge.postMessage==='function'){
  const androidPort={onmessage:null,start(){},close(){androidBridge.onmessage=null},postMessage(value){
   if(value instanceof ArrayBuffer){
-   let frames;try{frames=splitFrames(value)}catch(error){fail();return}
+   let frames;try{frames=splitFrames(value)}catch(error){fail('protocol');return}
    for(const frame of frames)androidBridge.postMessage(frame.data);
   }else androidBridge.postMessage(JSON.stringify(value));
  }};
  androidBridge.onmessage=event=>{let data=event.data;if(typeof data==='string'){try{data=JSON.parse(data)}catch(error){return}}if(androidPort.onmessage)androidPort.onmessage({data})};
  activatePort(androidPort);androidBridge.postMessage(JSON.stringify({t:'tproxy-android-init',v:1,nonce:androidNonce}));
 }
-addEventListener('pagehide',()=>close(true),{once:true});
+addEventListener('pagehide',()=>fail('navigation'),{once:true});
 })();

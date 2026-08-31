@@ -124,6 +124,47 @@ fn web_debug_policy_is_hot_while_debug_capacity_is_process_owned() {
 }
 
 #[test]
+fn hot_overlay_defers_learning_that_requires_new_process_capacity() {
+    let mut old = sample_config();
+    old.web.limits.max_carrier_learning_entries = 1;
+    old.web.carriers = crate::config::WebCarriers::Disabled;
+    old.web.carrier_learning = false;
+    let mut new = old.clone();
+    new.web.limits.max_carrier_learning_entries = 3;
+    new.web.carriers = crate::config::WebCarriers::Enabled(vec![
+        crate::config::WebCarrier::Websocket,
+        crate::config::WebCarrier::Https,
+    ]);
+    new.web.carrier_learning = true;
+
+    let applied = overlay_hot_fields(&old, &new);
+
+    assert_eq!(applied.web.limits.max_carrier_learning_entries, 1);
+    assert!(applied.web.carrier_negotiation_enabled());
+    assert!(!applied.web.carrier_learning);
+}
+
+#[test]
+fn hot_overlay_defers_carriers_for_dormant_learning_with_small_capacity() {
+    let mut old = sample_config();
+    old.web.limits.max_carrier_learning_entries = 1;
+    old.web.carriers = crate::config::WebCarriers::Disabled;
+    old.web.carrier_learning = true;
+    let mut new = old.clone();
+    new.web.limits.max_carrier_learning_entries = 3;
+    new.web.carriers = crate::config::WebCarriers::Enabled(vec![
+        crate::config::WebCarrier::Websocket,
+        crate::config::WebCarrier::Https,
+    ]);
+
+    let applied = overlay_hot_fields(&old, &new);
+
+    assert_eq!(applied.web.limits.max_carrier_learning_entries, 1);
+    assert!(!applied.web.carrier_negotiation_enabled());
+    assert!(applied.web.carrier_learning);
+}
+
+#[test]
 fn web_debug_prefix_requiring_deferred_capacity_is_not_hot_applied() {
     let old = sample_config();
     let mut new = old.clone();

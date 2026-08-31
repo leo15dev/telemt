@@ -16,7 +16,7 @@ pub(super) fn validate(config: &WebConfig) -> Result<Vec<WebCarrier>> {
     let candidates = config.carrier_candidates();
     if config.carrier_negotiation_enabled()
         && config.carrier_learning
-        && config.limits.max_carrier_learning_entries < 3
+        && config.limits.max_carrier_learning_entries < WEB_CARRIER_LEARNING_MIN_ENTRIES
     {
         return config_error(
             "web.limits.max_carrier_learning_entries must be >= 3 when carrier learning is enabled",

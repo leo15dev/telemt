@@ -5,7 +5,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{RwLock, Semaphore, watch};
 
-use crate::config::{ProxyConfig, ServerConfig, web_debug_fits_limits};
+use crate::config::{
+    ProxyConfig, ServerConfig, WEB_CARRIER_LEARNING_MIN_ENTRIES, web_debug_fits_limits,
+};
 use crate::crypto::SecureRandom;
 use crate::ip_tracker::UserIpTracker;
 use crate::network::probe::{decide_network_capabilities, run_probe};
@@ -337,7 +339,7 @@ pub(crate) struct ResolvedReloadConfig {
 pub(crate) fn resolve_reload_config(
     old: &ProxyConfig,
     desired: &ProxyConfig,
-) -> ResolvedReloadConfig {
+) -> Result<ResolvedReloadConfig, String> {
     let mut effective = desired.clone();
     let mut fields = Vec::new();
     let listener_identity_matches = listeners_have_same_bind_identity(&old.server, &desired.server);
@@ -424,21 +426,39 @@ pub(crate) fn resolve_reload_config(
     {
         fields.push("web.limits".to_string());
         effective.web.limits = old.web.limits.clone();
-        if effective.rebuild_runtime_web().is_err() {
-            fields.push("web".to_string());
-            effective.web = old.web.clone();
+    }
+    if effective.web.carrier_negotiation_enabled()
+        && effective.web.carrier_learning
+        && effective.web.limits.max_carrier_learning_entries
+            < WEB_CARRIER_LEARNING_MIN_ENTRIES
+    {
+        if old.web.carrier_learning != desired.web.carrier_learning {
+            fields.push("web.carrier_learning".to_string());
+            effective.web.carrier_learning = old.web.carrier_learning;
+        } else {
+            fields.push("web.carriers".to_string());
+            effective.web.carriers = old.web.carriers.clone();
         }
     }
     if !web_debug_fits_limits(&effective.web.debug, &effective.web.limits) {
         fields.push("web.debug".to_string());
         effective.web.debug = old.web.debug.clone();
     }
+    effective
+        .validate_effective_web()
+        .map_err(|error| format!("effective WEB configuration is invalid: {error}"))?;
+    effective
+        .rebuild_runtime_user_auth()
+        .map_err(|error| format!("effective user runtime preparation failed: {error}"))?;
+    effective
+        .rebuild_runtime_web()
+        .map_err(|error| format!("effective WEB runtime preparation failed: {error}"))?;
     let runtime_changed = !configs_equal(old, &effective);
-    ResolvedReloadConfig {
+    Ok(ResolvedReloadConfig {
         effective,
         deferred_process_fields: fields,
         runtime_changed,
-    }
+    })
 }
 
 fn listeners_have_same_bind_identity(old: &ServerConfig, desired: &ServerConfig) -> bool {
@@ -469,8 +489,11 @@ fn listener_process_fields_equal(old: &ServerConfig, desired: &ServerConfig) -> 
 }
 
 /// Returns process-owned fields that cannot change in the current generation.
-pub(crate) fn deferred_process_fields(old: &ProxyConfig, new: &ProxyConfig) -> Vec<String> {
-    resolve_reload_config(old, new).deferred_process_fields
+pub(crate) fn deferred_process_fields(
+    old: &ProxyConfig,
+    new: &ProxyConfig,
+) -> Result<Vec<String>, String> {
+    resolve_reload_config(old, new).map(|resolved| resolved.deferred_process_fields)
 }
 
 fn configs_equal(old: &ProxyConfig, new: &ProxyConfig) -> bool {

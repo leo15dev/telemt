@@ -36,6 +36,7 @@ fn entry(
         last_progress_tick: AtomicU64::new(progress_tick),
         phase: AtomicU8::new(phase as u8),
         closing: AtomicBool::new(false),
+        health_claimed: AtomicBool::new(false),
         cancel: CancellationToken::new(),
         released: CancellationToken::new(),
     }
@@ -293,6 +294,57 @@ async fn concurrent_victim_claims_stay_bounded_and_return_to_zero() {
 
     drop(connections);
     assert_eq!(runtime.websockets.lock().evictions_in_flight, 0);
+    runtime.shutdown().await;
+    generation.stop_sessions().await;
+    generation.stop_background_tasks().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_health_claims_publish_one_exact_live_owner() {
+    let generation = test_runtime_generation(1, ProxyConfig::default());
+    let runtime = WebProcessRuntime::start(Arc::new(ArcSwap::from(Arc::clone(&generation))));
+    let owner = Arc::new(entry(
+        1,
+        [1; 32],
+        1,
+        "192.0.2.10",
+        WebSocketKind::Multiplex,
+        WebSocketPhase::Active,
+        1,
+        1,
+    ));
+    let connection = WebSocketConnection {
+        runtime: Arc::downgrade(&runtime),
+        entry: Arc::clone(&owner),
+        slot: None,
+        base_budget: None,
+    };
+    {
+        let mut registry = runtime.websockets.lock();
+        registry.claims.insert(owner.claim, owner.id);
+        registry.entries.insert(owner.id, Arc::clone(&owner));
+    }
+    let successes = Arc::new(AtomicUsize::new(0));
+    let mut tasks = Vec::new();
+    for _ in 0..64 {
+        let runtime = Arc::clone(&runtime);
+        let successes = Arc::clone(&successes);
+        tasks.push(tokio::spawn(async move {
+            if runtime.claim_websocket_health(1, [0; 32]) {
+                successes.fetch_add(1, Ordering::AcqRel);
+            }
+        }));
+    }
+    for task in tasks {
+        task.await.unwrap();
+    }
+
+    assert_eq!(successes.load(Ordering::Acquire), 1);
+    assert!(!runtime.claim_websocket_health(1, [0; 32]));
+    assert!(!runtime.claim_websocket_health(2, [0; 32]));
+    assert!(!runtime.claim_websocket_health(1, [1; 32]));
+
+    drop(connection);
     runtime.shutdown().await;
     generation.stop_sessions().await;
     generation.stop_background_tasks().await;

@@ -31,6 +31,10 @@ fn rendered_page_contains_bounded_negotiation_contract() {
     assert!(page.body.contains("X-Lane-ID"));
     assert!(page.body.contains("tproxy-auto-v1."));
     assert!(page.body.contains("tproxy-auto-lane-v1."));
+    assert!(page.body.contains("globalThis.TelemtBridgeResponse"));
+    assert!(page.body.contains("responseBody.read"));
+    assert!(!page.body.contains("arrayBuffer()"));
+    assert!(page.body.contains("maxChunks=4096"));
     assert!(
         page.content_security_policy
             .contains("frame-ancestors http://127.0.0.1:*")
@@ -69,6 +73,9 @@ fn rendered_page_embeds_the_configured_bridge_timing_policy() {
     assert!(page.body.contains("bridgeRequestMs=7*1000"));
     assert!(page.body.contains("bridgeRetryMs=41*1000"));
     assert!(page.body.contains("const probeCoalesceMs=4"));
+    assert!(page.body.contains(
+        "helloTimer=setTimeout(()=>fail('timeout'),bridgeRequestMs)"
+    ));
 }
 
 #[test]
@@ -140,7 +147,9 @@ fn ambiguous_commit_is_resolved_before_carrier_advance() {
     ));
     assert!(
         page.body
-            .contains("if(echo.state!=='provisional'){switching=false;fail();return}")
+            .contains("if(echo.state!=='provisional'){switching=false;fail('protocol');return}")
     );
     assert!(page.body.contains("const token=cleanupToken||sessionToken"));
+    assert!(page.body.contains("'X-Carrier-Failure':terminalFailure"));
+    assert!(page.body.contains("addEventListener('pagehide',()=>fail('navigation')"));
 }

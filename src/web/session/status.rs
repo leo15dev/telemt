@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use super::{SessionNegotiationPhase, WebSession};
+use super::{CarrierHealthPublicationState, SessionNegotiationPhase, WebSession};
 use crate::config::WebCarrier;
 
 /// One bounded point-in-time session snapshot without bearer identity.
@@ -28,6 +28,8 @@ pub(crate) struct WebSessionStatus {
     pub(crate) automatic: bool,
     /// Current session lifecycle token.
     pub(crate) state: &'static str,
+    /// Current manager-confirmed health publication phase.
+    pub(crate) health_publication: &'static str,
     /// Live logical streams.
     pub(crate) streams: usize,
     /// Stream relay tasks that have not exited.
@@ -66,7 +68,9 @@ impl WebSession {
             "closed"
         } else if state.close_requested {
             "closing"
-        } else if state.carrier_health_reported {
+        } else if self.carrier_health_publication_state()
+            == CarrierHealthPublicationState::Published
+        {
             "healthy"
         } else {
             match state.negotiation_phase {
@@ -87,6 +91,12 @@ impl WebSession {
             client_class: self.carrier_class.as_str(),
             automatic: self.automatic_carrier,
             state: state_name,
+            health_publication: match self.carrier_health_publication_state() {
+                CarrierHealthPublicationState::Awaiting => "awaiting",
+                CarrierHealthPublicationState::Publishing => "publishing",
+                CarrierHealthPublicationState::Published => "published",
+                CarrierHealthPublicationState::Rejected => "rejected",
+            },
             streams: state.streams.len(),
             tasks: self.tasks_live(),
             lanes: state.carrier_lanes.len(),

@@ -4,6 +4,13 @@ use std::time::Instant;
 
 use serde::Serialize;
 
+mod carrier;
+pub(crate) use carrier::{
+    WebCarrierFailureCounter, WebCarrierFailurePhase, WebCarrierLearningCounter,
+    WebCarrierLearningOutcome, WebCarrierSelectionCounter, WebCarrierSelectionDisposition,
+};
+use carrier::{CARRIER_FAILURE_SLOTS, CARRIER_LEARNING_SLOTS, CARRIER_SELECTION_SLOTS};
+
 const LAST_DECOY_OUTCOME_BITS: u32 = 4;
 const LAST_DECOY_OUTCOME_MASK: u64 = (1 << LAST_DECOY_OUTCOME_BITS) - 1;
 const LAST_DECOY_ELAPSED_MAX: u64 = u64::MAX >> LAST_DECOY_OUTCOME_BITS;
@@ -300,6 +307,9 @@ pub(crate) struct WebTelemetry {
     rejections: [AtomicU64; WebRejectionReason::ALL.len()],
     overload_outcomes: [AtomicU64; WebHttpConnectionOverloadOutcome::ALL.len()],
     decoy_outcomes: [AtomicU64; WebDecoyUpstreamOutcome::ALL.len()],
+    carrier_selections: [AtomicU64; CARRIER_SELECTION_SLOTS],
+    carrier_failures: [AtomicU64; CARRIER_FAILURE_SLOTS],
+    carrier_learning_outcomes: [AtomicU64; CARRIER_LEARNING_SLOTS],
     last_decoy: AtomicU64,
     sessions_created: AtomicU64,
     sessions_closed: AtomicU64,
@@ -321,6 +331,9 @@ impl WebTelemetry {
             rejections: std::array::from_fn(|_| AtomicU64::new(0)),
             overload_outcomes: std::array::from_fn(|_| AtomicU64::new(0)),
             decoy_outcomes: std::array::from_fn(|_| AtomicU64::new(0)),
+            carrier_selections: std::array::from_fn(|_| AtomicU64::new(0)),
+            carrier_failures: std::array::from_fn(|_| AtomicU64::new(0)),
+            carrier_learning_outcomes: std::array::from_fn(|_| AtomicU64::new(0)),
             last_decoy: AtomicU64::new(0),
             sessions_created: AtomicU64::new(0),
             sessions_closed: AtomicU64::new(0),
@@ -510,38 +523,5 @@ impl Drop for WebAcceptorGuard {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fixed_counter_sets_and_acceptor_guard_are_exact() {
-        let telemetry = WebTelemetry::new();
-        let guard = telemetry.acceptor_guard();
-        assert_eq!(telemetry.live_acceptors(), 1);
-        telemetry.record_rejection(WebRejectionReason::HttpConnectionCapacity);
-        telemetry.record_overload(WebHttpConnectionOverloadOutcome::Dropped);
-        telemetry.record_decoy(WebDecoyUpstreamOutcome::ConnectRefused);
-        assert_eq!(
-            telemetry.rejection_counters().len(),
-            WebRejectionReason::ALL.len()
-        );
-        assert_eq!(
-            telemetry.overload_counters().len(),
-            WebHttpConnectionOverloadOutcome::ALL.len()
-        );
-        assert_eq!(
-            telemetry.decoy_counters().len(),
-            WebDecoyUpstreamOutcome::ALL.len()
-        );
-        assert_eq!(
-            telemetry.rejection_total(WebRejectionReason::HttpConnectionCapacity),
-            1
-        );
-        assert_eq!(
-            telemetry.last_decoy().map(|value| value.0),
-            Some("connect_refused")
-        );
-        drop(guard);
-        assert_eq!(telemetry.live_acceptors(), 0);
-    }
-}
+#[path = "telemetry/tests.rs"]
+mod tests;

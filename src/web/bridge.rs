@@ -34,6 +34,7 @@ pub(crate) fn render(
     rng.fill(&mut nonce);
     let nonce = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce);
     let body = DOCUMENT
+        .replace("__RESPONSE_RUNTIME__", RESPONSE_RUNTIME)
         .replace("__RUNTIME__", RUNTIME)
         .replace("__NONCE__", &nonce)
         .replace("__HOST__", host)
@@ -70,6 +71,7 @@ pub(crate) fn render(
 }
 
 const DOCUMENT: &str = include_str!("bridge/document.html");
+const RESPONSE_RUNTIME: &str = include_str!("bridge/response.js");
 const RUNTIME: &str = include_str!("bridge/runtime.js");
 
 // Rendered wire-contract tests remain separate from the embedded document.

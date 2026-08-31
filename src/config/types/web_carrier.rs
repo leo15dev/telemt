@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+/// Minimum restart-owned entries required for one complete learning sample.
+pub(crate) const WEB_CARRIER_LEARNING_MIN_ENTRIES: usize = 3;
+
 /// Carrier selected for one newly issued WEB relay session.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

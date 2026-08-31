@@ -345,14 +345,21 @@ pub(super) fn overlay_hot_fields(old: &ProxyConfig, new: &ProxyConfig) -> ProxyC
     let process_limits = cfg.web.limits.clone();
     cfg.web = new.web.clone();
     cfg.web.limits = process_limits;
+    if cfg.web.carrier_negotiation_enabled()
+        && cfg.web.carrier_learning
+        && cfg.web.limits.max_carrier_learning_entries < WEB_CARRIER_LEARNING_MIN_ENTRIES
+    {
+        if old.web.carrier_learning != new.web.carrier_learning {
+            cfg.web.carrier_learning = old.web.carrier_learning;
+        } else {
+            cfg.web.carriers = old.web.carriers.clone();
+        }
+    }
     if !web_debug_fits_limits(&cfg.web.debug, &cfg.web.limits) {
         cfg.web.debug = old.web.debug.clone();
     }
     if cfg.rebuild_runtime_user_auth().is_err() {
         cfg.runtime_user_auth = None;
-    }
-    if cfg.rebuild_runtime_web().is_err() {
-        cfg.web = old.web.clone();
     }
 
     cfg

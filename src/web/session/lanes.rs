@@ -142,8 +142,8 @@ impl WebSession {
             let healthy = self.carrier_health_ready_locked(&mut state, Instant::now());
             (instance, epoch, notify, healthy)
         };
-        if healthy {
-            self.finish_carrier_health();
+        if let Some(claim) = healthy {
+            self.finish_carrier_health(claim);
         }
         notify.notify_waiters();
 

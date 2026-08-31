@@ -159,7 +159,13 @@ impl ReloadSupervisor {
             .mark_phase(command.reload_id, ReloadPhase::Preparing)
             .await;
         let old_runtime = self.active_runtime.load_full();
-        let resolved = resolve_reload_config(&old_runtime.config(), &command.config);
+        let resolved = match resolve_reload_config(&old_runtime.config(), &command.config) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                self.control.fail(command.reload_id, error).await;
+                return;
+            }
+        };
         self.control
             .set_deferred_fields(command.reload_id, resolved.deferred_process_fields.clone())
             .await;
@@ -292,8 +298,11 @@ impl ReloadSupervisor {
         } else {
             None
         };
-        old_runtime.stop_accepting_sessions();
-        let replaced = self.active_runtime.swap(new_runtime.clone());
+        let replaced = {
+            let listener_manager = self.listener_manager.lock().await;
+            old_runtime.stop_accepting_sessions();
+            listener_manager.activate_runtime_generation(new_runtime.clone())
+        };
         self.web_trace
             .apply_policy(new_runtime.id, &new_runtime.config().web.debug);
         config_watcher_activation.send_replace(true);

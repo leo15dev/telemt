@@ -216,6 +216,11 @@ impl ProxyConfig {
         runtime_web::rebuild(self)
     }
 
+    /// Validates the mixed effective WEB snapshot after restart fields are retained.
+    pub(crate) fn validate_effective_web(&mut self) -> Result<()> {
+        validate_web::validate(self)
+    }
+
     /// Revalidates decoy separation after restart-only listener fields are resolved.
     pub(crate) fn validate_web_decoy_listener_separation(&self) -> Result<()> {
         validate_web::validate_decoy_listener_separation(self)

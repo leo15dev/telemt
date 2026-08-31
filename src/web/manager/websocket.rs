@@ -50,6 +50,7 @@ pub(super) struct WebSocketEntry {
     last_progress_tick: AtomicU64,
     phase: AtomicU8,
     closing: AtomicBool,
+    health_claimed: AtomicBool,
     cancel: CancellationToken,
     released: CancellationToken,
 }
@@ -345,6 +346,7 @@ fn try_admit(
         last_progress_tick: AtomicU64::new(now),
         phase: AtomicU8::new(WebSocketPhase::Claimed as u8),
         closing: AtomicBool::new(false),
+        health_claimed: AtomicBool::new(false),
         cancel: parent_cancellation.child_token(),
         released: CancellationToken::new(),
     });
@@ -369,6 +371,26 @@ fn try_admit(
 impl WebProcessRuntime {
     pub(super) fn websocket_tick(&self) -> u64 {
         self.websocket_clock.elapsed().as_millis() as u64
+    }
+
+    /// Claims health from one exact active owner under the eviction registry lock.
+    pub(super) fn claim_websocket_health(
+        &self,
+        owner: u64,
+        session_hash: super::TokenHash,
+    ) -> bool {
+        let registry = self.websockets.lock();
+        let Some(entry) = registry.entries.get(&owner) else {
+            return false;
+        };
+        !registry.closed
+            && entry.claim.session_hash == session_hash
+            && entry.phase.load(Ordering::Acquire) == WebSocketPhase::Active as u8
+            && !entry.closing.load(Ordering::Acquire)
+            && entry
+                .health_claimed
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
     }
 
     pub(super) fn cleanup_websockets(&self) {

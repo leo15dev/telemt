@@ -58,7 +58,9 @@ impl Drop for WebSocketProbeReservation {
         state.websocket_probe_claimed = false;
         if state.websocket_commit_ack_owner == self.owner {
             state.websocket_commit_ack_owner = None;
-            if !state.carrier_health_reported {
+            if self.session.carrier_health_publication_state()
+                != super::CarrierHealthPublicationState::Published
+            {
                 state.websocket_commit_ack_written = false;
                 state.carrier_health_uplink = false;
                 state.carrier_health_activity_at = None;
@@ -316,7 +318,7 @@ impl WebSession {
         let digest = Sha256::digest(body).into();
         let mut opened = Vec::new();
         let mut committed = false;
-        let mut healthy = false;
+        let mut healthy = None;
         let result = {
             let mut state = self.state.lock();
             if state.closed {
@@ -401,8 +403,8 @@ impl WebSession {
         if committed {
             self.finish_carrier_commit();
         }
-        if healthy {
-            self.finish_carrier_health();
+        if let Some(claim) = healthy {
+            self.finish_carrier_health(claim);
         }
         for completion in opened {
             let stream = completion.stream;
