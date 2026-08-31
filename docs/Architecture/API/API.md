@@ -353,6 +353,7 @@ The WEB control plane is process-fenced. `runtime_instance` is a random 128-bit 
 | `ingress` | `WebIngressStatus` | Process-owned listener/acceptor liveness and TCP accept counters. |
 | `capacity` | `WebCapacityStatus` | Effective accepted-socket policy, fixed global resources, and typed rejection counters. |
 | `decoy_upstream` | `WebDecoyUpstreamStatus` | Passive outcomes for Telemt's internal plain-HTTP decoy origin hop. |
+| `carrier_negotiation` | `WebCarrierNegotiationStatus` | Fixed process-lifetime selection, reported-failure, and health/learning outcome counters. |
 | `operator_lifecycle` | `OperatorLifecycleStatus?` | Process-local reversible admission and active/latest drain status while a runtime is published. |
 | `runtime` | `WebRuntimeStatus?` | Present while the weak process-runtime publication can be upgraded. |
 
@@ -362,11 +363,13 @@ The WEB control plane is process-fenced. `runtime_instance` is a random 128-bit 
 
 `WebDecoyUpstreamStatus` contains the complete fixed outcome set plus optional `last_outcome` and `last_outcome_age_ms`. Outcomes distinguish `success`, `deadline_exhausted`, `connect_refused`, `connect_timeout`, `connect_error`, `http_handshake_timeout`, `http_handshake_error`, `response_head_timeout`, and `request_error`. This describes only Telemt to the configured decoy origin. A public client to NGINX refusal, or an NGINX to Telemt refusal before `accept(2)`, is outside this counter plane.
 
+`WebCarrierNegotiationStatus` remains present when the process runtime is unavailable because its counters belong to the WEB publication. `selections` is the complete carrier x disposition matrix (`profile_disabled`, `policy_disabled`, `policy_pending`, `epoch_exhausted`, `cold`, `applied`). `reported_failures` is the complete carrier x phase x canonical reason matrix, where phase is `provisional` or `committed` and reason is `timeout`, `network`, `upgrade`, `http`, or `protocol`. `learning_outcomes` distinguishes `recorded`, `not_eligible`, `policy_disabled`, `stale_epoch`, `capacity_rejected`, `sequence_exhausted`, `missing_chain`, `phase_mismatch`, `session_mismatch`, `owner_not_live`, and `closed_before_health`. Reported failures and rejection outcomes are diagnostic only and never create negative ranking evidence.
+
 `WebRuntimeStatus` includes `runtime_instance`, `generation_id`, immutable effective `limits`, manager/stream/budget/WebSocket/learning/debug planes, permit usage, task/counter totals, and `partial`. Plane locks are read with `try_lock`; a contended plane is omitted and named in `partial`. Status collection performs no cleanup, waits, or data-plane mutation, so fields are plane-local observations rather than one globally atomic snapshot. `runtime.manager.issuance_enabled` is the authority to check before close-all.
 
 `OperatorLifecycleStatus` is a lock-free process snapshot with `state`, monotonic `epoch`, `age_ms`, `admission_open`, `effective_new_work_admission`, and the active or latest `drain`. States are `running`, `paused`, `draining`, `force_closing`, and `drained`. Drain status contains its opaque id, phase/outcome, frozen timeout, wall-clock correlation timestamps, latest session/stream/WebSocket remainder, and `force_close_signalled`. The response envelope `revision` remains a config source-graph revision and is not a lifecycle version.
 
-The Prometheus endpoint exports the same process-owned observations through fixed-cardinality `telemt_web_*` families: ingress/operator lifecycle states, independent ingress flags, listener and TCP accept counts, resource usage/closure/saturation, typed rejection totals, accepted-socket overload outcomes, internal decoy-origin outcomes, and session/stream/carrier aggregate totals. WEB labels never contain a host, user, client IP, listener address, token, session reference, profile key, runtime instance, or generation ID. Telemt does not claim health for the externally owned NGINX or HAProxy TLS endpoint; that boundary requires terminator telemetry and an external TCP/TLS probe.
+The Prometheus endpoint exports the same process-owned observations through fixed-cardinality `telemt_web_*` families: ingress/operator lifecycle states, independent ingress flags, listener and TCP accept counts, resource usage/closure/saturation, typed rejection totals, accepted-socket overload outcomes, internal decoy-origin outcomes, and session/stream/carrier aggregate totals. Carrier negotiation adds `telemt_web_carrier_selections_total{carrier,disposition}`, `telemt_web_carrier_reported_failures_total{carrier,phase,reason}`, `telemt_web_carrier_learning_outcomes_total{carrier,outcome}`, one-hot `telemt_web_carrier_learning_state{state}`, `telemt_web_carrier_learning_entries{kind}`, and one-hot `telemt_web_carrier_learning_policy{aggressiveness}`. The learning states are `unavailable`, `partial`, `pending`, `exhausted`, `disabled`, and `enabled`; `pending` explicitly exposes a generation/policy publication mismatch instead of silently treating it as cold evidence. WEB labels never contain a host, user, client IP, listener address, token, session reference, profile key, runtime instance, or generation ID. Telemt does not claim health for the externally owned NGINX or HAProxy TLS endpoint; that boundary requires terminator telemetry and an external TCP/TLS probe.
 
 ### WEB session enumeration
 
@@ -709,8 +712,11 @@ This means the same EOF-while-reading-64-bytes failure happened once in the dire
 | --- | --- | --- |
 | `active_generation` | `u64` | Active pool generation id. |
 | `warm_generation` | `u64` | Warm pool generation id. |
+| `warm_generations` | `u64[]` | All concurrently warming generation ids in ascending order. |
 | `pending_hardswap_generation` | `u64` | Pending hardswap generation id (`0` when none). |
 | `pending_hardswap_age_secs` | `u64?` | Age of pending hardswap generation in seconds. |
+| `reinit_inflight` | `usize` | Generation warmups currently in flight. |
+| `reinit_max_concurrency_effective` | `usize` | Effective bounded warmup concurrency. |
 | `draining_generations` | `u64[]` | Distinct generation ids currently draining. |
 
 #### `RuntimeMePoolStateHardswapData`
@@ -748,6 +754,8 @@ This means the same EOF-while-reading-64-bytes failure happened once in the dire
 | --- | --- | --- |
 | `inflight_endpoints_total` | `usize` | Total in-flight endpoint refill operations. |
 | `inflight_dc_total` | `usize` | Number of distinct DC+family keys with refill in flight. |
+| `running_dc_total` | `usize` | DC+family refill workers currently running. |
+| `pending_dc_total` | `usize` | Running DC+family workers with one coalesced pending endpoint. |
 | `by_dc` | `RuntimeMePoolStateRefillDcData[]` | Per-DC refill rows. |
 
 #### `RuntimeMePoolStateRefillDcData`
@@ -1305,8 +1313,11 @@ JA3 follows the Salesforce ClientHello field order. JA4 follows the FoxIO TLS-cl
 | --- | --- | --- |
 | `active_generation` | `u64` | Active pool generation. |
 | `warm_generation` | `u64` | Warm pool generation. |
+| `warm_generations` | `u64[]` | All concurrently warming generation ids in ascending order. |
 | `pending_hardswap_generation` | `u64` | Pending hardswap generation. |
 | `pending_hardswap_age_secs` | `u64?` | Pending hardswap age in seconds. |
+| `reinit_inflight` | `usize` | Generation warmups currently in flight. |
+| `reinit_max_concurrency_effective` | `usize` | Effective bounded warmup concurrency. |
 | `hardswap_enabled` | `bool` | Hardswap mode toggle. |
 | `floor_mode` | `string` | Writer floor mode. |
 | `adaptive_floor_idle_secs` | `u64` | Idle threshold for adaptive floor. |

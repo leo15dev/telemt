@@ -308,6 +308,7 @@ This document lists all configuration keys accepted by `config.toml`.
 | [`proxy_secret_auto_reload_secs`](#proxy_secret_auto_reload_secs) | `u64` | `3600` | `✔` |
 | [`proxy_config_auto_reload_secs`](#proxy_config_auto_reload_secs) | `u64` | `3600` | `✔` |
 | [`me_reinit_singleflight`](#me_reinit_singleflight) | `bool` | `true` | `✔` |
+| [`me_reinit_max_concurrency`](#me_reinit_max_concurrency) | `usize` | `2` | `✔` |
 | [`me_reinit_trigger_channel`](#me_reinit_trigger_channel) | `usize` | `64` | `✘` |
 | [`me_reinit_coalesce_window_ms`](#me_reinit_coalesce_window_ms) | `u64` | `200` | `✔` |
 | [`me_deterministic_writer_sort`](#me_deterministic_writer_sort) | `bool` | `true` | `✔` |
@@ -1547,8 +1548,17 @@ This document lists all configuration keys accepted by `config.toml`.
     [general]
     me_reinit_singleflight = true
     ```
+## me_reinit_max_concurrency
+  - **Constraints / validation**: Must be within `[1, 8]`. The effective value is `1` while `me_reinit_singleflight = true`.
+  - **Description**: Bounds concurrent ME generation warmups. Excess triggers are coalesced into one pending rerun.
+  - **Example**:
+
+    ```toml
+    [general]
+    me_reinit_max_concurrency = 2
+    ```
 ## me_reinit_trigger_channel
-  - **Constraints / validation**: Must be `> 0`.
+  - **Constraints / validation**: Must be within `[1, 4096]`.
   - **Description**: Trigger queue capacity for reinit scheduler.
   - **Example**:
 
@@ -2573,7 +2583,7 @@ When `carriers` is missing or `false`, auto-negotiation and learning are disable
 
 `http_connection_capacity_action` applies only after Telemt has accepted a private WEB TCP connection and `max_http_connections` is exhausted. `drop` preserves the legacy immediate close. `respond` emits an empty `503 Service Unavailable` with `Retry-After: 1`, `Cache-Control: no-store`, and `Connection: close`. `wait` waits for ordinary connection capacity for at most `http_overload_timeout_ms`, then enters normal HTTP handling; timeout emits the same bounded `503`. At most `max_http_overload_connections` accepted sockets may wait or respond outside ordinary connection capacity. This policy cannot observe or cause a TCP connect refusal before Telemt accepts the socket.
 
-`carrier_learning` applies only while negotiation is enabled. Learning is process-local, in-memory, bounded, and positive-only: only a carrier that reaches the server-defined healthy state contributes evidence. `conservative` requires the broadest evidence and disables IP ranking, `balanced` admits moderate User-Agent/profile evidence plus eligible public-IP tie breaking, and `aggressive` reacts to the first bounded samples. Reported client failures remain diagnostic and never create negative evidence. Reload applies the policy to new negotiation chains and invalidates incompatible retained evidence. Disabling WEB stops issuance of new bridge and session credentials after reload; use the users API to revoke one user's active sessions.
+`carrier_learning` applies only while negotiation is enabled. Learning is process-local, in-memory, bounded, and positive-only: only a carrier that reaches the server-defined healthy state contributes evidence. `conservative` requires the broadest evidence and disables IP ranking, `balanced` admits moderate User-Agent/profile evidence plus eligible public-IP tie breaking, and `aggressive` reacts to the first bounded samples. Reported client failures remain diagnostic and never create negative evidence. Reload preserves evidence across a generation change only when enabled state, aggressiveness, evidence lifetime, and health window are identical; any semantic change advances the evidence epoch and fences stale outcomes. Because `[web.limits]` is process-owned, a reload that enables learning or negotiation using only a desired larger `max_carrier_learning_entries` atomically defers the dependent learning/carrier field rather than publishing an invalid effective combination. Disabling WEB stops issuance of new bridge and session credentials after reload; use the users API to revoke one user's active sessions.
 
 # [web.debug]
 
