@@ -1,7 +1,95 @@
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use super::{SessionNegotiationPhase, WebSession};
+use super::WebSession;
+
+/// Stable terminal cause assigned by the first session-close winner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub(crate) enum SessionCloseReason {
+    /// An authenticated client explicitly deleted its current session.
+    ClientDelete,
+    /// A surviving bridge replaced an unreachable carrier incarnation.
+    BridgeRecovery,
+    /// No validated peer operation arrived within the frozen reconnect grace.
+    PeerIdle,
+    /// Automatic carrier negotiation exhausted its absolute deadline.
+    NegotiationTimeout,
+    /// A successful negotiation replacement retired this incarnation.
+    CarrierSuperseded,
+    /// Authenticated carrier framing or sequencing violated the protocol.
+    Protocol,
+    /// Mandatory bounded control state could not be retained.
+    Backpressure,
+    /// A committed WebSocket carrier ended.
+    WebSocketEnded,
+    /// An authenticated control-plane request selected this session.
+    ApiClose,
+    /// A graceful operator drain reached its force-close deadline.
+    OperatorForce,
+    /// Terminal process shutdown closed all remaining sessions.
+    RuntimeShutdown,
+}
+
+impl SessionCloseReason {
+    /// Complete fixed reason set in stable API and metric order.
+    pub(crate) const ALL: [Self; 11] = [
+        Self::ClientDelete,
+        Self::BridgeRecovery,
+        Self::PeerIdle,
+        Self::NegotiationTimeout,
+        Self::CarrierSuperseded,
+        Self::Protocol,
+        Self::Backpressure,
+        Self::WebSocketEnded,
+        Self::ApiClose,
+        Self::OperatorForce,
+        Self::RuntimeShutdown,
+    ];
+
+    /// Returns the stable API, trace, and Prometheus token.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::ClientDelete => "client_delete",
+            Self::BridgeRecovery => "bridge_recovery",
+            Self::PeerIdle => "peer_idle",
+            Self::NegotiationTimeout => "negotiation_timeout",
+            Self::CarrierSuperseded => "carrier_superseded",
+            Self::Protocol => "protocol",
+            Self::Backpressure => "backpressure",
+            Self::WebSocketEnded => "websocket_ended",
+            Self::ApiClose => "api_close",
+            Self::OperatorForce => "operator_force",
+            Self::RuntimeShutdown => "runtime_shutdown",
+        }
+    }
+}
+
+/// Result of one first-writer-wins close request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SessionCloseOutcome {
+    /// This caller closed the session synchronously.
+    Closed,
+    /// This caller owns a close deferred behind carrier replacement.
+    Deferred,
+    /// An earlier caller already owns or completed session closure.
+    AlreadyClosing,
+}
+
+impl SessionCloseOutcome {
+    /// Returns whether this caller won the terminal cause.
+    pub(crate) const fn accepted(self) -> bool {
+        !matches!(self, Self::AlreadyClosing)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum SessionNegotiationPhase {
+    Uncommitted,
+    Replacing,
+    Committed,
+    Superseded,
+}
 
 struct ReleasedQueues {
     data_bytes: usize,
@@ -9,6 +97,7 @@ struct ReleasedQueues {
     control_bytes: usize,
     control_items: usize,
     closed_before_health: bool,
+    reason: SessionCloseReason,
 }
 
 /// Deferred queue release after manager publication linearizes a supersede.
@@ -21,24 +110,31 @@ pub(crate) struct CarrierSupersedeCompletion<'a> {
 impl CarrierSupersedeCompletion<'_> {
     /// Releases process budgets and signals cancellation after manager locks are dropped.
     pub(crate) fn finish(self) {
-        self.session.finish_close(self.released, true);
+        self.session.finish_close(self.released);
     }
 }
 
 impl WebSession {
     /// Closes carrier state while relay tasks retain their admission until exit.
-    pub(crate) fn close(&self) -> bool {
-        let Some(released) = self.begin_close(false, None) else {
-            return false;
-        };
-        self.finish_close(released, false);
-        true
+    pub(crate) fn close(&self, reason: SessionCloseReason) -> SessionCloseOutcome {
+        let mut state = self.state.lock();
+        if state.closed || state.close_requested.is_some() {
+            return SessionCloseOutcome::AlreadyClosing;
+        }
+        if state.negotiation_phase == SessionNegotiationPhase::Replacing {
+            state.close_requested = Some(reason);
+            return SessionCloseOutcome::Deferred;
+        }
+        let released = self.release_on_close_locked(&mut state, reason);
+        drop(state);
+        self.finish_close(released);
+        SessionCloseOutcome::Closed
     }
 
     /// Atomically prevents first-frame commit while one successor is prepared.
     pub(crate) fn begin_carrier_supersede(&self) -> bool {
         let mut state = self.state.lock();
-        if state.closed || state.close_requested {
+        if state.closed || state.close_requested.is_some() {
             return false;
         }
         match state.negotiation_phase {
@@ -54,21 +150,32 @@ impl WebSession {
 
     /// Restores an uncommitted attempt after successor admission failed.
     pub(crate) fn cancel_carrier_supersede(&self) {
-        let close_requested = {
+        let released = {
             let mut state = self.state.lock();
             if !state.closed && state.negotiation_phase == SessionNegotiationPhase::Replacing {
                 state.negotiation_phase = SessionNegotiationPhase::Uncommitted;
             }
-            state.close_requested
+            state
+                .close_requested
+                .filter(|_| !state.closed)
+                .map(|reason| self.release_on_close_locked(&mut state, reason))
         };
-        if close_requested {
-            self.close();
+        if let Some(released) = released {
+            self.finish_close(released);
         }
     }
 
     /// Linearizes manager publication against close requests on the old token.
     pub(crate) fn prepare_carrier_supersede(&self) -> Option<CarrierSupersedeCompletion<'_>> {
-        let released = self.begin_close(true, None)?;
+        let mut state = self.state.lock();
+        if state.closed
+            || state.negotiation_phase != SessionNegotiationPhase::Replacing
+            || state.close_requested.is_some()
+        {
+            return None;
+        }
+        let released =
+            self.release_on_close_locked(&mut state, SessionCloseReason::CarrierSuperseded);
         Some(CarrierSupersedeCompletion {
             session: self,
             released,
@@ -82,6 +189,19 @@ impl WebSession {
             tokio::pin!(notified);
             notified.as_mut().enable();
             if self.tasks_live.load(Ordering::Acquire) == 0 {
+                return;
+            }
+            notified.await;
+        }
+    }
+
+    /// Waits until registry removal and close telemetry have completed.
+    pub(crate) async fn wait_close_complete(&self) {
+        loop {
+            let notified = self.close_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.close_complete.load(Ordering::Acquire) {
                 return;
             }
             notified.await;
@@ -102,38 +222,38 @@ impl WebSession {
         if let Some(claim) = healthy {
             self.finish_carrier_health(claim);
         }
-        let Some(released) = self.begin_close(false, Some(now)) else {
+        let Some(released) = self.begin_idle_close(now) else {
             return false;
         };
-        self.finish_close(released, false);
+        self.finish_close(released);
         true
     }
 
-    fn begin_close(&self, superseded: bool, idle_now: Option<Instant>) -> Option<ReleasedQueues> {
+    fn begin_idle_close(&self, now: Instant) -> Option<ReleasedQueues> {
         let mut state = self.state.lock();
-        if state.closed
-            || (superseded
-                && (state.negotiation_phase != SessionNegotiationPhase::Replacing
-                    || state.close_requested))
+        if state.closed || state.close_requested.is_some() {
+            return None;
+        }
+        if state.negotiation_phase == SessionNegotiationPhase::Replacing
+            || state.activity.peer_idle(now)
+                < Duration::from_secs(self.timeouts.reconnect_grace_secs)
         {
             return None;
         }
-        if let Some(now) = idle_now
-            && (state.negotiation_phase == SessionNegotiationPhase::Replacing
-                || now.saturating_duration_since(state.last_activity)
-                    < Duration::from_secs(self.timeouts.reconnect_grace_secs))
-        {
-            return None;
-        }
-        if !superseded && state.negotiation_phase == SessionNegotiationPhase::Replacing {
-            state.close_requested = true;
-            return None;
-        }
+        Some(self.release_on_close_locked(&mut state, SessionCloseReason::PeerIdle))
+    }
+
+    fn release_on_close_locked(
+        &self,
+        state: &mut super::SessionState,
+        reason: SessionCloseReason,
+    ) -> ReleasedQueues {
         let closed_before_health = self.automatic_carrier
             && state.negotiation_phase == SessionNegotiationPhase::Committed
             && self.reject_carrier_health_on_close();
+        state.close_requested = Some(reason);
         state.closed = true;
-        if superseded {
+        if reason == SessionCloseReason::CarrierSuperseded {
             state.negotiation_phase = SessionNegotiationPhase::Superseded;
         }
         for stream in state.streams.values_mut() {
@@ -149,8 +269,8 @@ impl WebSession {
         state.pending_windows.clear();
         if let Some(batch) = state.unacked.take() {
             batch.lease.detach();
-            self.release_local_locked(&mut state, batch.data_bytes, batch.data_items, false);
-            self.release_local_locked(&mut state, batch.control_bytes, batch.control_items, true);
+            self.release_local_locked(state, batch.data_bytes, batch.data_items, false);
+            self.release_local_locked(state, batch.control_bytes, batch.control_items, true);
         }
         let mut lane_data_bytes = 0usize;
         let mut lane_data_items = 0usize;
@@ -166,8 +286,8 @@ impl WebSession {
                 lane_control_items = lane_control_items.saturating_add(batch.control_items);
             }
         }
-        self.release_local_locked(&mut state, lane_data_bytes, lane_data_items, false);
-        self.release_local_locked(&mut state, lane_control_bytes, lane_control_items, true);
+        self.release_local_locked(state, lane_data_bytes, lane_data_items, false);
+        self.release_local_locked(state, lane_control_bytes, lane_control_items, true);
         state.carrier_lanes.clear();
         let control_bytes = state.pending_control_bytes;
         let control_items = state.pending_control_items;
@@ -177,16 +297,17 @@ impl WebSession {
         state.pending_items = 0;
         state.pending_control_bytes = 0;
         state.pending_control_items = 0;
-        Some(ReleasedQueues {
+        ReleasedQueues {
             data_bytes,
             data_items,
             control_bytes,
             control_items,
             closed_before_health,
-        })
+            reason,
+        }
     }
 
-    fn finish_close(&self, released: ReleasedQueues, superseded: bool) {
+    fn finish_close(&self, released: ReleasedQueues) {
         self.cancel.cancel();
         if self.carrier().is_multiplexed() {
             self.down_notify.notify_waiters();
@@ -194,7 +315,8 @@ impl WebSession {
         if self.carrier().uses_lanes() {
             self.lane_open_notify.notify_waiters();
         }
-        if let Some(manager) = self.manager.upgrade() {
+        let manager = self.manager.upgrade();
+        if let Some(manager) = &manager {
             if released.closed_before_health {
                 manager.telemetry().record_carrier_learning(
                     self.selected_carrier,
@@ -213,22 +335,27 @@ impl WebSession {
                 released.control_items,
                 true,
             );
-            if !self.finished.swap(true, Ordering::AcqRel) {
-                self.trace_lifecycle(
-                    crate::web::trace::TraceLifecycleEvent::SessionClosed,
-                    None,
-                    Some(if superseded { "superseded" } else { "closed" }),
+        }
+        if !self.finished.swap(true, Ordering::AcqRel) {
+            self.trace_lifecycle(
+                crate::web::trace::TraceLifecycleEvent::SessionClosed,
+                None,
+                Some(released.reason.as_str()),
+            );
+            if released.reason != SessionCloseReason::CarrierSuperseded
+                && let Some(manager) = manager
+            {
+                manager.session_finished(
+                    self.token_hash,
+                    self.client_ip,
+                    self.profile_key,
+                    &self.profile.host,
+                    Duration::from_secs(self.timeouts.bootstrap_lifetime_secs),
+                    released.reason,
                 );
-                if !superseded {
-                    manager.session_finished(
-                        self.token_hash,
-                        self.client_ip,
-                        self.profile_key,
-                        &self.profile.host,
-                        Duration::from_secs(self.timeouts.bootstrap_lifetime_secs),
-                    );
-                }
             }
+            self.close_complete.store(true, Ordering::Release);
+            self.close_notify.notify_waiters();
         }
     }
 }

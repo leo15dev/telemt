@@ -9,8 +9,8 @@ use subtle::ConstantTimeEq;
 
 use super::backend::StreamCompletion;
 use super::{
-    InboundChunk, PendingClass, QUEUE_ITEM_COST, SessionState, StreamIdentity, StreamState,
-    WebSession, inbound_queue_cost,
+    InboundChunk, PendingClass, QUEUE_ITEM_COST, SessionCloseReason, SessionState, StreamIdentity,
+    StreamState, WebSession, inbound_queue_cost,
 };
 use crate::web::frame::{self, Frame, FrameType};
 use crate::web::manager::{ManagerError, TokenHash};
@@ -70,7 +70,7 @@ impl WebSession {
         let frames = match frame::parse_all(body, &self.limits) {
             Ok(frames) => frames,
             Err(_) => {
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
         };
@@ -79,7 +79,7 @@ impl WebSession {
             .copied()
             .any(|value| frame::validate_client_shape(value).is_err())
         {
-            self.close();
+            self.close(SessionCloseReason::Protocol);
             return Err(ManagerError::Protocol);
         }
         let digest: TokenHash = Sha256::digest(body).into();
@@ -92,24 +92,24 @@ impl WebSession {
                 return Err(ManagerError::Closed);
             }
             self.ensure_carrier_active_locked(&state)?;
-            state.last_activity = Instant::now();
+            state.activity.touch_peer(Instant::now());
             if sequence == state.last_up_sequence && sequence != 0 {
                 return if bool::from(state.last_up_digest.ct_eq(&digest)) {
                     Ok((sequence, false))
                 } else {
                     drop(state);
-                    self.close();
+                    self.close(SessionCloseReason::Protocol);
                     Err(ManagerError::Protocol)
                 };
             }
             if sequence == 0 || sequence != state.last_up_sequence.saturating_add(1) {
                 drop(state);
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
             if !validate_batch(&state, &frames) {
                 drop(state);
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
             let (reserve_bytes, reserve_items) = inbound_reservation(&state, &frames);
@@ -147,7 +147,7 @@ impl WebSession {
             return result;
         }
         if result.is_err() {
-            self.close();
+            self.close(SessionCloseReason::Protocol);
             drop(opened);
             return result;
         }

@@ -11,6 +11,7 @@ use super::state::{
 };
 use super::{ProfileKey, TokenHash, WebProcessRuntime};
 use crate::maestro::generation::RuntimeGeneration;
+use crate::web::session::SessionCloseReason;
 
 /// Result of draining all process-owned WEB work under one absolute deadline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,17 +62,29 @@ impl WebProcessRuntime {
         profile_key: ProfileKey,
         profile_host: &str,
         closed_token_lifetime: Duration,
+        reason: SessionCloseReason,
     ) {
         let mut state = self.state.lock();
         let Some(session) = state.sessions.remove(&hash) else {
             return;
         };
+        let recovery_closed_before_commit = state.bootstraps.values().any(|bootstrap| {
+            bootstrap.recovery
+                && bootstrap
+                    .session
+                    .as_ref()
+                    .is_some_and(|current| current.token_hash() == hash)
+                && !session.is_carrier_committed()
+        });
         decrement_map(&mut state.sessions_per_ip, &client_ip);
         decrement_map(&mut state.sessions_per_profile, &profile_key);
         remember_closed_token_locked(
             &mut state,
             hash,
             profile_host,
+            session.trace_session_id(),
+            session.carrier(),
+            reason,
             closed_token_lifetime,
             self.limits.max_sessions_global.saturating_mul(16),
         );
@@ -86,6 +99,8 @@ impl WebProcessRuntime {
                 &mut state,
                 trace_session_id,
                 session.carrier_attempt(),
+                session.carrier(),
+                reason,
                 closed_token_lifetime,
                 self.limits.max_sessions_global,
             );
@@ -104,7 +119,13 @@ impl WebProcessRuntime {
         for bootstrap_hash in bootstrap_hashes {
             remove_bootstrap_locked(&mut state, bootstrap_hash);
         }
-        self.telemetry.record_session_closed();
+        self.telemetry
+            .record_session_closed(session.carrier(), reason);
+        if recovery_closed_before_commit {
+            self.telemetry.record_bridge_recovery(
+                crate::web::telemetry::WebBridgeRecoveryEvent::ClosedBeforeCommit,
+            );
+        }
         drop(state);
         self.notify_operator_work_changed();
     }
@@ -135,7 +156,7 @@ impl WebProcessRuntime {
         };
         self.stream_admission.lock().closed = true;
         for session in &sessions {
-            session.close();
+            session.close(SessionCloseReason::RuntimeShutdown);
         }
         self.tasks.close();
         WebShutdownDrain {
@@ -215,14 +236,18 @@ impl WebProcessRuntime {
             for (hash, _) in expired {
                 remove_bootstrap_locked(&mut state, hash);
             }
-            remove_expired_locked(&mut state, now);
+            let expired_recoveries = remove_expired_locked(&mut state, now);
+            self.telemetry.record_bridge_recovery_count(
+                crate::web::telemetry::WebBridgeRecoveryEvent::ExpiredUnused,
+                expired_recoveries,
+            );
             (
                 state.sessions.values().cloned().collect::<Vec<_>>(),
                 expired_chains,
             )
         };
         for session in expired_chains {
-            session.close();
+            session.close(SessionCloseReason::NegotiationTimeout);
         }
         for session in sessions {
             session.close_if_due(now);

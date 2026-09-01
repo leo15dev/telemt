@@ -6,8 +6,8 @@ use tokio::sync::OwnedSemaphorePermit;
 
 use super::lane_downlink::take_lane_down_batch;
 use super::{
-    CarrierLaneIdentity, PendingClass, PollResult, QUEUE_ITEM_COST, QueuedFrame, SessionState,
-    WebSession, remember_closed,
+    CarrierLaneIdentity, PendingClass, PollResult, QUEUE_ITEM_COST, QueuedFrame, SessionCloseReason,
+    SessionState, WebSession, remember_closed,
 };
 use crate::web::frame::{self, FrameType};
 use crate::web::manager::ManagerError;
@@ -65,7 +65,7 @@ impl WebSession {
             if state.closed {
                 return Err(ManagerError::Closed);
             }
-            state.last_activity = Instant::now();
+            state.activity.touch_peer(Instant::now());
             let acknowledged = {
                 let Some(lane) = state.carrier_lanes.get_mut(&lane_id) else {
                     return Ok(PollResult {
@@ -91,14 +91,14 @@ impl WebSession {
                     }
                     if cursor != unacked.next_cursor {
                         drop(state);
-                        self.close();
+                        self.close(SessionCloseReason::Protocol);
                         return Err(ManagerError::Protocol);
                     }
                     lane.unacked.take()
                 } else {
                     if cursor != lane.down_cursor {
                         drop(state);
-                        self.close();
+                        self.close(SessionCloseReason::Protocol);
                         return Err(ManagerError::Protocol);
                     }
                     None
@@ -133,7 +133,7 @@ impl WebSession {
                 .ok_or(ManagerError::Protocol)?;
             let Some(epoch) = lane.down_epoch.checked_add(1) else {
                 drop(state);
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             };
             lane.down_epoch = epoch;
@@ -195,7 +195,7 @@ impl WebSession {
                             }
                             Err(error) => {
                                 drop(state);
-                                self.close();
+                                self.close(SessionCloseReason::Protocol);
                                 return Err(error);
                             }
                         };
@@ -258,7 +258,7 @@ impl WebSession {
                         });
                     }
                     if lane.down_epoch == epoch {
-                        state.last_activity = Instant::now();
+                        state.activity.touch_progress(Instant::now());
                     }
                 }
                 Ok(PollResult {
@@ -281,7 +281,7 @@ impl WebSession {
             }
             if cursor != 0 || lane_id == 0 {
                 drop(state);
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
             if state.closed_streams.contains(&lane_id)

@@ -10,6 +10,12 @@ pub(crate) use carrier::{
     WebCarrierLearningOutcome, WebCarrierSelectionCounter, WebCarrierSelectionDisposition,
 };
 use carrier::{CARRIER_FAILURE_SLOTS, CARRIER_LEARNING_SLOTS, CARRIER_SELECTION_SLOTS};
+mod lifecycle;
+pub(crate) use lifecycle::{
+    WebBridgeRecoveryCounter, WebBridgeRecoveryEvent, WebSessionCloseCounter,
+    WebSessionLifecycleObservation, WebSessionLifecycleObservationCounter,
+};
+use lifecycle::{SESSION_CLOSE_SLOTS, SESSION_OBSERVATION_SLOTS};
 
 const LAST_DECOY_OUTCOME_BITS: u32 = 4;
 const LAST_DECOY_OUTCOME_MASK: u64 = (1 << LAST_DECOY_OUTCOME_BITS) - 1;
@@ -310,6 +316,9 @@ pub(crate) struct WebTelemetry {
     carrier_selections: [AtomicU64; CARRIER_SELECTION_SLOTS],
     carrier_failures: [AtomicU64; CARRIER_FAILURE_SLOTS],
     carrier_learning_outcomes: [AtomicU64; CARRIER_LEARNING_SLOTS],
+    session_closures: [AtomicU64; SESSION_CLOSE_SLOTS],
+    session_observations: [AtomicU64; SESSION_OBSERVATION_SLOTS],
+    bridge_recovery_events: [AtomicU64; WebBridgeRecoveryEvent::ALL.len()],
     last_decoy: AtomicU64,
     sessions_created: AtomicU64,
     sessions_closed: AtomicU64,
@@ -334,6 +343,9 @@ impl WebTelemetry {
             carrier_selections: std::array::from_fn(|_| AtomicU64::new(0)),
             carrier_failures: std::array::from_fn(|_| AtomicU64::new(0)),
             carrier_learning_outcomes: std::array::from_fn(|_| AtomicU64::new(0)),
+            session_closures: std::array::from_fn(|_| AtomicU64::new(0)),
+            session_observations: std::array::from_fn(|_| AtomicU64::new(0)),
+            bridge_recovery_events: std::array::from_fn(|_| AtomicU64::new(0)),
             last_decoy: AtomicU64::new(0),
             sessions_created: AtomicU64::new(0),
             sessions_closed: AtomicU64::new(0),
@@ -465,11 +477,6 @@ impl WebTelemetry {
     /// Records one created session incarnation.
     pub(crate) fn record_session_created(&self) {
         self.sessions_created.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Records one closed session incarnation.
-    pub(crate) fn record_session_closed(&self) {
-        self.sessions_closed.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Records one admitted logical stream.

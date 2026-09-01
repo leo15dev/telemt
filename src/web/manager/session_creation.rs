@@ -18,7 +18,7 @@ use super::{
 };
 use crate::config::{WebCarrier, WebRuntimeProfile};
 use crate::web::frame;
-use crate::web::session::WebSession;
+use crate::web::session::{SessionCloseReason, WebSession};
 use crate::web::telemetry::WebCarrierSelectionDisposition;
 use crate::web::trace::TraceLifecycleEvent;
 
@@ -56,7 +56,11 @@ impl WebProcessRuntime {
         let config = generation.config();
         let now = Instant::now();
         let mut state = self.state.lock();
-        remove_expired_locked(&mut state, now);
+        let expired_recoveries = remove_expired_locked(&mut state, now);
+        self.telemetry.record_bridge_recovery_count(
+            crate::web::telemetry::WebBridgeRecoveryEvent::ExpiredUnused,
+            expired_recoveries,
+        );
         state.apply_issuance_policy(generation.id, config.web.enabled);
         if state.closed || !state.issuance_enabled {
             return Err(ManagerError::Closed);
@@ -79,7 +83,7 @@ impl WebProcessRuntime {
                 let session = entry.session.clone();
                 drop(state);
                 if let Some(session) = session {
-                    session.close();
+                    session.close(SessionCloseReason::NegotiationTimeout);
                 }
                 return Err(ManagerError::Closed);
             }
@@ -335,7 +339,7 @@ impl WebProcessRuntime {
         state.sessions.insert(session_hash, Arc::clone(&session));
         *state.sessions_per_ip.entry(client_ip).or_insert(0) += 1;
         *state.sessions_per_profile.entry(profile_key).or_insert(0) += 1;
-        let (issuance_ip, candidate_count, user_agent, user_agent_id) = {
+        let (issuance_ip, candidate_count, user_agent, user_agent_id, recovery) = {
             let entry = state
                 .bootstraps
                 .get_mut(&bootstrap_hash)
@@ -362,10 +366,16 @@ impl WebProcessRuntime {
                 u8::try_from(entry.carrier_candidates.len()).unwrap_or(4),
                 entry.user_agent.clone(),
                 entry.user_agent_id,
+                entry.recovery,
             )
         };
         decrement_map(&mut state.bootstraps_per_ip, &issuance_ip);
         self.telemetry.record_session_created();
+        if recovery {
+            self.telemetry.record_bridge_recovery(
+                crate::web::telemetry::WebBridgeRecoveryEvent::SessionCreated,
+            );
+        }
         let identity = session.trace_identity();
         let result = CreateResult {
             token: session_token,

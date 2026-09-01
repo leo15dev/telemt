@@ -5,7 +5,8 @@ use crate::web::control::{WebRuntimeLifecycle, WebRuntimePublication};
 use crate::web::manager::{WebCapacityResourceStatus, WebCapacitySnapshot, WebProcessRuntime};
 use crate::web::telemetry::{WebOutcomeCounter, WebRejectionCounter};
 use crate::web::telemetry::{
-    WebCarrierFailureCounter, WebCarrierLearningCounter, WebCarrierSelectionCounter,
+    WebBridgeRecoveryCounter, WebCarrierFailureCounter, WebCarrierLearningCounter,
+    WebCarrierSelectionCounter, WebSessionCloseCounter, WebSessionLifecycleObservationCounter,
 };
 
 /// Private WEB ingress state owned by this Telemt process.
@@ -139,6 +140,27 @@ impl WebCarrierNegotiationStatus {
     }
 }
 
+/// Fixed-cardinality process-lifetime WEB lifecycle counters.
+#[derive(Serialize)]
+pub(super) struct WebLifecycleCountersStatus {
+    bridge_recovery_secs: u64,
+    session_closures: Vec<WebSessionCloseCounter>,
+    session_observations: Vec<WebSessionLifecycleObservationCounter>,
+    bridge_recovery_events: Vec<WebBridgeRecoveryCounter>,
+}
+
+impl WebLifecycleCountersStatus {
+    /// Builds a complete counter set from process-owned telemetry.
+    pub(super) fn new(publication: &WebRuntimePublication, config: &ProxyConfig) -> Self {
+        Self {
+            bridge_recovery_secs: config.web.timeouts.bridge_recovery_secs,
+            session_closures: publication.telemetry.session_close_counters(),
+            session_observations: publication.telemetry.session_observation_counters(),
+            bridge_recovery_events: publication.telemetry.bridge_recovery_counters(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::ProxyConfig;
@@ -167,6 +189,11 @@ mod tests {
         let decoy = serde_json::to_value(super::WebDecoyUpstreamStatus::new(&publication)).unwrap();
         let carrier =
             serde_json::to_value(super::WebCarrierNegotiationStatus::new(&publication)).unwrap();
+        let lifecycle = serde_json::to_value(super::WebLifecycleCountersStatus::new(
+            &publication,
+            &config,
+        ))
+        .unwrap();
 
         assert_eq!(
             capacity["rejections"].as_array().unwrap().len(),
@@ -199,6 +226,23 @@ mod tests {
             carrier["learning_outcomes"].as_array().unwrap().len(),
             crate::config::WebCarrier::ALL.len()
                 * crate::web::telemetry::WebCarrierLearningOutcome::ALL.len()
+        );
+        assert_eq!(
+            lifecycle["session_closures"].as_array().unwrap().len(),
+            crate::config::WebCarrier::ALL.len()
+                * crate::web::session::SessionCloseReason::ALL.len()
+        );
+        assert_eq!(
+            lifecycle["session_observations"].as_array().unwrap().len(),
+            crate::config::WebCarrier::ALL.len()
+                * crate::web::telemetry::WebSessionLifecycleObservation::ALL.len()
+        );
+        assert_eq!(
+            lifecycle["bridge_recovery_events"]
+                .as_array()
+                .unwrap()
+                .len(),
+            crate::web::telemetry::WebBridgeRecoveryEvent::ALL.len()
         );
     }
 }

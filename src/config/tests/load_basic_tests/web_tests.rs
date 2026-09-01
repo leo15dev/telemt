@@ -194,7 +194,7 @@ fn web_carriers_reject_true_empty_and_duplicates() {
 fn web_carrier_and_bridge_deadlines_are_configurable() {
     let configured = WEB_CONFIG.replace(
         "[[web.vhosts]]",
-        "[web.timeouts]\ncarrier_negotiation_deadlines_secs = [1, 2, 4, 9]\ncarrier_learning_secs = 30\nbridge_request_secs = 7\nbridge_retry_secs = 41\ncarrier_probe_coalesce_ms = 4\n\n[[web.vhosts]]",
+        "[web.timeouts]\ncarrier_negotiation_deadlines_secs = [1, 2, 4, 9]\ncarrier_learning_secs = 30\nbridge_request_secs = 7\nbridge_retry_secs = 41\nbridge_recovery_secs = 13\ncarrier_probe_coalesce_ms = 4\n\n[[web.vhosts]]",
     );
     let config = load_config_from_temp_toml(&configured);
     assert_eq!(
@@ -204,6 +204,7 @@ fn web_carrier_and_bridge_deadlines_are_configurable() {
     assert_eq!(config.web.timeouts.carrier_learning_secs, 30);
     assert_eq!(config.web.timeouts.bridge_request_secs, 7);
     assert_eq!(config.web.timeouts.bridge_retry_secs, 41);
+    assert_eq!(config.web.timeouts.bridge_recovery_secs, 13);
     assert_eq!(config.web.timeouts.carrier_probe_coalesce_ms, 4);
 }
 
@@ -211,13 +212,14 @@ fn web_carrier_and_bridge_deadlines_are_configurable() {
 fn web_bridge_deadlines_are_known_in_strict_mode() {
     let configured = WEB_CONFIG.replace(
         "[[web.vhosts]]",
-        "[web.timeouts]\nbridge_request_secs = 7\nbridge_retry_secs = 41\ncarrier_probe_coalesce_ms = 4\n\n[[web.vhosts]]",
+        "[web.timeouts]\nbridge_request_secs = 7\nbridge_retry_secs = 41\nbridge_recovery_secs = 13\ncarrier_probe_coalesce_ms = 4\n\n[[web.vhosts]]",
     );
     let configured = format!("[general]\nconfig_strict = true\n{configured}");
     let config = load_config_from_temp_toml(&configured);
 
     assert_eq!(config.web.timeouts.bridge_request_secs, 7);
     assert_eq!(config.web.timeouts.bridge_retry_secs, 41);
+    assert_eq!(config.web.timeouts.bridge_recovery_secs, 13);
     assert_eq!(config.web.timeouts.carrier_probe_coalesce_ms, 4);
 }
 
@@ -228,6 +230,8 @@ fn web_bridge_deadlines_are_bounded_and_ordered() {
         ("bridge_request_secs", "61"),
         ("bridge_retry_secs", "0"),
         ("bridge_retry_secs", "301"),
+        ("bridge_recovery_secs", "0"),
+        ("bridge_recovery_secs", "61"),
         ("carrier_probe_coalesce_ms", "11"),
     ] {
         let invalid = WEB_CONFIG.replace(

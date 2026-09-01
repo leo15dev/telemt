@@ -7,13 +7,13 @@ use zeroize::Zeroizing;
 
 use super::state::{
     Bootstrap, CarrierChainPhase, allow_rate, evict_oldest_unused_bootstrap, matching_profile,
-    new_unique_token, remove_expired_locked,
+    new_unique_token, profile_key, remove_expired_locked,
 };
 use super::{BootstrapResult, ManagerError, TOKEN_BYTES, TokenHash, WebProcessRuntime};
 use crate::config::WebRuntimeProfile;
 use crate::maestro::generation::RuntimeGeneration;
-use crate::web::session::WebSession;
-use crate::web::telemetry::WebRejectionReason;
+use crate::web::session::{SessionCloseReason, WebSession};
+use crate::web::telemetry::{WebBridgeRecoveryEvent, WebRejectionReason};
 
 impl WebProcessRuntime {
     /// Issues a one-use bootstrap credential for an active compatible profile.
@@ -24,7 +24,7 @@ impl WebProcessRuntime {
         client_ip: IpAddr,
     ) -> std::result::Result<BootstrapResult, ManagerError> {
         let generation = self.active_generation();
-        self.issue_bootstrap_inner(&generation, profile, client_ip, None)
+        self.issue_bootstrap_inner(&generation, profile, client_ip, None, false)
     }
 
     /// Issues one bootstrap against the generation that selected the bridge profile.
@@ -35,7 +35,7 @@ impl WebProcessRuntime {
         profile: Arc<WebRuntimeProfile>,
         client_ip: IpAddr,
     ) -> std::result::Result<BootstrapResult, ManagerError> {
-        self.issue_bootstrap_inner(generation, profile, client_ip, None)
+        self.issue_bootstrap_inner(generation, profile, client_ip, None, false)
     }
 
     /// Issues one bridge bootstrap with bounded non-secret request metadata.
@@ -46,7 +46,18 @@ impl WebProcessRuntime {
         client_ip: IpAddr,
         user_agent: Option<&str>,
     ) -> std::result::Result<BootstrapResult, ManagerError> {
-        self.issue_bootstrap_inner(generation, profile, client_ip, user_agent)
+        self.issue_bootstrap_inner(generation, profile, client_ip, user_agent, false)
+    }
+
+    /// Issues one recovery bootstrap with the same positive-only admission boundary.
+    pub(crate) fn issue_recovery_bootstrap_for_request(
+        &self,
+        generation: &Arc<RuntimeGeneration>,
+        profile: Arc<WebRuntimeProfile>,
+        client_ip: IpAddr,
+        user_agent: Option<&str>,
+    ) -> std::result::Result<BootstrapResult, ManagerError> {
+        self.issue_bootstrap_inner(generation, profile, client_ip, user_agent, true)
     }
 
     fn issue_bootstrap_inner(
@@ -55,6 +66,7 @@ impl WebProcessRuntime {
         profile: Arc<WebRuntimeProfile>,
         client_ip: IpAddr,
         user_agent: Option<&str>,
+        recovery: bool,
     ) -> std::result::Result<BootstrapResult, ManagerError> {
         let config = generation.config();
         let profile = config
@@ -76,7 +88,11 @@ impl WebProcessRuntime {
         let _operator_admission = self.try_operator_admission()?;
         let now = Instant::now();
         let mut state = self.state.lock();
-        remove_expired_locked(&mut state, now);
+        let expired_recoveries = remove_expired_locked(&mut state, now);
+        self.telemetry.record_bridge_recovery_count(
+            WebBridgeRecoveryEvent::ExpiredUnused,
+            expired_recoveries,
+        );
         state.apply_issuance_policy(generation.id, config.web.enabled);
         if state.closed || !state.issuance_enabled {
             self.record_limit_hit();
@@ -153,6 +169,7 @@ impl WebProcessRuntime {
                 session_client_ip: None,
                 session_ip_learning_eligible: false,
                 used: false,
+                recovery,
             },
         );
         *state.bootstraps_per_ip.entry(client_ip).or_insert(0) += 1;
@@ -162,6 +179,10 @@ impl WebProcessRuntime {
             .map(|entry| Arc::clone(&entry.profile))
             .ok_or(ManagerError::Closed)?;
         drop(state);
+        if recovery {
+            self.telemetry
+                .record_bridge_recovery(WebBridgeRecoveryEvent::BootstrapIssued);
+        }
         self.trace.record_profile_lifecycle(
             client_ip,
             Some(trace_session_id),
@@ -215,6 +236,24 @@ impl WebProcessRuntime {
             .ok_or(ManagerError::Authentication)
     }
 
+    /// Resolves a current bearer only when it belongs to the recovering profile.
+    pub(crate) fn bridge_recovery_session(
+        &self,
+        hash: TokenHash,
+        host: &str,
+        profile: &WebRuntimeProfile,
+    ) -> Option<Arc<WebSession>> {
+        let expected_profile = profile_key(profile);
+        self.state
+            .lock()
+            .sessions
+            .get(&hash)
+            .filter(|session| {
+                session.matches_host(host) && session.profile_key() == expected_profile
+            })
+            .cloned()
+    }
+
     /// Closes a live token and accepts bounded tombstone retries.
     pub(crate) fn close_token(
         &self,
@@ -256,7 +295,7 @@ impl WebProcessRuntime {
             .is_some_and(|closed| closed.host == host);
         drop(state);
         if let Some(session) = session {
-            if session.close()
+            if session.close(SessionCloseReason::ClientDelete).accepted()
                 && let (Some(failure), Some(phase)) = (failure, failure_phase)
             {
                 self.telemetry

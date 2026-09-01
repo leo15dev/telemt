@@ -5,7 +5,8 @@ use bytes::{BufMut, Bytes, BytesMut};
 
 use super::resident::{OwnedBatchBody, PendingCounts, PendingResponseLease};
 use super::{
-    DownBatch, PendingClass, PollResult, QUEUE_ITEM_COST, QueuedFrame, SessionState, WebSession,
+    DownBatch, PendingClass, PollResult, QUEUE_ITEM_COST, QueuedFrame, SessionCloseReason,
+    SessionState, WebSession,
 };
 use crate::web::frame::{self, FrameType};
 use crate::web::manager::ManagerError;
@@ -21,7 +22,7 @@ impl WebSession {
             if state.closed {
                 return Err(ManagerError::Closed);
             }
-            state.last_activity = Instant::now();
+            state.activity.touch_peer(Instant::now());
             if let Some(unacked) = &state.unacked {
                 if cursor == unacked.base_cursor {
                     return Ok(PollResult {
@@ -32,7 +33,7 @@ impl WebSession {
                 }
                 if cursor != unacked.next_cursor {
                     drop(state);
-                    self.close();
+                    self.close(SessionCloseReason::Protocol);
                     return Err(ManagerError::Protocol);
                 }
                 let carrier_health_eligible = unacked.carrier_health_eligible;
@@ -43,12 +44,12 @@ impl WebSession {
                 }
             } else if cursor != state.down_cursor {
                 drop(state);
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
             let Some(epoch) = state.down_epoch.checked_add(1) else {
                 drop(state);
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             };
             state.down_epoch = epoch;
@@ -83,7 +84,7 @@ impl WebSession {
                             }
                             Err(error) => {
                                 drop(state);
-                                self.close();
+                                self.close(SessionCloseReason::Protocol);
                                 return Err(error);
                             }
                         };
@@ -110,7 +111,7 @@ impl WebSession {
             Err(_) => {
                 let mut state = self.state.lock();
                 if state.down_epoch == epoch {
-                    state.last_activity = Instant::now();
+                    state.activity.touch_progress(Instant::now());
                 }
                 Ok(PollResult {
                     body: Bytes::new(),

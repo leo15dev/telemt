@@ -18,7 +18,7 @@ struct TestRuntime {
 
 impl TestRuntime {
     async fn shutdown(self) {
-        self.session.close();
+        self.session.close(super::super::SessionCloseReason::ApiClose);
         self.session.wait().await;
         self.manager.shutdown().await;
         self.generation.stop_sessions().await;
@@ -181,7 +181,9 @@ async fn closed_session_releases_bound_lane_quota_on_reservation_drop() {
     let mut reservation = runtime.session.reserve_websocket_lane(7).unwrap();
     reservation.bind(1).unwrap();
 
-    runtime.session.close();
+    runtime
+        .session
+        .close(super::super::SessionCloseReason::ApiClose);
     drop(reservation);
 
     assert!(runtime.session.state.lock().active_peer_ports.is_empty());
@@ -220,7 +222,9 @@ async fn closed_session_releases_transferred_rejected_lane_quota() {
         WebSocketLaneReservationPhase::Transferred
     );
 
-    runtime.session.close();
+    runtime
+        .session
+        .close(super::super::SessionCloseReason::ApiClose);
     drop(reservation);
 
     assert!(runtime.session.state.lock().active_peer_ports.is_empty());
@@ -259,7 +263,9 @@ async fn closed_session_keeps_stream_owned_quota_until_task_completion() {
         WebSocketLaneReservationPhase::StreamOwned
     );
 
-    runtime.session.close();
+    runtime
+        .session
+        .close(super::super::SessionCloseReason::ApiClose);
     drop(reservation);
 
     assert!(

@@ -297,6 +297,7 @@ fn lease_deadline(
 fn sanitize_transport_request<B>(request: &mut Request<B>) {
     for name in [
         header::AUTHORIZATION,
+        header::ACCEPT,
         header::CONTENT_LENGTH,
         header::CONTENT_TYPE,
         header::UPGRADE,

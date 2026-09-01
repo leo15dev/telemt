@@ -198,7 +198,16 @@ pub(crate) enum SessionDetail {
     /// One exact live-session snapshot.
     Active(Box<SessionRow>),
     /// One bounded retained closed-session tombstone.
-    Gone { attempt: u8 },
+    Gone {
+        /// Last carrier incarnation number.
+        attempt: u8,
+        /// Carrier that owned the final incarnation.
+        carrier: WebCarrier,
+        /// First-writer terminal close cause.
+        reason: &'static str,
+        /// Monotonic age since final closure.
+        closed_age_ms: u64,
+    },
     /// A required short lock was contended.
     Busy,
     /// Neither a live session nor a retained tombstone exists.
@@ -500,13 +509,16 @@ impl WebProcessRuntime {
                 .map(|status| SessionDetail::Active(Box::new(self.row(candidate, status))))
                 .unwrap_or(SessionDetail::Busy);
         }
-        let closed = state
-            .closed_sessions
-            .get(&trace_session_id)
-            .map(|closed| closed.attempt);
-        closed.map_or(SessionDetail::NotFound, |attempt| SessionDetail::Gone {
-            attempt,
-        })
+        let now = Instant::now();
+        state.closed_sessions.get(&trace_session_id).map_or(
+            SessionDetail::NotFound,
+            |closed| SessionDetail::Gone {
+                attempt: closed.attempt,
+                carrier: closed.carrier,
+                reason: closed.reason.as_str(),
+                closed_age_ms: millis(now.saturating_duration_since(closed.closed_at)),
+            },
+        )
     }
 
     fn row(&self, candidate: Candidate, status: WebSessionStatus) -> SessionRow {
@@ -524,3 +536,7 @@ mod reference;
 pub(crate) use reference::SessionRefError;
 pub(super) use reference::immutable_matches;
 use reference::permits;
+
+fn millis(duration: std::time::Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
+}

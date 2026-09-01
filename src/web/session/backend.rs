@@ -7,7 +7,7 @@ use crate::proxy::shared_state::ConntrackClosePolicy;
 use crate::web::frame::FrameType;
 use crate::web::stream::WebLogicalStream;
 
-use super::{StreamIdentity, WebSession, inbound_queue_cost};
+use super::{SessionCloseReason, StreamIdentity, WebSession, inbound_queue_cost};
 
 #[cfg(test)]
 #[path = "backend_tests.rs"]
@@ -119,7 +119,7 @@ impl WebSession {
                 })
         };
         if queued.is_some_and(|queued| !queued) {
-            self.close();
+            self.close(SessionCloseReason::Backpressure);
         }
     }
 
@@ -156,7 +156,7 @@ impl WebSession {
         }
         if let Some(queued) = queued {
             if !queued {
-                self.close();
+                self.close(SessionCloseReason::Backpressure);
             }
             if self.carrier().is_multiplexed() {
                 self.down_notify.notify_waiters();

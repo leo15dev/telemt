@@ -69,7 +69,7 @@ async fn downlink_replays_unacknowledged_batch_byte_for_byte() {
     assert_eq!(first.body, replay.body);
     drop(first);
     drop(replay);
-    session.close();
+    session.close(super::SessionCloseReason::ApiClose);
     manager.shutdown().await;
 }
 
@@ -89,7 +89,7 @@ async fn acknowledged_response_stays_resident_until_the_last_body_clone_drops() 
     assert!(session.resident.snapshot().bytes() > 0);
     drop(retained);
     assert_eq!(session.resident.snapshot().bytes(), 0);
-    session.close();
+    session.close(super::SessionCloseReason::ApiClose);
     manager.shutdown().await;
 }
 
@@ -139,6 +139,6 @@ async fn newer_poll_supersedes_older_poll_without_closing_session() {
     assert_eq!(superseded.next_cursor, 0);
     assert!(!session.state.lock().closed);
     second.abort();
-    session.close();
+    session.close(super::SessionCloseReason::ApiClose);
     manager.shutdown().await;
 }

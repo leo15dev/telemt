@@ -9,6 +9,7 @@ use tokio::time::Instant as TokioInstant;
 use tokio_util::sync::CancellationToken;
 
 use super::WebProcessRuntime;
+use crate::web::session::SessionCloseReason;
 
 // Serialized state-machine values stay separate from synchronization mechanics.
 mod status;
@@ -447,7 +448,7 @@ impl WebProcessRuntime {
                     }
                     forced = true;
                     for session in sessions {
-                        session.close();
+                        session.close(SessionCloseReason::OperatorForce);
                     }
                 }
             }

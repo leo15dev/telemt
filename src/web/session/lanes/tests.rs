@@ -108,7 +108,7 @@ async fn early_down_waits_without_creating_a_provisional_lane() {
     assert!(!result.body.is_empty());
     assert_eq!(session.state.lock().lane_open_waits, 0);
     drop(result);
-    session.close();
+    session.close(super::super::SessionCloseReason::ApiClose);
     manager.shutdown().await;
 }
 
@@ -126,7 +126,7 @@ async fn early_down_timeout_is_empty_and_releases_its_session_slot() {
     assert_eq!(result.next_cursor, 0);
     assert!(!result.lane_closed);
     assert_eq!(session.state.lock().lane_open_waits, 0);
-    session.close();
+    session.close(super::super::SessionCloseReason::ApiClose);
     manager.shutdown().await;
 }
 
@@ -156,7 +156,7 @@ async fn early_down_admission_is_bounded_and_cancellation_safe() {
         let _ = wait.await;
     }
     assert_eq!(session.state.lock().lane_open_waits, 0);
-    session.close();
+    session.close(super::super::SessionCloseReason::ApiClose);
     manager.shutdown().await;
 }
 
@@ -168,7 +168,7 @@ async fn session_close_wakes_early_down_with_closed_state() {
     while session.state.lock().lane_open_waits == 0 {
         tokio::task::yield_now().await;
     }
-    session.close();
+    session.close(super::super::SessionCloseReason::ApiClose);
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(1), poll)
             .await
@@ -229,7 +229,7 @@ async fn drained_closed_lane_replays_then_signals_completion() {
     assert!(finished.lane_closed);
     drop(first);
     drop(replay);
-    session.close();
+    session.close(super::super::SessionCloseReason::ApiClose);
     manager.shutdown().await;
 }
 

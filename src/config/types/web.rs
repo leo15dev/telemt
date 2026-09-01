@@ -301,6 +301,9 @@ pub struct WebTimeoutsConfig {
     /// Absolute generated-bridge budget for one retryable HTTP operation.
     #[serde(default = "default_web_bridge_retry_secs")]
     pub bridge_retry_secs: u64,
+    /// Absolute post-commit budget for one surviving bridge recovery epoch.
+    #[serde(default = "default_web_bridge_recovery_secs")]
+    pub bridge_recovery_secs: u64,
     /// Optional delay for coalescing the first OPEN with immediate DATA.
     #[serde(default = "default_web_carrier_probe_coalesce_ms")]
     pub carrier_probe_coalesce_ms: u64,
@@ -361,6 +364,7 @@ impl Default for WebTimeoutsConfig {
             long_poll_secs: default_web_long_poll_timeout_secs(),
             bridge_request_secs: default_web_bridge_request_secs(),
             bridge_retry_secs: default_web_bridge_retry_secs(),
+            bridge_recovery_secs: default_web_bridge_recovery_secs(),
             carrier_probe_coalesce_ms: default_web_carrier_probe_coalesce_ms(),
             lane_open_wait_secs: default_web_lane_open_wait_secs(),
             carrier_health_secs: default_web_carrier_health_secs(),

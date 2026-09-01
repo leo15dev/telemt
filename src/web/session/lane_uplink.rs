@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
 use super::uplink::{AppliedProgress, inbound_reservation, validate_batch};
-use super::{PendingClass, WebSession, insert_carrier_lane};
+use super::{PendingClass, SessionCloseReason, WebSession, insert_carrier_lane};
 use crate::config::WebCarrier;
 use crate::web::frame::{self, Frame, FrameType};
 use crate::web::manager::{ManagerError, TokenHash};
@@ -24,7 +24,7 @@ impl WebSession {
         let frames = match frame::parse_all(body, &self.limits) {
             Ok(frames) => frames,
             Err(_) => {
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
         };
@@ -33,7 +33,7 @@ impl WebSession {
             .copied()
             .any(|value| value.stream_id != lane_id || frame::validate_client_shape(value).is_err())
         {
-            self.close();
+            self.close(SessionCloseReason::Protocol);
             return Err(ManagerError::Protocol);
         }
         let digest: TokenHash = Sha256::digest(body).into();
@@ -46,7 +46,7 @@ impl WebSession {
                 return Err(ManagerError::Closed);
             }
             self.ensure_carrier_active_locked(&state)?;
-            state.last_activity = Instant::now();
+            state.activity.touch_peer(Instant::now());
             let new_lane = !state.carrier_lanes.contains_key(&lane_id);
             if new_lane {
                 if lane_id != 0
@@ -69,7 +69,7 @@ impl WebSession {
                         .is_none_or(|value| value.frame_type != FrameType::Open)
                 {
                     drop(state);
-                    self.close();
+                    self.close(SessionCloseReason::Protocol);
                     return Err(ManagerError::Protocol);
                 }
                 let lane_limit = self
@@ -92,13 +92,13 @@ impl WebSession {
                     Ok(sequence)
                 } else {
                     drop(state);
-                    self.close();
+                    self.close(SessionCloseReason::Protocol);
                     Err(ManagerError::Protocol)
                 };
             }
             if sequence == 0 || sequence != last_sequence.saturating_add(1) {
                 drop(state);
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
             if up_active {
@@ -106,7 +106,7 @@ impl WebSession {
             }
             if !validate_batch(&state, &frames) {
                 drop(state);
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
             let (reserve_bytes, reserve_items) = inbound_reservation(&state, &frames);
@@ -124,7 +124,7 @@ impl WebSession {
             if new_lane && insert_carrier_lane(&mut state, lane_id).is_none() {
                 self.release_locked(&mut state, reserve_bytes, reserve_items, false);
                 drop(state);
-                self.close();
+                self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
             let Some(lane) = state.carrier_lanes.get_mut(&lane_id) else {
@@ -161,7 +161,7 @@ impl WebSession {
             return result;
         }
         if result.is_err() {
-            self.close();
+            self.close(SessionCloseReason::Protocol);
             drop(opened);
             return result;
         }

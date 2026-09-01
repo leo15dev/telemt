@@ -99,7 +99,7 @@ impl WebProcessRuntime {
         identity: TraceIdentity,
     ) -> bool {
         let mut state = self.state.lock();
-        let scores = state.bootstraps.get_mut(&bootstrap_hash).and_then(|entry| {
+        let outcome = state.bootstraps.get_mut(&bootstrap_hash).and_then(|entry| {
             if entry.carrier_attempt == attempt
                 && entry
                     .session
@@ -108,13 +108,20 @@ impl WebProcessRuntime {
                 && entry.carrier_phase == CarrierChainPhase::Provisional
             {
                 entry.carrier_phase = CarrierChainPhase::CommittedPendingHealth;
-                Some(entry.carrier_scores)
+                Some((entry.carrier_scores, entry.recovery))
             } else {
                 None
             }
         });
         drop(state);
-        let Some(scores) = scores else { return false };
+        let Some((scores, recovery)) = outcome else {
+            return false;
+        };
+        if recovery {
+            self.telemetry.record_bridge_recovery(
+                crate::web::telemetry::WebBridgeRecoveryEvent::Committed,
+            );
+        }
         self.trace.record_carrier_lifecycle(
             client_ip,
             identity.clone(),

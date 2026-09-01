@@ -21,6 +21,7 @@ mod request;
 mod observability;
 use observability::{
     WebCapacityStatus, WebCarrierNegotiationStatus, WebDecoyUpstreamStatus, WebIngressStatus,
+    WebLifecycleCountersStatus,
 };
 use request::{
     CloseRequest, DrainRequest, RuntimeInstanceRequest, parse_session_query, parse_session_ref,
@@ -92,12 +93,20 @@ pub(super) async fn handle(
             let trace_session_id = parse_session_ref(&runtime, session_ref)?;
             match runtime.session_detail(trace_session_id) {
                 SessionDetail::Active(row) => Ok(success_response(StatusCode::OK, row, revision)),
-                SessionDetail::Gone { attempt } => Ok(success_response(
+                SessionDetail::Gone {
+                    attempt,
+                    carrier,
+                    reason,
+                    closed_age_ms,
+                } => Ok(success_response(
                     StatusCode::GONE,
                     GoneSessionData {
                         session_ref: session_ref.to_string(),
                         state: "closed",
                         attempt,
+                        carrier,
+                        reason,
+                        closed_age_ms,
                     },
                     revision,
                 )),
@@ -272,6 +281,7 @@ struct WebStatusData {
     capacity: WebCapacityStatus,
     decoy_upstream: WebDecoyUpstreamStatus,
     carrier_negotiation: WebCarrierNegotiationStatus,
+    lifecycle_counters: WebLifecycleCountersStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_lifecycle: Option<crate::web::manager::OperatorLifecycleStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -306,6 +316,7 @@ impl WebStatusData {
         let capacity = WebCapacityStatus::new(&publication, runtime, config);
         let decoy_upstream = WebDecoyUpstreamStatus::new(&publication);
         let carrier_negotiation = WebCarrierNegotiationStatus::new(&publication);
+        let lifecycle_counters = WebLifecycleCountersStatus::new(&publication, config);
         Self {
             lifecycle: publication.lifecycle.as_str(),
             lifecycle_epoch: publication.epoch,
@@ -322,6 +333,7 @@ impl WebStatusData {
             capacity,
             decoy_upstream,
             carrier_negotiation,
+            lifecycle_counters,
             operator_lifecycle,
             runtime: runtime.map(WebProcessRuntime::try_status),
         }
@@ -333,6 +345,9 @@ struct GoneSessionData {
     session_ref: String,
     state: &'static str,
     attempt: u8,
+    carrier: crate::config::WebCarrier,
+    reason: &'static str,
+    closed_age_ms: u64,
 }
 
 #[derive(Serialize)]

@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use super::status::immutable_matches;
 use super::{SessionFilter, WebProcessRuntime};
+use crate::web::session::SessionCloseReason;
 
 const OPERATION_REF_VERSION: &str = "wo1";
 const OPERATION_RETENTION: usize = 32;
@@ -297,7 +298,7 @@ impl WebProcessRuntime {
                 status.matched = status.matched.saturating_add(direct.len());
             });
             for candidate in direct {
-                candidate.session.close();
+                candidate.session.close(SessionCloseReason::ApiClose);
                 self.update_operation(sequence, |status| {
                     status.close_signalled = status.close_signalled.saturating_add(1)
                 });
@@ -325,7 +326,7 @@ impl WebProcessRuntime {
                         current
                     };
                     if let Some(session) = session {
-                        session.close();
+                        session.close(SessionCloseReason::ApiClose);
                         self.update_operation(sequence, |status| {
                             status.matched = status.matched.saturating_add(1);
                             status.close_signalled = status.close_signalled.saturating_add(1);

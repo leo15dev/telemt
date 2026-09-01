@@ -11,6 +11,9 @@ use crate::web::telemetry::{
     WebDecoyUpstreamOutcome, WebHttpConnectionOverloadOutcome, WebRejectionReason,
 };
 
+// Session lifecycle and aggregate families stay isolated from capacity rendering.
+mod lifecycle;
+
 /// Renders fixed-cardinality process-owned WEB observability families.
 pub(super) fn render(out: &mut String, publication: &WebRuntimePublication, config: &ProxyConfig) {
     let runtime = publication.runtime.upgrade();
@@ -197,7 +200,7 @@ pub(super) fn render(out: &mut String, publication: &WebRuntimePublication, conf
     }
 
     render_carrier_negotiation(out, publication, runtime.as_deref(), config);
-    render_aggregate_totals(out, publication);
+    lifecycle::render(out, publication, config);
 }
 
 fn render_carrier_negotiation(
@@ -411,55 +414,6 @@ fn render_capacity(out: &mut String, snapshot: &crate::web::manager::WebCapacity
             flag(status.available == 0 && !status.closed)
         );
     }
-}
-
-fn render_aggregate_totals(out: &mut String, publication: &WebRuntimePublication) {
-    let totals = publication.telemetry.aggregates();
-    let _ = writeln!(
-        out,
-        "# HELP telemt_web_session_incarnations_total Process-owned WEB session lifecycle totals"
-    );
-    let _ = writeln!(out, "# TYPE telemt_web_session_incarnations_total counter");
-    let _ = writeln!(
-        out,
-        "telemt_web_session_incarnations_total{{event=\"created\"}} {}",
-        totals.sessions_created
-    );
-    let _ = writeln!(
-        out,
-        "telemt_web_session_incarnations_total{{event=\"closed\"}} {}",
-        totals.sessions_closed
-    );
-    let _ = writeln!(
-        out,
-        "# HELP telemt_web_streams_total Process-owned WEB logical stream totals"
-    );
-    let _ = writeln!(out, "# TYPE telemt_web_streams_total counter");
-    let _ = writeln!(
-        out,
-        "telemt_web_streams_total{{event=\"opened\"}} {}",
-        totals.streams_opened
-    );
-    let _ = writeln!(
-        out,
-        "telemt_web_streams_total{{event=\"rejected\"}} {}",
-        totals.streams_rejected
-    );
-    let _ = writeln!(
-        out,
-        "# HELP telemt_web_carrier_bytes_total Process-owned WEB carrier payload bytes"
-    );
-    let _ = writeln!(out, "# TYPE telemt_web_carrier_bytes_total counter");
-    let _ = writeln!(
-        out,
-        "telemt_web_carrier_bytes_total{{direction=\"up\"}} {}",
-        totals.bytes_up
-    );
-    let _ = writeln!(
-        out,
-        "telemt_web_carrier_bytes_total{{direction=\"down\"}} {}",
-        totals.bytes_down
-    );
 }
 
 fn operator_state_token(state: OperatorLifecycleState) -> &'static str {

@@ -20,7 +20,11 @@ impl WebProcessRuntime {
         let config = generation.config();
         let now = Instant::now();
         let mut state = self.state.lock();
-        remove_expired_locked(&mut state, now);
+        let expired_recoveries = remove_expired_locked(&mut state, now);
+        self.telemetry.record_bridge_recovery_count(
+            crate::web::telemetry::WebBridgeRecoveryEvent::ExpiredUnused,
+            expired_recoveries,
+        );
         state.apply_issuance_policy(generation.id, config.web.enabled);
         let valid = state.bootstraps.get(&bootstrap_hash).is_some_and(|entry| {
             entry.carrier_transitioning
@@ -85,7 +89,7 @@ impl WebProcessRuntime {
         let Some(supersede) = replacement.old_session.prepare_carrier_supersede() else {
             drop(state);
             self.cancel_replacement(bootstrap_hash, &replacement.old_session);
-            session.close();
+            session.close(crate::web::session::SessionCloseReason::Protocol);
             return Err(ManagerError::Closed);
         };
         let old_hash = replacement.old_session.token_hash();
@@ -94,6 +98,9 @@ impl WebProcessRuntime {
             &mut state,
             old_hash,
             &replacement.profile.host,
+            replacement.old_session.trace_session_id(),
+            replacement.old_session.carrier(),
+            crate::web::session::SessionCloseReason::CarrierSuperseded,
             Duration::from_secs(replacement.old_session.timeouts().bootstrap_lifetime_secs),
             self.limits.max_sessions_global.saturating_mul(16),
         );
@@ -115,7 +122,15 @@ impl WebProcessRuntime {
             *slot = Some(replacement.old_session.carrier());
         }
         self.telemetry.record_session_created();
-        self.telemetry.record_session_closed();
+        if entry.recovery {
+            self.telemetry.record_bridge_recovery(
+                crate::web::telemetry::WebBridgeRecoveryEvent::SessionCreated,
+            );
+        }
+        self.telemetry.record_session_closed(
+            replacement.old_session.carrier(),
+            crate::web::session::SessionCloseReason::CarrierSuperseded,
+        );
         let result = CreateResult {
             token: session_token,
             carrier: replacement.carrier,

@@ -42,6 +42,9 @@ pub(super) fn validate(timeouts: &WebTimeoutsConfig) -> Result<()> {
     if !(1..=300).contains(&timeouts.bridge_retry_secs) {
         return config_error("web.timeouts.bridge_retry_secs must be within [1, 300]");
     }
+    if !(1..=60).contains(&timeouts.bridge_recovery_secs) {
+        return config_error("web.timeouts.bridge_recovery_secs must be within [1, 60]");
+    }
     if timeouts.bridge_request_secs > timeouts.bridge_retry_secs {
         return config_error("web.timeouts.bridge_request_secs must not exceed bridge_retry_secs");
     }

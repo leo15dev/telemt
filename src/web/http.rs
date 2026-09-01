@@ -31,6 +31,8 @@ mod decoy;
 mod down;
 // Canonical request parsing rejects ambiguous credentials before routing.
 mod request;
+// Positive-only recovery representation stays separate from ordinary bridge rendering.
+mod recovery;
 // Carrier response construction and lane-header helpers are shared by handlers.
 mod response;
 // Session creation and replacement negotiation remain separate from request routing.
@@ -219,6 +221,11 @@ async fn handle_root(
     generation: Arc<RuntimeGeneration>,
     vhost: Arc<WebRuntimeVhost>,
 ) -> HttpResponse {
+    let representation = recovery::classify(&request);
+    if matches!(representation, recovery::RootRepresentation::Invalid) {
+        strip_query(&mut request);
+        return serve_decoy(request, vhost, true, &runtime).await;
+    }
     let (candidate, canonical) = bridge_candidate(request.uri().query());
     let profile = match_profile(&vhost, &candidate);
     let Some(profile) = profile.filter(|_| canonical && request.method() == Method::GET) else {
@@ -236,12 +243,25 @@ async fn handle_root(
         .headers()
         .get(header::USER_AGENT)
         .and_then(|value| value.to_str().ok());
-    let bootstrap = match runtime.issue_bootstrap_for_request(
-        &generation,
-        Arc::clone(&profile),
-        client_ip,
-        user_agent,
-    ) {
+    let bootstrap = match match representation {
+        recovery::RootRepresentation::Bridge => runtime.issue_bootstrap_for_request(
+            &generation,
+            Arc::clone(&profile),
+            client_ip,
+            user_agent,
+        ),
+        recovery::RootRepresentation::Recovery(_) => runtime
+            .issue_recovery_bootstrap_for_request(
+                &generation,
+                Arc::clone(&profile),
+                client_ip,
+                user_agent,
+            ),
+        recovery::RootRepresentation::Invalid => {
+            strip_query(&mut request);
+            return serve_decoy(request, vhost, true, &runtime).await;
+        }
+    } {
         Ok(bootstrap) => bootstrap,
         Err(error) => {
             runtime.trace().record_profile_lifecycle(
@@ -261,18 +281,51 @@ async fn handle_root(
         trace.register_redaction(bootstrap.token.as_bytes());
     }
     let config = generation.config();
+    if let recovery::RootRepresentation::Recovery(previous_hash) = representation {
+        if let Some(session) = previous_hash.and_then(|hash| {
+            runtime.bridge_recovery_session(hash, &vhost.host, &profile)
+        }) {
+            let outcome = session.close(crate::web::session::SessionCloseReason::BridgeRecovery);
+            if outcome != crate::web::session::SessionCloseOutcome::Closed
+                && tokio::time::timeout(
+                    Duration::from_secs(config.web.timeouts.bridge_request_secs),
+                    session.wait_close_complete(),
+                )
+                .await
+                .is_err()
+            {
+                strip_query(&mut request);
+                return serve_decoy(request, vhost, true, &runtime).await;
+            }
+        }
+        let Some(response) = recovery::response(
+            &bootstrap,
+            &vhost,
+            &profile,
+            &config.web.limits,
+            &config.web.timeouts,
+        ) else {
+            strip_query(&mut request);
+            return serve_decoy(request, vhost, true, &runtime).await;
+        };
+        return response;
+    }
     let page = bridge::render(
         &vhost.host,
         &bootstrap.token,
         config.web.limits.carrier_batch_bytes,
         config.web.limits.pending_bytes_per_session,
         config.web.limits.pending_items_per_session,
+        profile.max_streams_per_session,
         profile.carrier_negotiation_enabled,
         profile.carriers.len(),
         profile.carrier_negotiation_deadlines_secs,
         config.web.timeouts.long_poll_secs,
         config.web.timeouts.bridge_request_secs,
         config.web.timeouts.bridge_retry_secs,
+        config.web.timeouts.bridge_recovery_secs,
+        config.web.timeouts.websocket_open_secs,
+        config.web.timeouts.reconnect_grace_secs,
         config.web.timeouts.carrier_probe_coalesce_ms,
         &generation.rng,
     );

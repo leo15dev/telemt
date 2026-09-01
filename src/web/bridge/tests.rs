@@ -7,12 +7,16 @@ fn render_page(bootstrap: &str, candidate_count: usize) -> BridgePage {
         2 * 1024 * 1024,
         32 * 1024 * 1024,
         16 * 1024,
+        1024,
         true,
         candidate_count,
         [3, 5, 8, 12],
         25,
         10,
         90,
+        15,
+        15,
+        120,
         0,
         &SecureRandom::new(),
     )
@@ -47,7 +51,7 @@ fn rendered_page_preserves_the_ios_bootstrap_literal() {
     let page = render_page(bootstrap, 2);
     assert!(
         page.body
-            .contains(&format!("const bootstrap=\"{bootstrap}\""))
+            .contains(&format!("let bootstrap=\"{bootstrap}\""))
     );
 }
 
@@ -59,12 +63,16 @@ fn rendered_page_embeds_the_configured_bridge_timing_policy() {
         2 * 1024 * 1024,
         32 * 1024 * 1024,
         16 * 1024,
+        1024,
         true,
         4,
         [3, 5, 8, 12],
         17,
         7,
         41,
+        13,
+        11,
+        119,
         4,
         &SecureRandom::new(),
     );
@@ -72,6 +80,9 @@ fn rendered_page_embeds_the_configured_bridge_timing_policy() {
     assert!(page.body.contains("const longPollMs=17*1000"));
     assert!(page.body.contains("bridgeRequestMs=7*1000"));
     assert!(page.body.contains("bridgeRetryMs=41*1000"));
+    assert!(page.body.contains("bridgeRecoveryMs=13*1000"));
+    assert!(page.body.contains("websocketOpenMs=11*1000"));
+    assert!(page.body.contains("reconnectGraceMs=119*1000"));
     assert!(page.body.contains("const probeCoalesceMs=4"));
     assert!(page.body.contains(
         "helloTimer=setTimeout(()=>fail('timeout'),bridgeRequestMs)"
@@ -99,12 +110,16 @@ fn disabled_negotiation_does_not_arm_a_carrier_deadline() {
         2 * 1024 * 1024,
         32 * 1024 * 1024,
         16 * 1024,
+        1024,
         false,
         1,
         [3, 5, 8, 12],
         25,
         10,
         90,
+        15,
+        15,
+        120,
         0,
         &SecureRandom::new(),
     );
@@ -122,7 +137,7 @@ fn retry_and_attempt_state_are_frozen_before_fetch() {
     let page = render_page("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE", 4);
     assert!(
         page.body
-            .contains("async function request(path,frozenOptions)")
+            .contains("async function request(path,frozenOptions,remainingBudget,maxAttempts)")
     );
     assert!(!page.body.contains("makeOptions"));
     assert!(

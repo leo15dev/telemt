@@ -460,7 +460,7 @@ mod tests {
             let close = std::thread::spawn(move || {
                 close_barrier.wait();
                 std::thread::yield_now();
-                close_session.close();
+                close_session.close(super::SessionCloseReason::ApiClose);
             });
             barrier.wait();
             health.join().unwrap();
@@ -472,7 +472,10 @@ mod tests {
                     | CarrierHealthPublicationState::Rejected
             ));
             assert!(!session.publish_carrier_health());
-            assert!(!session.close());
+            assert_eq!(
+                session.close(super::SessionCloseReason::ApiClose),
+                super::SessionCloseOutcome::AlreadyClosing
+            );
         }
     }
 

@@ -10,7 +10,9 @@ use tokio_util::sync::CancellationToken;
 use super::ConnectionIo;
 use crate::web::http::activity::UpgradeDeadlineLease;
 use crate::web::manager::{WebProcessRuntime, WebSocketBudgetLease, WebSocketConnection};
-use crate::web::session::{WebSession, WebSocketLaneReservation, WebSocketProbeReservation};
+use crate::web::session::{
+    SessionCloseReason, WebSession, WebSocketLaneReservation, WebSocketProbeReservation,
+};
 use crate::web::trace::{TraceDirection, TraceWebSocketContext};
 
 const READ_BUFFER_BYTES: usize = 64 * 1024;
@@ -103,7 +105,7 @@ pub(super) async fn run_upgraded(
     if let Some(reservation) = lane_reservation {
         session.close_websocket_lane(reservation);
     } else if !acknowledge_commit || session.is_carrier_committed() {
-        session.close();
+        session.close(SessionCloseReason::WebSocketEnded);
     }
 }
 
@@ -194,7 +196,7 @@ async fn run_multiplex(
                             started,
                         );
                         if !session.websocket_commit_ack_written(connection.id()) {
-                            session.close();
+                            session.close(SessionCloseReason::Protocol);
                             return Err(());
                         }
                     } else if acknowledge_commit

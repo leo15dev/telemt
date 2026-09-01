@@ -54,6 +54,12 @@ pub(crate) struct WebSessionStatus {
     pub(crate) age_ms: u64,
     /// Monotonic age since the latest carrier activity.
     pub(crate) idle_ms: u64,
+    /// Monotonic age since the latest validated peer operation.
+    pub(crate) peer_idle_ms: u64,
+    /// Session-frozen authenticated peer inactivity allowance.
+    pub(crate) reconnect_grace_ms: u64,
+    /// Remaining time before peer inactivity makes the session eligible for cleanup.
+    pub(crate) peer_deadline_remaining_ms: u64,
     /// Remaining automatic negotiation deadline.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) negotiation_remaining_ms: Option<u64>,
@@ -66,7 +72,7 @@ impl WebSession {
         let resident = self.resident.snapshot();
         let state_name = if state.closed {
             "closed"
-        } else if state.close_requested {
+        } else if state.close_requested.is_some() {
             "closing"
         } else if self.carrier_health_publication_state()
             == CarrierHealthPublicationState::Published
@@ -112,7 +118,14 @@ impl WebSession {
                 .pending_control_items
                 .saturating_add(resident.control_items),
             age_ms: millis(now.saturating_duration_since(self.created_at)),
-            idle_ms: millis(now.saturating_duration_since(state.last_activity)),
+            idle_ms: millis(state.activity.progress_idle(now)),
+            peer_idle_ms: millis(state.activity.peer_idle(now)),
+            reconnect_grace_ms: self.timeouts.reconnect_grace_secs.saturating_mul(1_000),
+            peer_deadline_remaining_ms: self
+                .timeouts
+                .reconnect_grace_secs
+                .saturating_mul(1_000)
+                .saturating_sub(millis(state.activity.peer_idle(now))),
             negotiation_remaining_ms: self
                 .carrier_deadline_at
                 .map(|deadline| millis(deadline.saturating_duration_since(now))),

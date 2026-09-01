@@ -20,6 +20,9 @@ use crate::web::manager::{
 
 // Backend tasks own generation admission and authenticated MTProxy relay lifetimes.
 mod backend;
+// Activity clocks separate authenticated peer leases from diagnostic progress.
+mod activity;
+use activity::SessionActivity;
 // Downlink queues own cursor replay, flow control, and memory reservations.
 mod downlink;
 // Response ownership keeps detached batches charged until the last body clone drops.
@@ -42,6 +45,8 @@ mod negotiation;
 use negotiation::CarrierHealthPublicationState;
 // Session closure and carrier-attempt transitions share one cancellation boundary.
 mod lifecycle;
+pub(crate) use lifecycle::{SessionCloseOutcome, SessionCloseReason};
+use lifecycle::SessionNegotiationPhase;
 // Uplink batches own exactly-once sequencing and client-frame validation.
 mod uplink;
 
@@ -169,7 +174,7 @@ struct SessionState {
     pending_items: usize,
     pending_control_bytes: usize,
     pending_control_items: usize,
-    last_activity: Instant,
+    activity: SessionActivity,
     negotiation_phase: SessionNegotiationPhase,
     carrier_health_due_at: Option<Instant>,
     carrier_health_activity_at: Option<Instant>,
@@ -181,16 +186,8 @@ struct SessionState {
     websocket_commit_ack_owner: Option<u64>,
     websocket_commit_ack_written: bool,
     websocket_probe_claimed: bool,
-    close_requested: bool,
+    close_requested: Option<SessionCloseReason>,
     closed: bool,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SessionNegotiationPhase {
-    Uncommitted,
-    Replacing,
-    Committed,
-    Superseded,
 }
 
 /// One bounded WEB carrier session containing logical MTProxy streams.
@@ -213,6 +210,8 @@ pub(crate) struct WebSession {
     timeouts: WebTimeoutsConfig,
     state: Mutex<SessionState>,
     carrier_health_publication: AtomicU8,
+    close_complete: AtomicBool,
+    close_notify: Notify,
     down_notify: Arc<Notify>,
     lane_open_notify: Arc<Notify>,
     cancel: CancellationToken,
@@ -253,6 +252,7 @@ impl WebSession {
         limits: WebLimitsConfig,
         timeouts: WebTimeoutsConfig,
     ) -> Arc<Self> {
+        let created_at = Instant::now();
         let mut carrier_lanes = HashMap::new();
         let mut next_lane_instance = 1;
         if selected_carrier == WebCarrier::HttpsLanes {
@@ -273,7 +273,7 @@ impl WebSession {
             carrier_class,
             learning_context,
             automatic_carrier,
-            created_at: Instant::now(),
+            created_at,
             limits,
             timeouts,
             state: Mutex::new(SessionState {
@@ -298,7 +298,7 @@ impl WebSession {
                 pending_items: 0,
                 pending_control_bytes: 0,
                 pending_control_items: 0,
-                last_activity: Instant::now(),
+                activity: SessionActivity::new(created_at),
                 negotiation_phase: SessionNegotiationPhase::Uncommitted,
                 carrier_health_due_at: None,
                 carrier_health_activity_at: None,
@@ -310,12 +310,14 @@ impl WebSession {
                 websocket_commit_ack_owner: None,
                 websocket_commit_ack_written: false,
                 websocket_probe_claimed: false,
-                close_requested: false,
+                close_requested: None,
                 closed: false,
             }),
             carrier_health_publication: AtomicU8::new(
                 CarrierHealthPublicationState::Awaiting as u8,
             ),
+            close_complete: AtomicBool::new(false),
+            close_notify: Notify::new(),
             down_notify: Arc::new(Notify::new()),
             lane_open_notify: Arc::new(Notify::new()),
             cancel: CancellationToken::new(),
@@ -431,7 +433,7 @@ impl WebSession {
         self.release_locked(&mut state, count + overhead, usize::from(finished), false);
         if !self.queue_window_locked(&mut state, stream.id, count as u32) {
             drop(state);
-            self.close();
+            self.close(SessionCloseReason::Backpressure);
             return Poll::Ready(Err(io::Error::other(
                 "WEB session control budget exhausted",
             )));
@@ -497,7 +499,7 @@ impl WebSession {
             )));
         };
         stream_state.send_credit -= count as u64;
-        state.last_activity = Instant::now();
+        state.activity.touch_progress(Instant::now());
         drop(state);
         if self.carrier().is_multiplexed() {
             self.down_notify.notify_waiters();

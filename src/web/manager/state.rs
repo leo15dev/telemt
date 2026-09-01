@@ -86,6 +86,8 @@ pub(super) struct Bootstrap {
     pub(super) session_ip_learning_eligible: bool,
     /// Distinguishes unused issuance quota from completed creation replay state.
     pub(super) used: bool,
+    /// Whether this credential was issued by the post-commit recovery representation.
+    pub(super) recovery: bool,
 }
 
 /// Bounded replay marker for one explicitly or naturally closed session token.
@@ -94,6 +96,12 @@ pub(super) struct ClosedToken {
     pub(super) expires_at: Instant,
     /// Canonical host that owned the session.
     pub(super) host: String,
+    /// Non-secret logical trace owner retained for exact late-request diagnostics.
+    pub(super) trace_session_id: u64,
+    /// Carrier that owned the retired bearer.
+    pub(super) carrier: WebCarrier,
+    /// First-writer terminal cause for the retired bearer.
+    pub(super) reason: crate::web::session::SessionCloseReason,
 }
 
 /// Current logical-session owner stored without exposing bearer credentials.
@@ -116,6 +124,12 @@ pub(super) struct ClosedSession {
     pub(super) expires_at: Instant,
     /// Last carrier incarnation closed for this logical session.
     pub(super) attempt: u8,
+    /// Last carrier owning this logical session.
+    pub(super) carrier: WebCarrier,
+    /// First-writer terminal close cause.
+    pub(super) reason: crate::web::session::SessionCloseReason,
+    /// Monotonic instant used only to report bounded close age.
+    pub(super) closed_at: Instant,
 }
 
 /// Token-bucket state for one process-wide creation class.
@@ -303,13 +317,19 @@ pub(super) fn evict_oldest_unused_bootstrap(state: &mut ManagerState) -> bool {
 }
 
 /// Removes expired bootstrap and closed-token entries while the manager lock is held.
-pub(super) fn remove_expired_locked(state: &mut ManagerState, now: Instant) {
+pub(super) fn remove_expired_locked(state: &mut ManagerState, now: Instant) -> usize {
     let expired = state
         .bootstraps
         .iter()
-        .filter_map(|(hash, bootstrap)| (now > bootstrap.expires_at).then_some(*hash))
+        .filter_map(|(hash, bootstrap)| {
+            (now > bootstrap.expires_at).then_some((*hash, bootstrap.recovery && !bootstrap.used))
+        })
         .collect::<Vec<_>>();
-    for hash in expired {
+    let recovery_unused = expired
+        .iter()
+        .filter(|(_, recovery_unused)| *recovery_unused)
+        .count();
+    for (hash, _) in expired {
         remove_bootstrap_locked(state, hash);
     }
     state
@@ -325,6 +345,7 @@ pub(super) fn remove_expired_locked(state: &mut ManagerState, now: Instant) {
             state.closed_sessions.remove(&trace_session_id);
         }
     }
+    recovery_unused
 }
 
 /// Removes one bootstrap and releases its per-address issuance quota when unused.
@@ -342,6 +363,9 @@ pub(super) fn remember_closed_token_locked(
     state: &mut ManagerState,
     hash: TokenHash,
     host: &str,
+    trace_session_id: u64,
+    carrier: WebCarrier,
+    reason: crate::web::session::SessionCloseReason,
     lifetime: Duration,
     capacity: usize,
 ) {
@@ -350,6 +374,9 @@ pub(super) fn remember_closed_token_locked(
         ClosedToken {
             expires_at: Instant::now() + lifetime,
             host: host.to_string(),
+            trace_session_id,
+            carrier,
+            reason,
         },
     );
     while state.closed_tokens.len() > capacity {
@@ -370,6 +397,8 @@ pub(super) fn remember_closed_session_locked(
     state: &mut ManagerState,
     trace_session_id: u64,
     attempt: u8,
+    carrier: WebCarrier,
+    reason: crate::web::session::SessionCloseReason,
     lifetime: Duration,
     capacity: usize,
 ) {
@@ -380,6 +409,9 @@ pub(super) fn remember_closed_session_locked(
             ClosedSession {
                 expires_at: Instant::now() + lifetime,
                 attempt,
+                carrier,
+                reason,
+                closed_at: Instant::now(),
             },
         )
         .is_none()

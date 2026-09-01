@@ -47,7 +47,7 @@ impl TestRuntime {
     }
 
     async fn shutdown(self) {
-        self.session.close();
+        self.session.close(super::SessionCloseReason::ApiClose);
         self.session.wait().await;
         self.manager.shutdown().await;
         self.generation.stop_sessions().await;
@@ -402,7 +402,7 @@ async fn cancellation_while_waiting_for_data_releases_stream_ownership() {
     settle_tasks().await;
     assert_eq!(runtime.session.tasks_live.load(Ordering::Acquire), 1);
 
-    runtime.session.close();
+    runtime.session.close(super::SessionCloseReason::ApiClose);
     runtime.session.wait().await;
 
     assert_eq!(runtime.session.tasks_live.load(Ordering::Acquire), 0);

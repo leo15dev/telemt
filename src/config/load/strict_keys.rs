@@ -344,6 +344,7 @@ const WEB_TIMEOUTS_CONFIG_KEYS: &[&str] = &[
     "long_poll_secs",
     "bridge_request_secs",
     "bridge_retry_secs",
+    "bridge_recovery_secs",
     "carrier_probe_coalesce_ms",
     "lane_open_wait_secs",
     "carrier_health_secs",

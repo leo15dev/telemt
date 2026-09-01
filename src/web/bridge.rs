@@ -21,12 +21,16 @@ pub(crate) fn render(
     batch_limit: usize,
     queue_limit: usize,
     queue_items: usize,
+    max_streams: usize,
     negotiation_enabled: bool,
     candidate_count: usize,
     carrier_deadlines: [u64; 4],
     long_poll_secs: u64,
     bridge_request_secs: u64,
     bridge_retry_secs: u64,
+    bridge_recovery_secs: u64,
+    websocket_open_secs: u64,
+    reconnect_grace_secs: u64,
     carrier_probe_coalesce_ms: u64,
     rng: &SecureRandom,
 ) -> BridgePage {
@@ -35,6 +39,9 @@ pub(crate) fn render(
     let nonce = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce);
     let body = DOCUMENT
         .replace("__RESPONSE_RUNTIME__", RESPONSE_RUNTIME)
+        .replace("__REQUEST_RUNTIME__", REQUEST_RUNTIME)
+        .replace("__BUFFER_RUNTIME__", BUFFER_RUNTIME)
+        .replace("__RECOVERY_RUNTIME__", RECOVERY_RUNTIME)
         .replace("__RUNTIME__", RUNTIME)
         .replace("__NONCE__", &nonce)
         .replace("__HOST__", host)
@@ -42,6 +49,7 @@ pub(crate) fn render(
         .replace("__BATCH_LIMIT__", &batch_limit.to_string())
         .replace("__QUEUE_LIMIT__", &queue_limit.to_string())
         .replace("__QUEUE_ITEMS__", &queue_items.to_string())
+        .replace("__MAX_STREAMS__", &max_streams.to_string())
         .replace(
             "__NEGOTIATION_ENABLED__",
             if negotiation_enabled { "true" } else { "false" },
@@ -50,6 +58,12 @@ pub(crate) fn render(
         .replace("__LONG_POLL_SECS__", &long_poll_secs.to_string())
         .replace("__BRIDGE_REQUEST_SECS__", &bridge_request_secs.to_string())
         .replace("__BRIDGE_RETRY_SECS__", &bridge_retry_secs.to_string())
+        .replace(
+            "__BRIDGE_RECOVERY_SECS__",
+            &bridge_recovery_secs.to_string(),
+        )
+        .replace("__WEBSOCKET_OPEN_SECS__", &websocket_open_secs.to_string())
+        .replace("__RECONNECT_GRACE_SECS__", &reconnect_grace_secs.to_string())
         .replace(
             "__CARRIER_PROBE_COALESCE_MS__",
             &carrier_probe_coalesce_ms.to_string(),
@@ -72,6 +86,9 @@ pub(crate) fn render(
 
 const DOCUMENT: &str = include_str!("bridge/document.html");
 const RESPONSE_RUNTIME: &str = include_str!("bridge/response.js");
+const REQUEST_RUNTIME: &str = include_str!("bridge/request.js");
+const BUFFER_RUNTIME: &str = include_str!("bridge/buffers.js");
+const RECOVERY_RUNTIME: &str = include_str!("bridge/recovery.js");
 const RUNTIME: &str = include_str!("bridge/runtime.js");
 
 // Rendered wire-contract tests remain separate from the embedded document.

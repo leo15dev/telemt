@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use super::CarrierSocket;
 use super::io::{flush, process_lane, read_message, record_message, reserve_data, send};
 use crate::web::manager::{WebProcessRuntime, WebSocketBudgetLease, WebSocketConnection};
-use crate::web::session::{WebSession, WebSocketLaneReservation};
+use crate::web::session::{SessionCloseReason, WebSession, WebSocketLaneReservation};
 use crate::web::trace::{TraceDirection, TraceWebSocketContext};
 
 #[allow(clippy::too_many_arguments)]
@@ -92,7 +92,7 @@ pub(super) async fn run_lane(
                         .await
                         .is_err()
                         {
-                            session.close();
+                            session.close(SessionCloseReason::Protocol);
                             return Err(());
                         }
                         record_message(
@@ -104,7 +104,7 @@ pub(super) async fn run_lane(
                             started,
                         );
                         if !session.websocket_commit_ack_written(connection.id()) {
-                            session.close();
+                            session.close(SessionCloseReason::Protocol);
                             return Err(());
                         }
                     } else if acknowledge_commit

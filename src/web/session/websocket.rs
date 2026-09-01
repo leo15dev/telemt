@@ -391,7 +391,7 @@ impl WebSession {
                     lane.last_up_digest = digest;
                 }
             }
-            state.last_activity = Instant::now();
+            state.activity.touch_peer(Instant::now());
             if applied {
                 (committed, healthy) = self.record_uplink_progress_locked(&mut state, progress);
             }
