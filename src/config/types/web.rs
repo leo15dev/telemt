@@ -337,7 +337,7 @@ pub struct WebTimeoutsConfig {
     /// Lifetime of an unused bootstrap credential and closed-token replay marker.
     #[serde(default = "default_web_bootstrap_lifetime_secs")]
     pub bootstrap_lifetime_secs: u64,
-    /// Maximum carrier inactivity before a session is closed.
+    /// Maximum validated peer inactivity before a session is closed.
     #[serde(default = "default_web_reconnect_grace_secs")]
     pub reconnect_grace_secs: u64,
     /// Maximum idle lifetime of a WEB HTTP keep-alive connection.

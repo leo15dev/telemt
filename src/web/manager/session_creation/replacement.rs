@@ -140,6 +140,7 @@ impl WebProcessRuntime {
             deadline_secs: Some(entry.profile.carrier_negotiation_deadlines_secs[3]),
             carrier_state: Some(CarrierChainPhase::Provisional.as_str()),
         };
+        let predecessor_session_id = entry.predecessor_session_id;
         if let Some(index) = state.session_index.get_mut(&replacement.trace_session_id)
             && index.session_hash == old_hash
         {
@@ -198,7 +199,7 @@ impl WebProcessRuntime {
             replacement.scores,
             None,
         );
-        self.trace.record_lifecycle(
+        self.trace.record_lifecycle_with_context(
             None,
             Some(client_ip),
             identity,
@@ -208,6 +209,10 @@ impl WebProcessRuntime {
                 .request
                 .failure()
                 .map(|failure| failure.as_str()),
+            crate::web::trace::TraceLifecycleContext {
+                peer_gap_ms: None,
+                predecessor_session_id,
+            },
         );
         Ok(result)
     }

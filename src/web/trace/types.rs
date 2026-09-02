@@ -221,7 +221,7 @@ pub(crate) struct TraceWebSocketRecord {
     pub(crate) lane_id: Option<u32>,
 }
 
-/// Closed WEB lifecycle event category.
+/// WEB lifecycle event category.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TraceLifecycleEvent {
     /// A bridge bootstrap was issued.
@@ -329,7 +329,7 @@ pub(crate) struct TraceLifecycleRecord {
     pub(crate) event: TraceLifecycleEvent,
     /// Logical stream identifier when applicable.
     pub(crate) stream_id: Option<u32>,
-    /// Closed outcome or rejection reason.
+    /// Terminal outcome or rejection reason.
     pub(crate) reason: Option<&'static str>,
     /// Carrier negotiation detail when this is a carrier lifecycle event.
     pub(crate) carrier: Option<TraceCarrierDetail>,

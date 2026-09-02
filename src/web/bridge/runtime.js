@@ -49,7 +49,7 @@ function cancelBatch(lease){if(!lease||lease.settled)return;buffers.cancelBatch(
 const attemptHeaders=(attempt,failure)=>negotiationEnabled?Object.assign({'X-Carrier-Capabilities':carrierCapabilities,'X-Carrier-Attempt':String(attempt)},failure?{'X-Carrier-Failure':failure}:{}):{};
 function finishOldRecovery(){
  recoveryReplaced=false;status('connected','committed','',0);
- for(const data of recoveryPending.splice(0)){release(data.byteLength,1,null);queueCarrier(data)}
+ while(recoveryPending.length&&!closed){const data=recoveryPending.shift();release(data.byteLength,1,null);queueCarrier(data)}
 }
 function rejectRecoveryCommit(error){
  const commit=recoveryCommit;if(!commit)return;recoveryCommit=null;
@@ -86,7 +86,7 @@ function replaceCarrier(policy,signal,remaining){
  return new Promise((resolve,reject)=>{
   const abort=()=>rejectRecoveryCommit(failure('timeout','recovery deadline'));
   recoveryCommit={resolve,reject,signal,abort};signal.addEventListener('abort',abort,{once:true});
-  if(remaining()<=0){abort();return}createSession(attemptEpoch);
+  if(signal.aborted||remaining()<=0){abort();return}createSession(attemptEpoch);
  });
 }
 function recoverTransport(error,replay){
@@ -239,14 +239,15 @@ function commitCarrier(probe,epoch){
  status('connected','committed','',0);
  if(carrier==='https')poll();
  else if(carrier==='https-lanes'){const lane=lanes.get(probe.id);if(lane&&!lane.polling)pollLane(lane)}
- for(const data of pending.splice(0)){release(data.byteLength,1,null);queueCarrier(data)}
+ while(pending.length&&!closed){const data=pending.shift();release(data.byteLength,1,null);queueCarrier(data)}
  resolveRecoveryCommit();
 }
 function queueCarrier(data){
+ if(closed)return;
  try{
   if(carrier==='https')queueUp(data);
   else if(carrier==='websocket')queueSocket(data);
-  else for(const value of splitFrames(data))queueLane(value);
+  else for(const value of splitFrames(data)){if(closed)break;queueLane(value)}
  }catch(error){fail('protocol')}
 }
 function queueUp(data){if(!reserve(data,null)){fail('capacity');return}upPending.push(data);runUp()}
@@ -262,12 +263,15 @@ async function runUp(){
      if(response.headers.get('X-Up-Ack')!==sequence)throw failure('protocol','uplink acknowledgement rejected');
      break;
     }catch(error){
+     let replayed=false;
      const recovered=await recoverTransport(error,async(signal,remaining)=>{
       const response=await request('/api/v1/up',options('POST',token,lease.body,{'X-Up-Seq':sequence},signal),remaining,2);
       if(response.status!==204)throw failure('http','uplink replay rejected');
       if(response.headers.get('X-Up-Ack')!==sequence)throw failure('protocol','uplink replay acknowledgement rejected');
+      replayed=true;
      });
      if(!recovered||closed||lease.cancelled||sessionToken!==token)return;
+     if(!replayed)continue;
      break;
     }
    }
@@ -416,12 +420,15 @@ async function runLaneUp(lane){
      if(response.headers.get('X-Up-Ack')!==sequence)throw failure('protocol','lane uplink acknowledgement rejected');
      break;
     }catch(error){
+     let replayed=false;
      const recovered=await recoverTransport(error,async(signal,remaining)=>{
       const response=await request('/api/v1/up',options('POST',token,lease.body,{'X-Up-Seq':sequence,'X-Lane-ID':laneID},signal),remaining,2);
       if(response.status!==204)throw failure('http','lane uplink replay rejected');
       if(response.headers.get('X-Up-Ack')!==sequence)throw failure('protocol','lane uplink replay acknowledgement rejected');
+      replayed=true;
      });
      if(!recovered||closed||lease.cancelled||sessionToken!==token||lanes.get(lane.id)!==lane)return;
+     if(!replayed)continue;
      break;
     }
    }
