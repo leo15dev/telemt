@@ -33,10 +33,10 @@ function create(settings){
   while(attempt<maxAttempts){
    if(settings.closed()||(external&&external.aborted))throw new Error('request aborted');
    const remaining=Math.min(deadline-Date.now(),remainingBudget?remainingBudget():Infinity);if(remaining<=0)break;attempt++;
-   const controller=new AbortController(),abort=()=>controller.abort();
+   const controller=new AbortController(),abort=()=>controller.abort();let timedOut=false;
    if(external)external.addEventListener('abort',abort,{once:true});
    const requestOptions=Object.assign({},frozenOptions,{signal:controller.signal});
-   const timer=setTimeout(abort,Math.max(1,Math.min(attemptLimit,remaining)));
+   const timer=setTimeout(()=>{timedOut=true;controller.abort()},Math.max(1,Math.min(attemptLimit,remaining)));
    let response=null,wait=0;
    try{
     const fetched=await fetch(settings.origin()+path,requestOptions);
@@ -45,12 +45,18 @@ function create(settings){
     }else{
      const policy=responsePolicy(path,fetched.status);let body;
      try{body=await settings.read(fetched,policy.limit,policy.exact,controller.signal)}
-     catch(error){controller.abort();throw settings.failure('protocol',error&&error.message)}
+     catch(error){
+      controller.abort();
+      if(external&&external.aborted)throw error;
+      if(timedOut)throw settings.failure('timeout','response deadline exceeded');
+      throw settings.failure('protocol',error&&error.message);
+     }
      response={status:fetched.status,headers:fetched.headers,body};return response;
     }
    }catch(error){
     controller.abort();
     if(settings.closed()||(external&&external.aborted))throw error;
+    if(timedOut)lastReason='timeout';
     if(settings.reason(error,'')==='protocol')throw error;
    }finally{clearTimeout(timer);if(external)external.removeEventListener('abort',abort)}
    const after=Math.min(deadline-Date.now(),remainingBudget?remainingBudget():Infinity);if(attempt>=maxAttempts||after<=0)break;

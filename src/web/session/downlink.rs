@@ -10,6 +10,7 @@ use super::{
 };
 use crate::web::frame::{self, FrameType};
 use crate::web::manager::ManagerError;
+use crate::web::telemetry::WebSessionLifecycleObservation;
 
 impl WebSession {
     /// Polls pending downlink frames with cursor replay and newest-poll-wins semantics.
@@ -22,14 +23,19 @@ impl WebSession {
             if state.closed {
                 return Err(ManagerError::Closed);
             }
-            state.activity.touch_peer(Instant::now());
             if let Some(unacked) = &state.unacked {
                 if cursor == unacked.base_cursor {
-                    return Ok(PollResult {
+                    let result = PollResult {
                         body: unacked.body.clone(),
                         next_cursor: unacked.next_cursor,
                         lane_closed: false,
-                    });
+                    };
+                    self.touch_peer_locked(
+                        &mut state,
+                        Instant::now(),
+                        WebSessionLifecycleObservation::HttpActivityAfterGap,
+                    );
+                    return Ok(result);
                 }
                 if cursor != unacked.next_cursor {
                     drop(state);
@@ -53,6 +59,11 @@ impl WebSession {
                 return Err(ManagerError::Protocol);
             };
             state.down_epoch = epoch;
+            self.touch_peer_locked(
+                &mut state,
+                Instant::now(),
+                WebSessionLifecycleObservation::HttpActivityAfterGap,
+            );
             let healthy = self.carrier_health_ready_locked(&mut state, Instant::now());
             (state.down_epoch, healthy)
         };

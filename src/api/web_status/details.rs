@@ -97,6 +97,20 @@ pub(super) fn push_lifecycle(html: &mut String, event: &crate::web::trace::Trace
     );
     html.push_str("\nreason: ");
     html.push_str(event.reason.unwrap_or("-"));
+    html.push_str("\npeer gap ms: ");
+    html.push_str(
+        &event
+            .peer_gap_ms
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+    );
+    html.push_str("\npredecessor session: ");
+    html.push_str(
+        &event
+            .predecessor_session_id
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+    );
     if let Some(carrier) = &event.carrier {
         html.push_str("\nclient class: ");
         html.push_str(carrier.client_class);

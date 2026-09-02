@@ -98,9 +98,7 @@ impl WebProcessRuntime {
             &mut state,
             old_hash,
             &replacement.profile.host,
-            replacement.old_session.trace_session_id(),
             replacement.old_session.carrier(),
-            crate::web::session::SessionCloseReason::CarrierSuperseded,
             Duration::from_secs(replacement.old_session.timeouts().bootstrap_lifetime_secs),
             self.limits.max_sessions_global.saturating_mul(16),
         );
@@ -125,6 +123,9 @@ impl WebProcessRuntime {
         if entry.recovery {
             self.telemetry.record_bridge_recovery(
                 crate::web::telemetry::WebBridgeRecoveryEvent::SessionCreated,
+            );
+            self.telemetry.record_bridge_recovery(
+                crate::web::telemetry::WebBridgeRecoveryEvent::ClosedBeforeCommit,
             );
         }
         self.telemetry.record_session_closed(

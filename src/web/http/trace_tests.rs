@@ -15,7 +15,7 @@ async fn enabled_debug_records_bridge_request_response_without_credentials() {
     let capability = [18u8; 32];
     let mut config = runtime_config(capability, WebCarrier::Https);
     config.web.debug.enabled = true;
-    config.web.debug.body_capture = WebDebugBodyCapture::Prefix;
+    config.web.debug.body_capture = WebDebugBodyCapture::Full;
     config.web.debug.body_prefix_bytes = 4096;
     let generation = test_runtime_generation(1, config);
     let active_runtime = Arc::new(ArcSwap::from(Arc::clone(&generation)));

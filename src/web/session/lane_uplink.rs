@@ -9,6 +9,7 @@ use super::{PendingClass, SessionCloseReason, WebSession, insert_carrier_lane};
 use crate::config::WebCarrier;
 use crate::web::frame::{self, Frame, FrameType};
 use crate::web::manager::{ManagerError, TokenHash};
+use crate::web::telemetry::WebSessionLifecycleObservation;
 
 impl WebSession {
     /// Applies one exactly-once uplink batch to an independent HTTPS lane.
@@ -46,7 +47,6 @@ impl WebSession {
                 return Err(ManagerError::Closed);
             }
             self.ensure_carrier_active_locked(&state)?;
-            state.activity.touch_peer(Instant::now());
             let new_lane = !state.carrier_lanes.contains_key(&lane_id);
             if new_lane {
                 if lane_id != 0
@@ -55,6 +55,11 @@ impl WebSession {
                         .is_some_and(|value| value.frame_type != FrameType::Open)
                     && only_late_frames(&frames)
                 {
+                    self.touch_peer_locked(
+                        &mut state,
+                        Instant::now(),
+                        WebSessionLifecycleObservation::HttpActivityAfterGap,
+                    );
                     return if self.automatic_carrier
                         && state.negotiation_phase != super::SessionNegotiationPhase::Committed
                     {
@@ -89,6 +94,11 @@ impl WebSession {
                 });
             if sequence == last_sequence && sequence != 0 {
                 return if bool::from(last_digest.ct_eq(&digest)) {
+                    self.touch_peer_locked(
+                        &mut state,
+                        Instant::now(),
+                        WebSessionLifecycleObservation::HttpActivityAfterGap,
+                    );
                     Ok(sequence)
                 } else {
                     drop(state);
@@ -109,6 +119,11 @@ impl WebSession {
                 self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
+            self.touch_peer_locked(
+                &mut state,
+                Instant::now(),
+                WebSessionLifecycleObservation::HttpActivityAfterGap,
+            );
             let (reserve_bytes, reserve_items) = inbound_reservation(&state, &frames);
             if !self.reserve_locked(
                 &mut state,

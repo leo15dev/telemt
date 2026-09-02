@@ -9,8 +9,8 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::exchange::HttpTraceExchange;
 use super::types::{
-    TraceCarrierDetail, TraceIdentity, TraceLifecycleEvent, TraceLifecycleRecord, TraceRecord,
-    TraceRecordKind,
+    TraceCarrierDetail, TraceIdentity, TraceLifecycleContext, TraceLifecycleEvent,
+    TraceLifecycleRecord, TraceRecord, TraceRecordKind,
 };
 use crate::config::{WebDebugConfig, WebLimitsConfig};
 
@@ -227,6 +227,31 @@ impl WebTraceStore {
             stream_id,
             reason,
             None,
+            TraceLifecycleContext::default(),
+        );
+    }
+
+    /// Records one lifecycle event with bounded non-secret recovery context.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn record_lifecycle_with_context(
+        &self,
+        peer_ip: Option<IpAddr>,
+        effective_ip: Option<IpAddr>,
+        identity: TraceIdentity,
+        event: TraceLifecycleEvent,
+        stream_id: Option<u32>,
+        reason: Option<&'static str>,
+        context: TraceLifecycleContext,
+    ) {
+        self.record_lifecycle_detail(
+            peer_ip,
+            effective_ip,
+            identity,
+            event,
+            stream_id,
+            reason,
+            None,
+            context,
         );
     }
 
@@ -256,6 +281,7 @@ impl WebTraceStore {
                 attempt,
                 scores,
             }),
+            TraceLifecycleContext::default(),
         );
     }
 
@@ -269,6 +295,7 @@ impl WebTraceStore {
         stream_id: Option<u32>,
         reason: Option<&'static str>,
         carrier: Option<TraceCarrierDetail>,
+        context: TraceLifecycleContext,
     ) {
         if !self.enabled.load(Ordering::Acquire) {
             return;
@@ -301,6 +328,8 @@ impl WebTraceStore {
                 stream_id,
                 reason,
                 carrier,
+                peer_gap_ms: context.peer_gap_ms,
+                predecessor_session_id: context.predecessor_session_id,
             }),
         };
         if !self.try_commit(record, reservation, epoch) {

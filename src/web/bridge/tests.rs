@@ -36,6 +36,9 @@ fn rendered_page_contains_bounded_negotiation_contract() {
     assert!(page.body.contains("tproxy-auto-v1."));
     assert!(page.body.contains("tproxy-auto-lane-v1."));
     assert!(page.body.contains("globalThis.TelemtBridgeResponse"));
+    assert!(page.body.contains("globalThis.TelemtBridgeRequest"));
+    assert!(page.body.contains("globalThis.TelemtBridgeBuffers"));
+    assert!(page.body.contains("globalThis.TelemtBridgeRecovery"));
     assert!(page.body.contains("responseBody.read"));
     assert!(!page.body.contains("arrayBuffer()"));
     assert!(page.body.contains("maxChunks=4096"));
@@ -77,13 +80,13 @@ fn rendered_page_embeds_the_configured_bridge_timing_policy() {
         &SecureRandom::new(),
     );
 
-    assert!(page.body.contains("const longPollMs=17*1000"));
+    assert!(page.body.contains("let longPollMs=17*1000"));
     assert!(page.body.contains("bridgeRequestMs=7*1000"));
     assert!(page.body.contains("bridgeRetryMs=41*1000"));
     assert!(page.body.contains("bridgeRecoveryMs=13*1000"));
     assert!(page.body.contains("websocketOpenMs=11*1000"));
     assert!(page.body.contains("reconnectGraceMs=119*1000"));
-    assert!(page.body.contains("const probeCoalesceMs=4"));
+    assert!(page.body.contains("let probeCoalesceMs=4"));
     assert!(page.body.contains(
         "helloTimer=setTimeout(()=>fail('timeout'),bridgeRequestMs)"
     ));
@@ -137,12 +140,12 @@ fn retry_and_attempt_state_are_frozen_before_fetch() {
     let page = render_page("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE", 4);
     assert!(
         page.body
-            .contains("async function request(path,frozenOptions,remainingBudget,maxAttempts)")
+            .contains("async function send(path,frozenOptions,remainingBudget,maxAttempts)")
     );
     assert!(!page.body.contains("makeOptions"));
     assert!(
         page.body
-            .contains("if(closed||(external&&external.aborted))throw new Error('request aborted')")
+            .contains("if(settings.closed()||(external&&external.aborted))throw new Error('request aborted')")
     );
     assert!(page.body.contains(
         "const frozen=options('POST',bootstrap,snapshot.hello,attemptHeaders(snapshot.attempt,snapshot.failure),controller.signal)"

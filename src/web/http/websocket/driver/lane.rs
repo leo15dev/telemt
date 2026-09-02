@@ -133,6 +133,9 @@ pub(super) async fn run_lane(
                         &payload,
                         Instant::now(),
                     );
+                    if !session.record_websocket_peer_activity() {
+                        return Err(());
+                    }
                     connection.mark_peer_activity();
                     next_ping = Instant::now() + liveness_interval;
                 }
@@ -155,6 +158,9 @@ pub(super) async fn run_lane(
                         &payload,
                         started,
                     );
+                    if !session.record_websocket_peer_activity() {
+                        return Err(());
+                    }
                     connection.mark_peer_activity();
                     next_ping = Instant::now() + liveness_interval;
                 }

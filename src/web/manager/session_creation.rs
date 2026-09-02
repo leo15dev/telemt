@@ -339,7 +339,14 @@ impl WebProcessRuntime {
         state.sessions.insert(session_hash, Arc::clone(&session));
         *state.sessions_per_ip.entry(client_ip).or_insert(0) += 1;
         *state.sessions_per_profile.entry(profile_key).or_insert(0) += 1;
-        let (issuance_ip, candidate_count, user_agent, user_agent_id, recovery) = {
+        let (
+            issuance_ip,
+            candidate_count,
+            user_agent,
+            user_agent_id,
+            recovery,
+            predecessor_session_id,
+        ) = {
             let entry = state
                 .bootstraps
                 .get_mut(&bootstrap_hash)
@@ -367,6 +374,7 @@ impl WebProcessRuntime {
                 entry.user_agent.clone(),
                 entry.user_agent_id,
                 entry.recovery,
+                entry.predecessor_session_id,
             )
         };
         decrement_map(&mut state.bootstraps_per_ip, &issuance_ip);
@@ -422,13 +430,17 @@ impl WebProcessRuntime {
             scores,
             None,
         );
-        self.trace.record_lifecycle(
+        self.trace.record_lifecycle_with_context(
             None,
             Some(client_ip),
             identity,
             TraceLifecycleEvent::SessionCreated,
             None,
             None,
+            crate::web::trace::TraceLifecycleContext {
+                peer_gap_ms: None,
+                predecessor_session_id,
+            },
         );
         Ok(result)
     }

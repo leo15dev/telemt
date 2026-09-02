@@ -11,6 +11,7 @@ use super::{
 };
 use crate::web::frame::{self, FrameType};
 use crate::web::manager::ManagerError;
+use crate::web::telemetry::WebSessionLifecycleObservation;
 
 impl WebSession {
     /// Polls one lane with independent cursor replay and newest-poll-wins semantics.
@@ -65,8 +66,7 @@ impl WebSession {
             if state.closed {
                 return Err(ManagerError::Closed);
             }
-            state.activity.touch_peer(Instant::now());
-            let acknowledged = {
+            let (acknowledged, replay) = {
                 let Some(lane) = state.carrier_lanes.get_mut(&lane_id) else {
                     return Ok(PollResult {
                         body: Bytes::new(),
@@ -83,27 +83,40 @@ impl WebSession {
                 }
                 if let Some(unacked) = &lane.unacked {
                     if cursor == unacked.base_cursor {
-                        return Ok(PollResult {
-                            body: unacked.body.clone(),
-                            next_cursor: unacked.next_cursor,
-                            lane_closed: false,
-                        });
-                    }
-                    if cursor != unacked.next_cursor {
+                        (
+                            None,
+                            Some(PollResult {
+                                body: unacked.body.clone(),
+                                next_cursor: unacked.next_cursor,
+                                lane_closed: false,
+                            }),
+                        )
+                    } else if cursor != unacked.next_cursor {
                         drop(state);
                         self.close(SessionCloseReason::Protocol);
                         return Err(ManagerError::Protocol);
+                    } else {
+                        (lane.unacked.take(), None)
                     }
-                    lane.unacked.take()
                 } else {
                     if cursor != lane.down_cursor {
                         drop(state);
                         self.close(SessionCloseReason::Protocol);
                         return Err(ManagerError::Protocol);
                     }
-                    None
+                    (None, None)
                 }
             };
+            if let Some(result) = replay {
+                if expected_instance.is_none() {
+                    self.touch_peer_locked(
+                        &mut state,
+                        Instant::now(),
+                        WebSessionLifecycleObservation::HttpActivityAfterGap,
+                    );
+                }
+                return Ok(result);
+            }
             if let Some(batch) = acknowledged {
                 if let Some(lane) = state.carrier_lanes.get_mut(&lane_id) {
                     lane.pending_bytes = lane.pending_bytes.saturating_sub(batch.data_bytes);
@@ -139,6 +152,13 @@ impl WebSession {
             lane.down_epoch = epoch;
             let instance = lane.instance;
             let notify = Arc::clone(&lane.notify);
+            if expected_instance.is_none() {
+                self.touch_peer_locked(
+                    &mut state,
+                    Instant::now(),
+                    WebSessionLifecycleObservation::HttpActivityAfterGap,
+                );
+            }
             let healthy = self.carrier_health_ready_locked(&mut state, Instant::now());
             (instance, epoch, notify, healthy)
         };

@@ -313,6 +313,15 @@ pub(crate) struct TraceCarrierDetail {
     pub(crate) scores: [i16; 4],
 }
 
+/// Optional non-secret context for one lifecycle transition.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct TraceLifecycleContext {
+    /// Monotonic peer inactivity preceding the transition.
+    pub(crate) peer_gap_ms: Option<u64>,
+    /// Previous logical session replaced by this transition.
+    pub(crate) predecessor_session_id: Option<u64>,
+}
+
 /// One typed WEB lifecycle observation.
 #[derive(Debug)]
 pub(crate) struct TraceLifecycleRecord {
@@ -324,6 +333,10 @@ pub(crate) struct TraceLifecycleRecord {
     pub(crate) reason: Option<&'static str>,
     /// Carrier negotiation detail when this is a carrier lifecycle event.
     pub(crate) carrier: Option<TraceCarrierDetail>,
+    /// Optional monotonic peer inactivity preceding the transition.
+    pub(crate) peer_gap_ms: Option<u64>,
+    /// Optional logical predecessor for a recovered session incarnation.
+    pub(crate) predecessor_session_id: Option<u64>,
 }
 
 /// Trace record payload variant.

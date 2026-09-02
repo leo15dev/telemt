@@ -268,6 +268,7 @@ async function runUp(){
       if(response.headers.get('X-Up-Ack')!==sequence)throw failure('protocol','uplink replay acknowledgement rejected');
      });
      if(!recovered||closed||lease.cancelled||sessionToken!==token)return;
+     break;
     }
    }
    if(!settleBatch(lease))return;port.postMessage({t:'traffic',up:lease.total,down:0});upSequence++;lease=null;
@@ -421,6 +422,7 @@ async function runLaneUp(lane){
       if(response.headers.get('X-Up-Ack')!==sequence)throw failure('protocol','lane uplink replay acknowledgement rejected');
      });
      if(!recovered||closed||lease.cancelled||sessionToken!==token||lanes.get(lane.id)!==lane)return;
+     break;
     }
    }
    if(!settleBatch(lease))return;port.postMessage({t:'traffic',up:lease.total,down:0});lane.sequence++;lease=null;

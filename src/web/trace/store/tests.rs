@@ -109,3 +109,28 @@ fn explicit_clear_fences_inflight_commits_and_preserves_snapshot_leases() {
     drop(snapshot);
     assert_eq!(store.status().used_bytes, 0);
 }
+
+#[test]
+fn lifecycle_context_retains_only_bounded_non_secret_correlations() {
+    let store = store(2, 4 * BASE_RECORD_RESERVATION);
+    store.record_lifecycle_with_context(
+        None,
+        Some("192.0.2.40".parse().unwrap()),
+        TraceIdentity::default(),
+        TraceLifecycleEvent::SessionClosed,
+        None,
+        Some("bridge_recovery"),
+        TraceLifecycleContext {
+            peer_gap_ms: Some(125_000),
+            predecessor_session_id: Some(41),
+        },
+    );
+
+    let snapshot = store.snapshot_matching(|_| true);
+    let TraceRecordKind::Lifecycle(event) = &snapshot[0].record.kind else {
+        panic!("expected lifecycle record");
+    };
+    assert_eq!(event.reason, Some("bridge_recovery"));
+    assert_eq!(event.peer_gap_ms, Some(125_000));
+    assert_eq!(event.predecessor_session_id, Some(41));
+}

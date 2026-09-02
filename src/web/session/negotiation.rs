@@ -298,6 +298,7 @@ mod tests {
         WebCarrier, WebLimitsConfig, WebRuntimeProfile, WebSecretMode, WebTimeoutsConfig,
     };
     use crate::web::manager::{CarrierClientClass, WebProcessRuntime};
+    use crate::web::session::{SessionCloseOutcome, SessionCloseReason};
 
     fn session(carrier: WebCarrier, deadline: Instant) -> Arc<WebSession> {
         let profile = Arc::new(WebRuntimeProfile {
@@ -460,7 +461,7 @@ mod tests {
             let close = std::thread::spawn(move || {
                 close_barrier.wait();
                 std::thread::yield_now();
-                close_session.close(super::SessionCloseReason::ApiClose);
+                close_session.close(SessionCloseReason::ApiClose);
             });
             barrier.wait();
             health.join().unwrap();
@@ -473,8 +474,8 @@ mod tests {
             ));
             assert!(!session.publish_carrier_health());
             assert_eq!(
-                session.close(super::SessionCloseReason::ApiClose),
-                super::SessionCloseOutcome::AlreadyClosing
+                session.close(SessionCloseReason::ApiClose),
+                SessionCloseOutcome::AlreadyClosing
             );
         }
     }

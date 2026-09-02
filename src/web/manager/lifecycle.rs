@@ -82,9 +82,7 @@ impl WebProcessRuntime {
             &mut state,
             hash,
             profile_host,
-            session.trace_session_id(),
             session.carrier(),
-            reason,
             closed_token_lifetime,
             self.limits.max_sessions_global.saturating_mul(16),
         );

@@ -98,6 +98,7 @@ struct ReleasedQueues {
     control_items: usize,
     closed_before_health: bool,
     reason: SessionCloseReason,
+    peer_gap: Duration,
 }
 
 /// Deferred queue release after manager publication linearizes a supersede.
@@ -248,6 +249,7 @@ impl WebSession {
         state: &mut super::SessionState,
         reason: SessionCloseReason,
     ) -> ReleasedQueues {
+        let peer_gap = state.activity.peer_idle(Instant::now());
         let closed_before_health = self.automatic_carrier
             && state.negotiation_phase == SessionNegotiationPhase::Committed
             && self.reject_carrier_health_on_close();
@@ -304,6 +306,7 @@ impl WebSession {
             control_items,
             closed_before_health,
             reason,
+            peer_gap,
         }
     }
 
@@ -337,11 +340,25 @@ impl WebSession {
             );
         }
         if !self.finished.swap(true, Ordering::AcqRel) {
-            self.trace_lifecycle(
-                crate::web::trace::TraceLifecycleEvent::SessionClosed,
-                None,
-                Some(released.reason.as_str()),
-            );
+            if let Some(manager) = &manager {
+                manager.trace().record_lifecycle_with_context(
+                    None,
+                    Some(self.client_ip),
+                    self.trace_identity(),
+                    crate::web::trace::TraceLifecycleEvent::SessionClosed,
+                    None,
+                    Some(released.reason.as_str()),
+                    crate::web::trace::TraceLifecycleContext {
+                        peer_gap_ms: Some(
+                            released
+                                .peer_gap
+                                .as_millis()
+                                .min(u128::from(u64::MAX)) as u64,
+                        ),
+                        predecessor_session_id: None,
+                    },
+                );
+            }
             if released.reason != SessionCloseReason::CarrierSuperseded
                 && let Some(manager) = manager
             {

@@ -15,6 +15,6 @@ pub(crate) use store::{
 };
 pub(crate) use types::{
     TraceBodySnapshot, TraceBodyState, TraceDirection, TraceFrame, TraceHeader, TraceIdentity,
-    TraceLifecycleEvent, TraceLifecycleRecord, TraceRecord, TraceRecordKind, TraceRoute,
-    TraceWebSocketContext,
+    TraceLifecycleContext, TraceLifecycleEvent, TraceLifecycleRecord, TraceRecord, TraceRecordKind,
+    TraceRoute, TraceWebSocketContext,
 };

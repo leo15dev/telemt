@@ -1,9 +1,74 @@
 use std::time::{Duration, Instant};
 
+use super::{SessionState, WebSession};
+use crate::web::telemetry::WebSessionLifecycleObservation;
+
 /// Session-local activity clocks with distinct lease and diagnostic authority.
 pub(super) struct SessionActivity {
     last_peer: Instant,
     last_progress: Instant,
+}
+
+impl WebSession {
+    /// Refreshes the authenticated peer lease and records only threshold-crossing gaps.
+    pub(super) fn touch_peer_locked(
+        &self,
+        state: &mut SessionState,
+        now: Instant,
+        observation: WebSessionLifecycleObservation,
+    ) {
+        let gap = state.activity.touch_peer(now);
+        if gap >= Duration::from_secs(self.timeouts.reconnect_grace_secs)
+            && let Some(manager) = self.manager.upgrade()
+        {
+            manager
+                .telemetry()
+                .record_session_observation(self.carrier(), observation);
+        }
+    }
+
+    /// Records one valid WebSocket control message as authenticated peer activity.
+    pub(crate) fn record_websocket_peer_activity(&self) -> bool {
+        let mut state = self.state.lock();
+        if state.closed {
+            return false;
+        }
+        self.touch_peer_locked(
+            &mut state,
+            Instant::now(),
+            WebSessionLifecycleObservation::WebSocketActivityAfterGap,
+        );
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_does_not_extend_the_authenticated_peer_lease() {
+        let started = Instant::now();
+        let mut activity = SessionActivity::new(started);
+        activity.touch_progress(started + Duration::from_secs(4));
+
+        assert_eq!(
+            activity.peer_idle(started + Duration::from_secs(9)),
+            Duration::from_secs(9)
+        );
+        assert_eq!(
+            activity.progress_idle(started + Duration::from_secs(9)),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            activity.touch_peer(started + Duration::from_secs(9)),
+            Duration::from_secs(9)
+        );
+        assert_eq!(
+            activity.peer_idle(started + Duration::from_secs(10)),
+            Duration::from_secs(1)
+        );
+    }
 }
 
 impl SessionActivity {

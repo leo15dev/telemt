@@ -500,5 +500,24 @@ mod tests {
         assert!(output.contains(
             "telemt_web_carrier_learning_state{state=\"unavailable\"} 1"
         ));
+        assert_eq!(
+            output.matches("telemt_web_session_closures_total{").count(),
+            crate::config::WebCarrier::ALL.len()
+                * crate::web::session::SessionCloseReason::ALL.len()
+        );
+        assert_eq!(
+            output
+                .matches("telemt_web_session_lifecycle_observations_total{")
+                .count(),
+            crate::config::WebCarrier::ALL.len()
+                * crate::web::telemetry::WebSessionLifecycleObservation::ALL.len()
+        );
+        assert_eq!(
+            output
+                .matches("telemt_web_bridge_recovery_events_total{")
+                .count(),
+            crate::web::telemetry::WebBridgeRecoveryEvent::ALL.len()
+        );
+        assert!(output.contains("telemt_web_bridge_recovery_seconds 15"));
     }
 }

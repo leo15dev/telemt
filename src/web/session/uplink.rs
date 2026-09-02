@@ -14,6 +14,7 @@ use super::{
 };
 use crate::web::frame::{self, Frame, FrameType};
 use crate::web::manager::{ManagerError, TokenHash};
+use crate::web::telemetry::WebSessionLifecycleObservation;
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct AppliedProgress {
@@ -34,7 +35,11 @@ impl WebSession {
         sequence: u64,
         body: &[u8],
     ) -> Result<u64, ManagerError> {
-        let (acknowledged, progressed) = self.process_up_inner(sequence, body)?;
+        let (acknowledged, progressed) = self.process_up_inner(
+            sequence,
+            body,
+            WebSessionLifecycleObservation::HttpActivityAfterGap,
+        )?;
         if self.automatic_carrier && !progressed && !self.is_carrier_committed() {
             return Err(ManagerError::Backpressure);
         }
@@ -47,14 +52,19 @@ impl WebSession {
         sequence: u64,
         body: &[u8],
     ) -> Result<bool, ManagerError> {
-        self.process_up_inner(sequence, body)
-            .map(|(_, progress)| progress)
+        self.process_up_inner(
+            sequence,
+            body,
+            WebSessionLifecycleObservation::WebSocketActivityAfterGap,
+        )
+        .map(|(_, progress)| progress)
     }
 
     fn process_up_inner(
         self: &Arc<Self>,
         sequence: u64,
         body: &[u8],
+        observation: WebSessionLifecycleObservation,
     ) -> Result<(u64, bool), ManagerError> {
         if !self.carrier().is_multiplexed() {
             return Err(ManagerError::Protocol);
@@ -92,9 +102,9 @@ impl WebSession {
                 return Err(ManagerError::Closed);
             }
             self.ensure_carrier_active_locked(&state)?;
-            state.activity.touch_peer(Instant::now());
             if sequence == state.last_up_sequence && sequence != 0 {
                 return if bool::from(state.last_up_digest.ct_eq(&digest)) {
+                    self.touch_peer_locked(&mut state, Instant::now(), observation);
                     Ok((sequence, false))
                 } else {
                     drop(state);
@@ -112,6 +122,7 @@ impl WebSession {
                 self.close(SessionCloseReason::Protocol);
                 return Err(ManagerError::Protocol);
             }
+            self.touch_peer_locked(&mut state, Instant::now(), observation);
             let (reserve_bytes, reserve_items) = inbound_reservation(&state, &frames);
             if !self.reserve_locked(
                 &mut state,

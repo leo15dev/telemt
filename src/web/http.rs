@@ -243,6 +243,12 @@ async fn handle_root(
         .headers()
         .get(header::USER_AGENT)
         .and_then(|value| value.to_str().ok());
+    let recovery_session = match representation {
+        recovery::RootRepresentation::Recovery(Some(hash)) => {
+            runtime.bridge_recovery_session(hash, &vhost.host, &profile)
+        }
+        _ => None,
+    };
     let bootstrap = match match representation {
         recovery::RootRepresentation::Bridge => runtime.issue_bootstrap_for_request(
             &generation,
@@ -256,6 +262,9 @@ async fn handle_root(
                 Arc::clone(&profile),
                 client_ip,
                 user_agent,
+                recovery_session
+                    .as_ref()
+                    .map(|session| session.trace_session_id()),
             ),
         recovery::RootRepresentation::Invalid => {
             strip_query(&mut request);
@@ -281,10 +290,8 @@ async fn handle_root(
         trace.register_redaction(bootstrap.token.as_bytes());
     }
     let config = generation.config();
-    if let recovery::RootRepresentation::Recovery(previous_hash) = representation {
-        if let Some(session) = previous_hash.and_then(|hash| {
-            runtime.bridge_recovery_session(hash, &vhost.host, &profile)
-        }) {
+    if let recovery::RootRepresentation::Recovery(_) = representation {
+        if let Some(session) = recovery_session {
             let outcome = session.close(crate::web::session::SessionCloseReason::BridgeRecovery);
             if outcome != crate::web::session::SessionCloseOutcome::Closed
                 && tokio::time::timeout(

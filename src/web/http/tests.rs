@@ -36,6 +36,9 @@ mod control_tests;
 // Reversible operator lifecycle coverage stays separate from terminal shutdown tests.
 #[path = "operator_lifecycle_tests.rs"]
 mod operator_lifecycle_tests;
+// Positive-only recovery representation coverage remains isolated from ordinary root routing.
+#[path = "recovery_tests.rs"]
+mod recovery_tests;
 
 const TEST_CARRIER_DEADLINES_SECS: [u64; 4] = [3, 5, 8, 12];
 
@@ -276,8 +279,8 @@ async fn https_carrier_bootstraps_and_closes_one_session() {
     );
     assert!(
         next_root_body
-            .windows(b"const negotiationEnabled=false".len())
-            .any(|value| value == b"const negotiationEnabled=false")
+            .windows(b"let negotiationEnabled=false".len())
+            .any(|value| value == b"let negotiationEnabled=false")
     );
 
     let close = format!(
@@ -482,7 +485,7 @@ async fn https_lanes_is_advertised_and_requires_canonical_lane_headers() {
     let root_response = request(&listener, &runtime, root).await;
     let (_, root_body) = split_response(&root_response);
     let root_body = std::str::from_utf8(root_body).unwrap();
-    assert!(root_body.contains("const negotiationEnabled=false"));
+    assert!(root_body.contains("let negotiationEnabled=false"));
     let bootstrap = root_body
         .split_once("bootstrap=\"")
         .and_then(|(_, suffix)| suffix.split_once('"'))

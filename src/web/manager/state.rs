@@ -88,6 +88,8 @@ pub(super) struct Bootstrap {
     pub(super) used: bool,
     /// Whether this credential was issued by the post-commit recovery representation.
     pub(super) recovery: bool,
+    /// Previous logical session authenticated by the recovery request, if current.
+    pub(super) predecessor_session_id: Option<u64>,
 }
 
 /// Bounded replay marker for one explicitly or naturally closed session token.
@@ -96,12 +98,8 @@ pub(super) struct ClosedToken {
     pub(super) expires_at: Instant,
     /// Canonical host that owned the session.
     pub(super) host: String,
-    /// Non-secret logical trace owner retained for exact late-request diagnostics.
-    pub(super) trace_session_id: u64,
     /// Carrier that owned the retired bearer.
     pub(super) carrier: WebCarrier,
-    /// First-writer terminal cause for the retired bearer.
-    pub(super) reason: crate::web::session::SessionCloseReason,
 }
 
 /// Current logical-session owner stored without exposing bearer credentials.
@@ -363,9 +361,7 @@ pub(super) fn remember_closed_token_locked(
     state: &mut ManagerState,
     hash: TokenHash,
     host: &str,
-    trace_session_id: u64,
     carrier: WebCarrier,
-    reason: crate::web::session::SessionCloseReason,
     lifetime: Duration,
     capacity: usize,
 ) {
@@ -374,9 +370,7 @@ pub(super) fn remember_closed_token_locked(
         ClosedToken {
             expires_at: Instant::now() + lifetime,
             host: host.to_string(),
-            trace_session_id,
             carrier,
-            reason,
         },
     );
     while state.closed_tokens.len() > capacity {

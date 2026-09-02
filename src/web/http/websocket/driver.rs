@@ -225,6 +225,9 @@ async fn run_multiplex(
                         &payload,
                         Instant::now(),
                     );
+                    if !session.record_websocket_peer_activity() {
+                        return Err(());
+                    }
                     connection.mark_peer_activity();
                     next_ping = Instant::now() + liveness_interval;
                 }
@@ -247,6 +250,9 @@ async fn run_multiplex(
                         &payload,
                         started,
                     );
+                    if !session.record_websocket_peer_activity() {
+                        return Err(());
+                    }
                     connection.mark_peer_activity();
                     next_ping = Instant::now() + liveness_interval;
                 }
