@@ -134,7 +134,7 @@ async fn run_multiplex(
     let maximum_message = session.limits().carrier_batch_bytes;
     let mut active = false;
     loop {
-        let down = session.poll_down(cursor);
+        let down = session.poll_down_websocket(cursor);
         tokio::pin!(down);
         let event = tokio::select! {
             _ = cancellation.cancelled() => return Err(()),

@@ -15,6 +15,14 @@ use crate::web::telemetry::WebSessionLifecycleObservation;
 impl WebSession {
     /// Polls pending downlink frames with cursor replay and newest-poll-wins semantics.
     pub(crate) async fn poll_down(&self, cursor: u64) -> Result<PollResult, ManagerError> {
+        self.poll_down_inner(cursor, true).await
+    }
+
+    async fn poll_down_inner(
+        &self,
+        cursor: u64,
+        peer_activity: bool,
+    ) -> Result<PollResult, ManagerError> {
         if !self.carrier().is_multiplexed() {
             return Err(ManagerError::Protocol);
         }
@@ -30,11 +38,13 @@ impl WebSession {
                         next_cursor: unacked.next_cursor,
                         lane_closed: false,
                     };
-                    self.touch_peer_locked(
-                        &mut state,
-                        Instant::now(),
-                        WebSessionLifecycleObservation::HttpActivityAfterGap,
-                    );
+                    if peer_activity {
+                        self.touch_peer_locked(
+                            &mut state,
+                            Instant::now(),
+                            WebSessionLifecycleObservation::HttpActivityAfterGap,
+                        );
+                    }
                     return Ok(result);
                 }
                 if cursor != unacked.next_cursor {
@@ -59,11 +69,13 @@ impl WebSession {
                 return Err(ManagerError::Protocol);
             };
             state.down_epoch = epoch;
-            self.touch_peer_locked(
-                &mut state,
-                Instant::now(),
-                WebSessionLifecycleObservation::HttpActivityAfterGap,
-            );
+            if peer_activity {
+                self.touch_peer_locked(
+                    &mut state,
+                    Instant::now(),
+                    WebSessionLifecycleObservation::HttpActivityAfterGap,
+                );
+            }
             let healthy = self.carrier_health_ready_locked(&mut state, Instant::now());
             (state.down_epoch, healthy)
         };
@@ -131,6 +143,14 @@ impl WebSession {
                 })
             }
         }
+    }
+
+    /// Polls multiplexed WebSocket downlink without renewing the peer lease.
+    pub(crate) async fn poll_down_websocket(
+        &self,
+        cursor: u64,
+    ) -> Result<PollResult, ManagerError> {
+        self.poll_down_inner(cursor, false).await
     }
 
     /// Reserves session and process queue capacity while the session lock is held.

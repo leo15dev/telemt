@@ -142,3 +142,19 @@ async fn newer_poll_supersedes_older_poll_without_closing_session() {
     session.close(super::SessionCloseReason::ApiClose);
     manager.shutdown().await;
 }
+
+#[tokio::test]
+async fn websocket_downlink_poll_does_not_extend_the_peer_lease() {
+    let (session, manager) = session();
+    session
+        .state
+        .lock()
+        .activity
+        .touch_peer(Instant::now() - Duration::from_secs(121));
+    queue_close(&session);
+
+    session.poll_down_websocket(0).await.unwrap();
+
+    assert!(session.close_if_due(Instant::now()));
+    manager.shutdown().await;
+}
