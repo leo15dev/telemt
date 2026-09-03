@@ -252,7 +252,7 @@ function queueCarrier(data){
 }
 function queueUp(data){if(!reserve(data,null)){fail('capacity');return}upPending.push(data);runUp()}
 async function runUp(){
- if(upRunning)return;upRunning=true;let lease=null;
+ if(upRunning)return;upRunning=true;const ownerEpoch=attemptEpoch;let lease=null;
  try{
   while(!closed&&sessionToken&&upPending.length){
    lease=takeBatch(upPending,null);upLease=lease;lease.controller=new AbortController();const sequence=String(upSequence),token=sessionToken;
@@ -278,7 +278,7 @@ async function runUp(){
    if(!settleBatch(lease))return;port.postMessage({t:'traffic',up:lease.total,down:0});upSequence++;lease=null;
   }
  }catch(error){if(!closed&&!(lease&&lease.cancelled))fail(failureReason(error,'network'))}
- finally{upRunning=false;if(!closed&&sessionToken&&upPending.length)runUp()}
+ finally{if(ownerEpoch===attemptEpoch){upRunning=false;if(!closed&&sessionToken&&upPending.length)runUp()}}
 }
 function sendCandidateSocket(next){
  const state=next.telemt;if(!state||state.sent||next.readyState!==WebSocket.OPEN||!state.probe)return;
@@ -323,7 +323,7 @@ async function waitSocket(next,size,limit,signal){
  if(closed||(signal&&signal.aborted)||next.readyState!==WebSocket.OPEN)throw new Error('websocket closed');
 }
 async function runSocketUp(){
- if(upRunning||!socketReady)return;upRunning=true;let lease=null;
+ if(upRunning||!socketReady)return;upRunning=true;const ownerEpoch=attemptEpoch;let lease=null;
  try{
   while(!closed&&socketReady&&upPending.length){
    lease=takeBatch(upPending,null);upLease=lease;lease.controller=new AbortController();
@@ -331,7 +331,7 @@ async function runSocketUp(){
    if(!settleBatch(lease))return;port.postMessage({t:'traffic',up:lease.total,down:0});lease=null;
   }
  }catch(error){if(!closed&&!(lease&&lease.cancelled))recoverTransport(error,null)}
- finally{upRunning=false;if(!closed&&socketReady&&upPending.length)runSocketUp()}
+ finally{if(ownerEpoch===attemptEpoch){upRunning=false;if(!closed&&socketReady&&upPending.length)runSocketUp()}}
 }
 async function poll(){
  while(!closed&&sessionToken){
@@ -339,6 +339,7 @@ async function poll(){
   try{
    pollController=new AbortController();
    const response=await request('/api/v1/down',options('POST',token,null,{'X-Down-Cursor':cursor},pollController.signal),null,1);
+   if(closed||sessionToken!==token)return;
    if(response.status===204){status('connected');continue}
    if(response.status!==200)throw failure('http','downlink rejected');
    const next=response.headers.get('X-Down-Cursor')||'',data=response.body;
@@ -445,6 +446,7 @@ async function pollLane(lane){
    const controller=new AbortController(),laneID=String(lane.id),token=sessionToken,cursor=lane.cursor;lane.controller=controller;
    failedToken=token;failedCursor=cursor;failedLaneID=laneID;
    const response=await request('/api/v1/down',options('POST',token,null,{'X-Down-Cursor':cursor,'X-Lane-ID':laneID},controller.signal),null,1);
+   if(closed||sessionToken!==token||lanes.get(lane.id)!==lane)return;
    if(response.status===204){
     if(response.headers.get('X-Lane-Closed')==='1'){finishLane(lane,false);return}
     status('connected');continue;

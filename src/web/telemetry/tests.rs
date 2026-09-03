@@ -1,6 +1,7 @@
 use super::*;
 use crate::config::WebCarrier;
 use crate::web::manager::CarrierFailure;
+use crate::web::session::SessionCloseReason;
 
 #[test]
 fn fixed_counter_sets_and_acceptor_guard_are_exact() {
@@ -23,6 +24,12 @@ fn fixed_counter_sets_and_acceptor_guard_are_exact() {
         WebCarrier::Https,
         WebCarrierLearningOutcome::Recorded,
     );
+    telemetry.record_session_closed(WebCarrier::Https, SessionCloseReason::ApiClose);
+    telemetry.record_session_observation(
+        WebCarrier::Https,
+        WebSessionLifecycleObservation::RequestAfterClose,
+    );
+    telemetry.record_bridge_recovery(WebBridgeRecoveryEvent::BootstrapIssued);
     assert_eq!(telemetry.rejection_counters().len(), WebRejectionReason::ALL.len());
     assert_eq!(
         telemetry.overload_counters().len(),
@@ -47,12 +54,33 @@ fn fixed_counter_sets_and_acceptor_guard_are_exact() {
         WebCarrier::ALL.len() * WebCarrierLearningOutcome::ALL.len()
     );
     assert_eq!(
+        telemetry.session_close_counters().len(),
+        WebCarrier::ALL.len() * SessionCloseReason::ALL.len()
+    );
+    assert_eq!(
+        telemetry.session_observation_counters().len(),
+        WebCarrier::ALL.len() * WebSessionLifecycleObservation::ALL.len()
+    );
+    assert_eq!(
+        telemetry.bridge_recovery_counters().len(),
+        WebBridgeRecoveryEvent::ALL.len()
+    );
+    assert_eq!(
         telemetry.rejection_total(WebRejectionReason::HttpConnectionCapacity),
         1
     );
     assert_eq!(
         telemetry.last_decoy().map(|value| value.0),
         Some("connect_refused")
+    );
+    assert_eq!(telemetry.aggregates().sessions_closed, 1);
+    assert_eq!(
+        telemetry
+            .session_close_counters()
+            .into_iter()
+            .map(|counter| counter.total)
+            .sum::<u64>(),
+        1
     );
     drop(guard);
     assert_eq!(telemetry.live_acceptors(), 0);

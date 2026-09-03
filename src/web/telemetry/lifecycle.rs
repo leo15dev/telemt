@@ -115,14 +115,14 @@ pub(super) const fn session_close_slot(
     carrier: WebCarrier,
     reason: SessionCloseReason,
 ) -> usize {
-    carrier as usize * SessionCloseReason::ALL.len() + reason as usize
+    carrier.index() * SessionCloseReason::ALL.len() + reason as usize
 }
 
 pub(super) const fn session_observation_slot(
     carrier: WebCarrier,
     observation: WebSessionLifecycleObservation,
 ) -> usize {
-    carrier as usize * WebSessionLifecycleObservation::ALL.len() + observation as usize
+    carrier.index() * WebSessionLifecycleObservation::ALL.len() + observation as usize
 }
 
 pub(super) fn load(counter: &AtomicU64) -> u64 {
