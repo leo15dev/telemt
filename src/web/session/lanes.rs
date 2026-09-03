@@ -319,11 +319,8 @@ impl WebSession {
                 return Err(ManagerError::Limit);
             };
             state.lane_open_waits += 1;
-            self.touch_peer_locked(
-                &mut state,
-                Instant::now(),
-                WebSessionLifecycleObservation::HttpActivityAfterGap,
-            );
+            let observation = WebSessionLifecycleObservation::HttpActivityAfterGap;
+            self.touch_peer_locked(&mut state, Instant::now(), observation);
             LaneOpenWaitGuard {
                 session: self,
                 _auxiliary: auxiliary,
