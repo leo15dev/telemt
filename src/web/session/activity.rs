@@ -42,35 +42,6 @@ impl WebSession {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn progress_does_not_extend_the_authenticated_peer_lease() {
-        let started = Instant::now();
-        let mut activity = SessionActivity::new(started);
-        activity.touch_progress(started + Duration::from_secs(4));
-
-        assert_eq!(
-            activity.peer_idle(started + Duration::from_secs(9)),
-            Duration::from_secs(9)
-        );
-        assert_eq!(
-            activity.progress_idle(started + Duration::from_secs(9)),
-            Duration::from_secs(5)
-        );
-        assert_eq!(
-            activity.touch_peer(started + Duration::from_secs(9)),
-            Duration::from_secs(9)
-        );
-        assert_eq!(
-            activity.peer_idle(started + Duration::from_secs(10)),
-            Duration::from_secs(1)
-        );
-    }
-}
-
 impl SessionActivity {
     /// Starts both activity clocks at the same session creation instant.
     pub(super) fn new(now: Instant) -> Self {
@@ -101,5 +72,34 @@ impl SessionActivity {
     /// Returns elapsed time since the latest carrier-side progress.
     pub(super) fn progress_idle(&self, now: Instant) -> Duration {
         now.saturating_duration_since(self.last_progress)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_does_not_extend_the_authenticated_peer_lease() {
+        let started = Instant::now();
+        let mut activity = SessionActivity::new(started);
+        activity.touch_progress(started + Duration::from_secs(4));
+
+        assert_eq!(
+            activity.peer_idle(started + Duration::from_secs(9)),
+            Duration::from_secs(9)
+        );
+        assert_eq!(
+            activity.progress_idle(started + Duration::from_secs(9)),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            activity.touch_peer(started + Duration::from_secs(9)),
+            Duration::from_secs(9)
+        );
+        assert_eq!(
+            activity.peer_idle(started + Duration::from_secs(10)),
+            Duration::from_secs(1)
+        );
     }
 }
