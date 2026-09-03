@@ -29,7 +29,7 @@ pub(super) fn render(
 
     let _ = writeln!(
         out,
-        "# HELP telemt_web_session_lifecycle_observations_total Authenticated activity after bounded lifecycle gaps"
+        "# HELP telemt_web_session_lifecycle_observations_total Authenticated WEB session lifecycle observations"
     );
     let _ = writeln!(
         out,

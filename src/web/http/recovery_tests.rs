@@ -170,6 +170,26 @@ async fn malformed_or_over_capacity_recovery_is_indistinguishable_from_decoy() {
     assert_eq!(response_header(malformed_headers, "cache-control"), "no-store");
     assert_eq!(malformed_body, b"<!doctype html><title>decoy</title>");
 
+    let invalid_capability = recover(
+        &listener,
+        &runtime,
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([99u8; 32]),
+        &format!("Bearer {}", "U".repeat(43)),
+    )
+    .await;
+    assert_eq!(invalid_capability, malformed);
+
+    let malformed_accept = request(
+        &listener,
+        &runtime,
+        format!(
+            "GET /?bridge={encoded} HTTP/1.1\r\nHost: proxy.example.com\r\nX-Forwarded-For: 192.0.2.40\r\nAccept: {RECOVERY_TYPE}, */*\r\nConnection: close\r\n\r\n"
+        )
+        .into_bytes(),
+    )
+    .await;
+    assert_eq!(malformed_accept, malformed);
+
     let _held = bridge_bootstrap(&listener, &runtime, &encoded).await;
     let over_capacity = recover(
         &listener,

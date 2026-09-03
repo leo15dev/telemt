@@ -30,9 +30,7 @@ pub(super) fn classify(request: &Request<RequestBody>) -> RootRepresentation {
     let first = values.next();
     let exact = first.is_some_and(|value| value.as_bytes() == MEDIA_TYPE.as_bytes())
         && values.next().is_none();
-    let recovery_present = accepts
-        .iter()
-        .any(|value| value.as_bytes() == MEDIA_TYPE.as_bytes());
+    let recovery_present = has_media_type(request);
     let authorization_present = request.headers().contains_key(header::AUTHORIZATION);
     if !exact {
         return if authorization_present || recovery_present {
@@ -50,6 +48,20 @@ pub(super) fn classify(request: &Request<RequestBody>) -> RootRepresentation {
     bearer_token_hash(request)
         .map(|hash| RootRepresentation::Recovery(Some(hash)))
         .unwrap_or(RootRepresentation::Invalid)
+}
+
+/// Detects a recovery media token even when its Accept syntax is noncanonical.
+pub(super) fn has_media_type(request: &Request<RequestBody>) -> bool {
+    request.headers().get_all(header::ACCEPT).iter().any(|value| {
+        value.to_str().ok().is_some_and(|value| {
+            value.split(',').any(|entry| {
+                entry
+                    .split(';')
+                    .next()
+                    .is_some_and(|media| media.trim().eq_ignore_ascii_case(MEDIA_TYPE))
+            })
+        })
+    })
 }
 
 /// Builds the bounded no-store recovery representation.

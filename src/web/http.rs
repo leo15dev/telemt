@@ -151,7 +151,7 @@ pub(crate) async fn serve_connection(
 }
 
 async fn handle_request(
-    request: Request<RequestBody>,
+    mut request: Request<RequestBody>,
     peer: SocketAddr,
     client_ip_source: WebClientIpSource,
     trusted_proxy_cidrs: &[IpNetwork],
@@ -209,7 +209,11 @@ async fn handle_request(
         )
         .await;
     }
-    serve_decoy(request, vhost, false, &runtime).await
+    let sanitize_recovery = recovery::has_media_type(&request);
+    if sanitize_recovery {
+        strip_query(&mut request);
+    }
+    serve_decoy(request, vhost, sanitize_recovery, &runtime).await
 }
 
 async fn handle_root(
@@ -228,8 +232,12 @@ async fn handle_root(
     }
     let (candidate, canonical) = bridge_candidate(request.uri().query());
     let profile = match_profile(&vhost, &candidate);
+    let recovery_requested = matches!(representation, recovery::RootRepresentation::Recovery(_));
     let Some(profile) = profile.filter(|_| canonical && request.method() == Method::GET) else {
-        return serve_decoy(request, vhost, false, &runtime).await;
+        if recovery_requested {
+            strip_query(&mut request);
+        }
+        return serve_decoy(request, vhost, recovery_requested, &runtime).await;
     };
     let Some(client_ip) = client_ip(&request, peer, client_ip_source, trusted_proxy_cidrs) else {
         strip_query(&mut request);

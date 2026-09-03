@@ -52,7 +52,7 @@ pub(crate) struct WebSessionStatus {
     pub(crate) control_items: usize,
     /// Monotonic age since session creation.
     pub(crate) age_ms: u64,
-    /// Monotonic age since the latest carrier activity.
+    /// Monotonic age since the latest peer or carrier progress.
     pub(crate) idle_ms: u64,
     /// Monotonic age since the latest validated peer operation.
     pub(crate) peer_idle_ms: u64,

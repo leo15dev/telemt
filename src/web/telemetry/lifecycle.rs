@@ -12,7 +12,7 @@ pub(super) const SESSION_CLOSE_SLOTS: usize =
 pub(super) const SESSION_OBSERVATION_SLOTS: usize =
     WebCarrier::ALL.len() * WebSessionLifecycleObservation::ALL.len();
 
-/// Stable observation emitted after an authenticated session lifecycle gap.
+/// Stable authenticated session lifecycle observation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
 pub(crate) enum WebSessionLifecycleObservation {
