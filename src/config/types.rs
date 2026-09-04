@@ -61,9 +61,9 @@ pub(crate) use web::{
     WebRuntimeConfig, WebRuntimeDecoy, WebRuntimeProfile, WebRuntimeVhost, WebStaticAsset,
     WebStaticSite,
 };
+pub(crate) use web_carrier::WEB_CARRIER_LEARNING_MIN_ENTRIES;
 #[allow(unused_imports)]
 pub use web_carrier::{WebCarrier, WebCarriers};
-pub(crate) use web_carrier::WEB_CARRIER_LEARNING_MIN_ENTRIES;
 pub(crate) use web_debug::web_debug_fits_limits;
 pub use web_debug::{WebDebugBodyCapture, WebDebugConfig};
 

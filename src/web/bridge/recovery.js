@@ -29,7 +29,7 @@ function create(settings){
  function heartbeat(owner){
   if(current!==owner||owner.controller.signal.aborted)return;
   const left=remaining(owner);settings.status(left);
-  if(left>0)owner.heartbeat=setTimeout(()=>heartbeat(owner),Math.min(heartbeatMs,left));
+  if(left<=0){owner.controller.abort();return}owner.heartbeat=setTimeout(()=>heartbeat(owner),Math.min(heartbeatMs,left));
  }
  async function load(owner){
   const left=remaining(owner);if(left<=0)throw new Error('recovery deadline');

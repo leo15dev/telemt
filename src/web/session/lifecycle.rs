@@ -97,6 +97,7 @@ struct ReleasedQueues {
     control_bytes: usize,
     control_items: usize,
     closed_before_health: bool,
+    recovery_closed_before_commit: bool,
     reason: SessionCloseReason,
     peer_gap: Duration,
 }
@@ -253,6 +254,7 @@ impl WebSession {
         let closed_before_health = self.automatic_carrier
             && state.negotiation_phase == SessionNegotiationPhase::Committed
             && self.reject_carrier_health_on_close();
+        let recovery_closed_before_commit = self.recovery && !state.recovery_committed;
         state.close_requested = Some(reason);
         state.closed = true;
         if reason == SessionCloseReason::CarrierSuperseded {
@@ -305,6 +307,7 @@ impl WebSession {
             control_bytes,
             control_items,
             closed_before_health,
+            recovery_closed_before_commit,
             reason,
             peer_gap,
         }
@@ -324,6 +327,11 @@ impl WebSession {
                 manager.telemetry().record_carrier_learning(
                     self.selected_carrier,
                     crate::web::telemetry::WebCarrierLearningOutcome::ClosedBeforeHealth,
+                );
+            }
+            if released.recovery_closed_before_commit {
+                manager.telemetry().record_bridge_recovery(
+                    crate::web::telemetry::WebBridgeRecoveryEvent::ClosedBeforeCommit,
                 );
             }
             manager.release_pending(
@@ -350,10 +358,7 @@ impl WebSession {
                     Some(released.reason.as_str()),
                     crate::web::trace::TraceLifecycleContext {
                         peer_gap_ms: Some(
-                            released
-                                .peer_gap
-                                .as_millis()
-                                .min(u128::from(u64::MAX)) as u64,
+                            released.peer_gap.as_millis().min(u128::from(u64::MAX)) as u64
                         ),
                         predecessor_session_id: None,
                     },

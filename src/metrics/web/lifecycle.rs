@@ -5,11 +5,7 @@ use crate::web::control::WebRuntimePublication;
 use crate::web::session::SessionCloseReason;
 use crate::web::telemetry::{WebBridgeRecoveryEvent, WebSessionLifecycleObservation};
 
-pub(super) fn render(
-    out: &mut String,
-    publication: &WebRuntimePublication,
-    config: &ProxyConfig,
-) {
+pub(super) fn render(out: &mut String, publication: &WebRuntimePublication, config: &ProxyConfig) {
     let _ = writeln!(
         out,
         "# HELP telemt_web_session_closures_total Closed WEB session incarnations by carrier and terminal reason"

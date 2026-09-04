@@ -47,6 +47,7 @@ fn session() -> (Arc<WebSession>, Arc<WebProcessRuntime>) {
         crate::web::manager::CarrierClientClass::Legacy,
         None,
         false,
+        false,
         WebLimitsConfig::default(),
         timeouts,
     );

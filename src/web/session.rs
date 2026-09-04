@@ -23,6 +23,9 @@ mod backend;
 // Activity clocks separate authenticated peer leases from diagnostic progress.
 mod activity;
 use activity::SessionActivity;
+// Shared state helpers own queue accounting and bounded tombstone updates.
+mod state;
+use state::{inbound_queue_cost, insert_carrier_lane, remember_closed};
 // Downlink queues own cursor replay, flow control, and memory reservations.
 mod downlink;
 // Response ownership keeps detached batches charged until the last body clone drops.
@@ -45,8 +48,8 @@ mod negotiation;
 use negotiation::CarrierHealthPublicationState;
 // Session closure and carrier-attempt transitions share one cancellation boundary.
 mod lifecycle;
-pub(crate) use lifecycle::{SessionCloseOutcome, SessionCloseReason};
 use lifecycle::SessionNegotiationPhase;
+pub(crate) use lifecycle::{SessionCloseOutcome, SessionCloseReason};
 // Uplink batches own exactly-once sequencing and client-frame validation.
 mod uplink;
 
@@ -181,6 +184,7 @@ struct SessionState {
     carrier_health_uplink: bool,
     carrier_health_downlink: bool,
     carrier_commit_published: bool,
+    recovery_committed: bool,
     websocket_carrier_active: bool,
     websocket_commit_ack_pending: bool,
     websocket_commit_ack_owner: Option<u64>,
@@ -205,6 +209,7 @@ pub(crate) struct WebSession {
     carrier_class: CarrierClientClass,
     learning_context: Option<CarrierLearningContext>,
     automatic_carrier: bool,
+    recovery: bool,
     created_at: Instant,
     limits: WebLimitsConfig,
     timeouts: WebTimeoutsConfig,
@@ -249,6 +254,7 @@ impl WebSession {
         carrier_class: CarrierClientClass,
         learning_context: Option<CarrierLearningContext>,
         automatic_carrier: bool,
+        recovery: bool,
         limits: WebLimitsConfig,
         timeouts: WebTimeoutsConfig,
     ) -> Arc<Self> {
@@ -273,6 +279,7 @@ impl WebSession {
             carrier_class,
             learning_context,
             automatic_carrier,
+            recovery,
             created_at,
             limits,
             timeouts,
@@ -305,6 +312,7 @@ impl WebSession {
                 carrier_health_uplink: false,
                 carrier_health_downlink: false,
                 carrier_commit_published: false,
+                recovery_committed: false,
                 websocket_carrier_active: false,
                 websocket_commit_ack_pending: false,
                 websocket_commit_ack_owner: None,
@@ -513,38 +521,4 @@ impl WebSession {
             .upgrade()
             .map(|manager| manager.budget_notify())
     }
-}
-
-fn inbound_queue_cost(queue: &VecDeque<InboundChunk>) -> (usize, usize) {
-    let bytes = queue.iter().fold(0usize, |total, chunk| {
-        total.saturating_add(chunk.bytes.len().saturating_sub(chunk.offset) + QUEUE_ITEM_COST)
-    });
-    (bytes, queue.len())
-}
-
-fn remember_closed(state: &mut SessionState, stream_id: u32, limit: usize) -> Option<u32> {
-    if !state.closed_streams.insert(stream_id) {
-        return None;
-    }
-    state.closed_order.push_back(stream_id);
-    let mut evicted = None;
-    while state.closed_order.len() > limit {
-        if let Some(oldest) = state.closed_order.pop_front() {
-            state.closed_streams.remove(&oldest);
-            evicted = Some(oldest);
-        }
-    }
-    evicted
-}
-
-fn insert_carrier_lane(state: &mut SessionState, lane_id: u32) -> Option<CarrierLaneIdentity> {
-    if state.carrier_lanes.contains_key(&lane_id) {
-        return None;
-    }
-    let instance = state.next_lane_instance;
-    state.next_lane_instance = instance.checked_add(1)?;
-    state
-        .carrier_lanes
-        .insert(lane_id, CarrierLane::new(instance));
-    Some(CarrierLaneIdentity { lane_id, instance })
 }

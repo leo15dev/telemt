@@ -429,8 +429,7 @@ pub(crate) fn resolve_reload_config(
     }
     if effective.web.carrier_negotiation_enabled()
         && effective.web.carrier_learning
-        && effective.web.limits.max_carrier_learning_entries
-            < WEB_CARRIER_LEARNING_MIN_ENTRIES
+        && effective.web.limits.max_carrier_learning_entries < WEB_CARRIER_LEARNING_MIN_ENTRIES
     {
         if old.web.carrier_learning != desired.web.carrier_learning {
             fields.push("web.carrier_learning".to_string());

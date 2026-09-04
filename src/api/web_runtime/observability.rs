@@ -3,11 +3,11 @@ use serde::Serialize;
 use crate::config::{ProxyConfig, WebHttpConnectionCapacityAction};
 use crate::web::control::{WebRuntimeLifecycle, WebRuntimePublication};
 use crate::web::manager::{WebCapacityResourceStatus, WebCapacitySnapshot, WebProcessRuntime};
-use crate::web::telemetry::{WebOutcomeCounter, WebRejectionCounter};
 use crate::web::telemetry::{
     WebBridgeRecoveryCounter, WebCarrierFailureCounter, WebCarrierLearningCounter,
     WebCarrierSelectionCounter, WebSessionCloseCounter, WebSessionLifecycleObservationCounter,
 };
+use crate::web::telemetry::{WebOutcomeCounter, WebRejectionCounter};
 
 /// Private WEB ingress state owned by this Telemt process.
 #[derive(Serialize)]

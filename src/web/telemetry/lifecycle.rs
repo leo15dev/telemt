@@ -7,8 +7,7 @@ use crate::web::session::SessionCloseReason;
 
 use super::WebTelemetry;
 
-pub(super) const SESSION_CLOSE_SLOTS: usize =
-    WebCarrier::ALL.len() * SessionCloseReason::ALL.len();
+pub(super) const SESSION_CLOSE_SLOTS: usize = WebCarrier::ALL.len() * SessionCloseReason::ALL.len();
 pub(super) const SESSION_OBSERVATION_SLOTS: usize =
     WebCarrier::ALL.len() * WebSessionLifecycleObservation::ALL.len();
 
@@ -111,10 +110,7 @@ pub(crate) struct WebBridgeRecoveryCounter {
     pub(crate) total: u64,
 }
 
-pub(super) const fn session_close_slot(
-    carrier: WebCarrier,
-    reason: SessionCloseReason,
-) -> usize {
+pub(super) const fn session_close_slot(carrier: WebCarrier, reason: SessionCloseReason) -> usize {
     carrier.index() * SessionCloseReason::ALL.len() + reason as usize
 }
 
@@ -131,14 +127,9 @@ pub(super) fn load(counter: &AtomicU64) -> u64 {
 
 impl WebTelemetry {
     /// Records one closed session incarnation and its exact terminal cause.
-    pub(crate) fn record_session_closed(
-        &self,
-        carrier: WebCarrier,
-        reason: SessionCloseReason,
-    ) {
+    pub(crate) fn record_session_closed(&self, carrier: WebCarrier, reason: SessionCloseReason) {
         self.sessions_closed.fetch_add(1, Ordering::Relaxed);
-        self.session_closures[session_close_slot(carrier, reason)]
-            .fetch_add(1, Ordering::Relaxed);
+        self.session_closures[session_close_slot(carrier, reason)].fetch_add(1, Ordering::Relaxed);
     }
 
     /// Returns one fixed session-close counter.
@@ -155,13 +146,13 @@ impl WebTelemetry {
         WebCarrier::ALL
             .into_iter()
             .flat_map(|carrier| {
-                SessionCloseReason::ALL.into_iter().map(move |reason| {
-                    WebSessionCloseCounter {
+                SessionCloseReason::ALL
+                    .into_iter()
+                    .map(move |reason| WebSessionCloseCounter {
                         carrier: carrier.as_str(),
                         reason: reason.as_str(),
                         total: self.session_close_total(carrier, reason),
-                    }
-                })
+                    })
             })
             .collect()
     }
@@ -209,11 +200,7 @@ impl WebTelemetry {
     }
 
     /// Adds a bounded batch of identical recovery milestones.
-    pub(crate) fn record_bridge_recovery_count(
-        &self,
-        event: WebBridgeRecoveryEvent,
-        count: usize,
-    ) {
+    pub(crate) fn record_bridge_recovery_count(&self, event: WebBridgeRecoveryEvent, count: usize) {
         self.bridge_recovery_events[event as usize]
             .fetch_add(u64::try_from(count).unwrap_or(u64::MAX), Ordering::Relaxed);
     }

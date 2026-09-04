@@ -352,7 +352,10 @@ fn health_window_change_starts_a_new_empty_epoch() {
 
     assert_ne!(changed.epoch, Some(epoch));
     assert_eq!(
-        changed.detached.as_ref().map(|detached| detached.entries.len()),
+        changed
+            .detached
+            .as_ref()
+            .map(|detached| detached.entries.len()),
         Some(3)
     );
     assert!(learning.entries.is_empty());
@@ -404,8 +407,7 @@ async fn runtime_activation_publishes_matching_policy_and_generation() {
     let mut config = crate::config::ProxyConfig::default();
     config.web.carriers = crate::config::WebCarriers::Enabled(vec![WebCarrier::Websocket]);
     config.web.carrier_learning = true;
-    config.web.carrier_negotiation_aggressiveness =
-        WebCarrierNegotiationAggressiveness::Aggressive;
+    config.web.carrier_negotiation_aggressiveness = WebCarrierNegotiationAggressiveness::Aggressive;
     config.web.timeouts.carrier_learning_secs = 10;
     config.web.timeouts.carrier_health_secs = 3;
     let first = crate::maestro::generation::test_runtime_generation(1, config.clone());

@@ -265,10 +265,8 @@ impl CarrierLearning {
         {
             return CarrierLearningEpoch::Pending;
         }
-        self.epoch.map_or(
-            CarrierLearningEpoch::Exhausted,
-            CarrierLearningEpoch::Ready,
-        )
+        self.epoch
+            .map_or(CarrierLearningEpoch::Exhausted, CarrierLearningEpoch::Ready)
     }
 
     /// Ranks supported configured candidates without scanning the evidence store.
@@ -482,7 +480,6 @@ impl CarrierLearning {
             entry.update(slot, deltas, cohort);
         }
     }
-
 }
 
 fn supported(configured: &[WebCarrier], request: super::CarrierRequest) -> Vec<WebCarrier> {

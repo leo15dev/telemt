@@ -108,20 +108,15 @@ impl WebProcessRuntime {
                 && entry.carrier_phase == CarrierChainPhase::Provisional
             {
                 entry.carrier_phase = CarrierChainPhase::CommittedPendingHealth;
-                Some((entry.carrier_scores, entry.recovery))
+                Some(entry.carrier_scores)
             } else {
                 None
             }
         });
         drop(state);
-        let Some((scores, recovery)) = outcome else {
+        let Some(scores) = outcome else {
             return false;
         };
-        if recovery {
-            self.telemetry.record_bridge_recovery(
-                crate::web::telemetry::WebBridgeRecoveryEvent::Committed,
-            );
-        }
         self.trace.record_carrier_lifecycle(
             client_ip,
             identity.clone(),
@@ -150,9 +145,7 @@ impl WebProcessRuntime {
         websocket_owner: Option<u64>,
     ) -> CarrierHealthPublicationOutcome {
         if carrier.uses_websocket()
-            && websocket_owner.is_none_or(|owner| {
-                !self.claim_websocket_health(owner, session_hash)
-            })
+            && websocket_owner.is_none_or(|owner| !self.claim_websocket_health(owner, session_hash))
         {
             let outcome = WebCarrierLearningOutcome::OwnerNotLive;
             self.telemetry.record_carrier_learning(carrier, outcome);
@@ -187,13 +180,10 @@ impl WebProcessRuntime {
         };
         let learning_outcome = if let Some(context) = learning_context {
             let now = Instant::now();
-            let outcome = self.learning.lock().record_chain(
-                now,
-                context.epoch,
-                context,
-                &[],
-                carrier,
-            );
+            let outcome =
+                self.learning
+                    .lock()
+                    .record_chain(now, context.epoch, context, &[], carrier);
             match outcome {
                 super::learning::CarrierLearningRecordOutcome::Recorded => {
                     WebCarrierLearningOutcome::Recorded

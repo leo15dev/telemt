@@ -63,7 +63,10 @@ pub(crate) fn render(
             &bridge_recovery_secs.to_string(),
         )
         .replace("__WEBSOCKET_OPEN_SECS__", &websocket_open_secs.to_string())
-        .replace("__RECONNECT_GRACE_SECS__", &reconnect_grace_secs.to_string())
+        .replace(
+            "__RECONNECT_GRACE_SECS__",
+            &reconnect_grace_secs.to_string(),
+        )
         .replace(
             "__CARRIER_PROBE_COALESCE_MS__",
             &carrier_probe_coalesce_ms.to_string(),

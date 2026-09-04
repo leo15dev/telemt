@@ -319,15 +319,17 @@ impl WebProcessRuntime {
                     .is_some_and(|current| current.token_hash() == hash)
                 {
                     bootstrap.close_requested = true;
-                    failure_phase = Some(if matches!(
-                        bootstrap.carrier_phase,
-                        CarrierChainPhase::CommittedPendingHealth | CarrierChainPhase::Healthy
-                    ) || session.is_carrier_committed()
-                    {
-                        crate::web::telemetry::WebCarrierFailurePhase::Committed
-                    } else {
-                        crate::web::telemetry::WebCarrierFailurePhase::Provisional
-                    });
+                    failure_phase = Some(
+                        if matches!(
+                            bootstrap.carrier_phase,
+                            CarrierChainPhase::CommittedPendingHealth | CarrierChainPhase::Healthy
+                        ) || session.is_carrier_committed()
+                        {
+                            crate::web::telemetry::WebCarrierFailurePhase::Committed
+                        } else {
+                            crate::web::telemetry::WebCarrierFailurePhase::Provisional
+                        },
+                    );
                     break;
                 }
             }

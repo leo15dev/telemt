@@ -52,16 +52,20 @@ pub(super) fn classify(request: &Request<RequestBody>) -> RootRepresentation {
 
 /// Detects a recovery media token even when its Accept syntax is noncanonical.
 pub(super) fn has_media_type(request: &Request<RequestBody>) -> bool {
-    request.headers().get_all(header::ACCEPT).iter().any(|value| {
-        value.to_str().ok().is_some_and(|value| {
-            value.split(',').any(|entry| {
-                entry
-                    .split(';')
-                    .next()
-                    .is_some_and(|media| media.trim().eq_ignore_ascii_case(MEDIA_TYPE))
+    request
+        .headers()
+        .get_all(header::ACCEPT)
+        .iter()
+        .any(|value| {
+            value.to_str().ok().is_some_and(|value| {
+                value.split(',').any(|entry| {
+                    entry
+                        .split(';')
+                        .next()
+                        .is_some_and(|media| media.trim().eq_ignore_ascii_case(MEDIA_TYPE))
+                })
             })
         })
-    })
 }
 
 /// Builds the bounded no-store recovery representation.

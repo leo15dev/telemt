@@ -5,17 +5,17 @@ use std::time::Instant;
 use serde::Serialize;
 
 mod carrier;
+use carrier::{CARRIER_FAILURE_SLOTS, CARRIER_LEARNING_SLOTS, CARRIER_SELECTION_SLOTS};
 pub(crate) use carrier::{
     WebCarrierFailureCounter, WebCarrierFailurePhase, WebCarrierLearningCounter,
     WebCarrierLearningOutcome, WebCarrierSelectionCounter, WebCarrierSelectionDisposition,
 };
-use carrier::{CARRIER_FAILURE_SLOTS, CARRIER_LEARNING_SLOTS, CARRIER_SELECTION_SLOTS};
 mod lifecycle;
+use lifecycle::{SESSION_CLOSE_SLOTS, SESSION_OBSERVATION_SLOTS};
 pub(crate) use lifecycle::{
     WebBridgeRecoveryCounter, WebBridgeRecoveryEvent, WebSessionCloseCounter,
     WebSessionLifecycleObservation, WebSessionLifecycleObservationCounter,
 };
-use lifecycle::{SESSION_CLOSE_SLOTS, SESSION_OBSERVATION_SLOTS};
 
 const LAST_DECOY_OUTCOME_BITS: u32 = 4;
 const LAST_DECOY_OUTCOME_MASK: u64 = (1 << LAST_DECOY_OUTCOME_BITS) - 1;

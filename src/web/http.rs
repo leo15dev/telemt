@@ -264,16 +264,15 @@ async fn handle_root(
             client_ip,
             user_agent,
         ),
-        recovery::RootRepresentation::Recovery(_) => runtime
-            .issue_recovery_bootstrap_for_request(
-                &generation,
-                Arc::clone(&profile),
-                client_ip,
-                user_agent,
-                recovery_session
-                    .as_ref()
-                    .map(|session| session.trace_session_id()),
-            ),
+        recovery::RootRepresentation::Recovery(_) => runtime.issue_recovery_bootstrap_for_request(
+            &generation,
+            Arc::clone(&profile),
+            client_ip,
+            user_agent,
+            recovery_session
+                .as_ref()
+                .map(|session| session.trace_session_id()),
+        ),
         recovery::RootRepresentation::Invalid => {
             strip_query(&mut request);
             return serve_decoy(request, vhost, true, &runtime).await;

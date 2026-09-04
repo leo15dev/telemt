@@ -21,9 +21,10 @@ function create(settings){
  }
  function retryableStatus(status){return status===408||status===429||status===502||status===503||status===504}
  function responsePolicy(path,status){
-  if(path==='/api/v1/session'&&status===200)return {limit:8,exact:true};
-  if(path==='/api/v1/down'&&status===200)return {limit:settings.batchLimit(),exact:false};
-  return {limit:0,exact:true};
+  if(path==='/api/v1/session'&&status===200)return {limit:8,exact:true,reason:'protocol'};
+  if(path==='/api/v1/down'&&status===200)return {limit:settings.batchLimit(),exact:false,reason:'protocol'};
+  if(status===204&&(path==='/api/v1/up'||path==='/api/v1/down'))return {limit:0,exact:true,reason:'protocol'};
+  return {limit:0,exact:true,reason:'http'};
  }
  async function send(path,frozenOptions,remainingBudget,maxAttempts){
   let delay=250,attempt=0,lastReason='network';maxAttempts=maxAttempts||9;
@@ -49,7 +50,7 @@ function create(settings){
       controller.abort();
       if(external&&external.aborted)throw error;
       if(timedOut)throw settings.failure('timeout','response deadline exceeded');
-      throw settings.failure('protocol',error&&error.message);
+      throw settings.failure(policy.reason,error&&error.message);
      }
      response={status:fetched.status,headers:fetched.headers,body};return response;
     }

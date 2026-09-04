@@ -11,26 +11,23 @@ fn fixed_counter_sets_and_acceptor_guard_are_exact() {
     telemetry.record_rejection(WebRejectionReason::HttpConnectionCapacity);
     telemetry.record_overload(WebHttpConnectionOverloadOutcome::Dropped);
     telemetry.record_decoy(WebDecoyUpstreamOutcome::ConnectRefused);
-    telemetry.record_carrier_selection(
-        WebCarrier::Https,
-        WebCarrierSelectionDisposition::Cold,
-    );
+    telemetry.record_carrier_selection(WebCarrier::Https, WebCarrierSelectionDisposition::Cold);
     telemetry.record_carrier_failure(
         WebCarrier::Https,
         WebCarrierFailurePhase::Provisional,
         CarrierFailure::Network,
     );
-    telemetry.record_carrier_learning(
-        WebCarrier::Https,
-        WebCarrierLearningOutcome::Recorded,
-    );
+    telemetry.record_carrier_learning(WebCarrier::Https, WebCarrierLearningOutcome::Recorded);
     telemetry.record_session_closed(WebCarrier::Https, SessionCloseReason::ApiClose);
     telemetry.record_session_observation(
         WebCarrier::Https,
         WebSessionLifecycleObservation::RequestAfterClose,
     );
     telemetry.record_bridge_recovery(WebBridgeRecoveryEvent::BootstrapIssued);
-    assert_eq!(telemetry.rejection_counters().len(), WebRejectionReason::ALL.len());
+    assert_eq!(
+        telemetry.rejection_counters().len(),
+        WebRejectionReason::ALL.len()
+    );
     assert_eq!(
         telemetry.overload_counters().len(),
         WebHttpConnectionOverloadOutcome::ALL.len()
@@ -45,9 +42,7 @@ fn fixed_counter_sets_and_acceptor_guard_are_exact() {
     );
     assert_eq!(
         telemetry.carrier_failure_counters().len(),
-        WebCarrier::ALL.len()
-            * WebCarrierFailurePhase::ALL.len()
-            * CarrierFailure::ALL.len()
+        WebCarrier::ALL.len() * WebCarrierFailurePhase::ALL.len() * CarrierFailure::ALL.len()
     );
     assert_eq!(
         telemetry.carrier_learning_counters().len(),

@@ -40,6 +40,21 @@ async fn create_session(
     request(listener, runtime, create).await
 }
 
+async fn send_open(
+    listener: &TcpListener,
+    runtime: &Arc<WebProcessRuntime>,
+    bearer: &str,
+) -> Vec<u8> {
+    let open = frame::encode(FrameType::Open, 1, &[]);
+    let mut request_bytes = format!(
+        "POST /api/v1/up HTTP/1.1\r\nHost: proxy.example.com\r\nX-Forwarded-For: 192.0.2.40\r\nAuthorization: Bearer {bearer}\r\nContent-Type: application/octet-stream\r\nX-Up-Seq: 1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        open.len()
+    )
+    .into_bytes();
+    request_bytes.extend_from_slice(&open);
+    request(listener, runtime, request_bytes).await
+}
+
 async fn recover(
     listener: &TcpListener,
     runtime: &Arc<WebProcessRuntime>,
@@ -83,8 +98,14 @@ async fn recovery_retires_current_bearer_before_single_slot_recreation() {
     .await;
     let (recovery_headers, recovery_body) = split_response(&recovery_response);
     assert!(recovery_headers.starts_with(b"HTTP/1.1 200"));
-    assert_eq!(response_header(recovery_headers, "content-type"), RECOVERY_TYPE);
-    assert_eq!(response_header(recovery_headers, "cache-control"), "no-store");
+    assert_eq!(
+        response_header(recovery_headers, "content-type"),
+        RECOVERY_TYPE
+    );
+    assert_eq!(
+        response_header(recovery_headers, "cache-control"),
+        "no-store"
+    );
     assert!(recovery_body.len() <= 1024);
     let document: serde_json::Value = serde_json::from_slice(recovery_body).unwrap();
     assert_eq!(document["v"], 1);
@@ -94,10 +115,9 @@ async fn recovery_retires_current_bearer_before_single_slot_recreation() {
     let recreated = create_session(&listener, &runtime, recovery_bootstrap).await;
     assert!(recreated.starts_with(b"HTTP/1.1 200"));
     assert_eq!(
-        runtime.telemetry().session_close_total(
-            WebCarrier::Https,
-            SessionCloseReason::BridgeRecovery,
-        ),
+        runtime
+            .telemetry()
+            .session_close_total(WebCarrier::Https, SessionCloseReason::BridgeRecovery,),
         1
     );
     assert_eq!(
@@ -136,7 +156,10 @@ async fn recovery_retires_current_bearer_before_single_slot_recreation() {
     .await;
     let (retired_headers, retired_body) = split_response(&retired_recovery);
     assert!(retired_headers.starts_with(b"HTTP/1.1 200"));
-    assert_eq!(response_header(retired_headers, "content-type"), RECOVERY_TYPE);
+    assert_eq!(
+        response_header(retired_headers, "content-type"),
+        RECOVERY_TYPE
+    );
     assert!(serde_json::from_slice::<serde_json::Value>(retired_body).is_ok());
     assert_eq!(
         runtime
@@ -151,6 +174,12 @@ async fn recovery_retires_current_bearer_before_single_slot_recreation() {
     );
 
     runtime.shutdown().await;
+    assert_eq!(
+        runtime
+            .telemetry()
+            .bridge_recovery_total(WebBridgeRecoveryEvent::ClosedBeforeCommit),
+        1
+    );
     generation.stop_sessions().await;
     generation.stop_background_tasks().await;
 }
@@ -167,7 +196,10 @@ async fn malformed_or_over_capacity_recovery_is_indistinguishable_from_decoy() {
     let malformed = recover(&listener, &runtime, &encoded, "Bearer malformed").await;
     let (malformed_headers, malformed_body) = split_response(&malformed);
     assert!(malformed_headers.starts_with(b"HTTP/1.1 200"));
-    assert_eq!(response_header(malformed_headers, "cache-control"), "no-store");
+    assert_eq!(
+        response_header(malformed_headers, "cache-control"),
+        "no-store"
+    );
     assert_eq!(malformed_body, b"<!doctype html><title>decoy</title>");
 
     let invalid_capability = recover(
@@ -200,10 +232,59 @@ async fn malformed_or_over_capacity_recovery_is_indistinguishable_from_decoy() {
     .await;
     let (capacity_headers, capacity_body) = split_response(&over_capacity);
     assert!(capacity_headers.starts_with(b"HTTP/1.1 200"));
-    assert_eq!(response_header(capacity_headers, "cache-control"), "no-store");
+    assert_eq!(
+        response_header(capacity_headers, "cache-control"),
+        "no-store"
+    );
     assert_eq!(capacity_body, b"<!doctype html><title>decoy</title>");
 
     runtime.shutdown().await;
+    generation.stop_sessions().await;
+    generation.stop_background_tasks().await;
+}
+
+#[tokio::test]
+async fn fixed_carrier_recovery_commits_on_real_uplink_progress() {
+    let capability = [43u8; 32];
+    let generation = test_runtime_generation(1, runtime_config(capability, WebCarrier::Https));
+    let active_runtime = Arc::new(ArcSwap::from(Arc::clone(&generation)));
+    let runtime = WebProcessRuntime::start(active_runtime);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(capability);
+    let bootstrap = bridge_bootstrap(&listener, &runtime, &encoded).await;
+    let created = create_session(&listener, &runtime, &bootstrap).await;
+    let (created_headers, _) = split_response(&created);
+    let old_bearer = response_header(created_headers, "x-session-token");
+    let recovered = recover(
+        &listener,
+        &runtime,
+        &encoded,
+        &format!("Bearer {old_bearer}"),
+    )
+    .await;
+    let (_, recovery_body) = split_response(&recovered);
+    let document: serde_json::Value = serde_json::from_slice(recovery_body).unwrap();
+    let recovery_bootstrap = document["bootstrap"].as_str().unwrap();
+    let recreated = create_session(&listener, &runtime, recovery_bootstrap).await;
+    let (recreated_headers, _) = split_response(&recreated);
+    let bearer = response_header(recreated_headers, "x-session-token");
+
+    let uplink = send_open(&listener, &runtime, bearer).await;
+
+    assert!(uplink.starts_with(b"HTTP/1.1 204"));
+    assert_eq!(
+        runtime
+            .telemetry()
+            .bridge_recovery_total(WebBridgeRecoveryEvent::Committed),
+        1
+    );
+    runtime.shutdown().await;
+    assert_eq!(
+        runtime
+            .telemetry()
+            .bridge_recovery_total(WebBridgeRecoveryEvent::ClosedBeforeCommit),
+        0
+    );
     generation.stop_sessions().await;
     generation.stop_background_tasks().await;
 }
@@ -224,9 +305,7 @@ async fn deferred_close_preserves_the_first_reason_across_replacement_cancel() {
         .decode(bearer)
         .unwrap();
     let hash: crate::web::manager::TokenHash = Sha256::digest(raw).into();
-    let session = runtime
-        .get_session(hash, "proxy.example.com")
-        .unwrap();
+    let session = runtime.get_session(hash, "proxy.example.com").unwrap();
     let trace_session_id = session.trace_session_id();
 
     assert!(session.begin_carrier_supersede());
@@ -251,10 +330,9 @@ async fn deferred_close_preserves_the_first_reason_across_replacement_cancel() {
         1
     );
     assert_eq!(
-        runtime.telemetry().session_close_total(
-            WebCarrier::Https,
-            SessionCloseReason::CarrierSuperseded,
-        ),
+        runtime
+            .telemetry()
+            .session_close_total(WebCarrier::Https, SessionCloseReason::CarrierSuperseded,),
         0
     );
 

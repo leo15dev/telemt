@@ -107,6 +107,14 @@ impl WebSession {
         state: &mut SessionState,
         progress: AppliedProgress,
     ) -> (bool, Option<CarrierHealthClaim>) {
+        if self.recovery && progress.any() && !state.recovery_committed {
+            state.recovery_committed = true;
+            if let Some(manager) = self.manager.upgrade() {
+                manager.telemetry().record_bridge_recovery(
+                    crate::web::telemetry::WebBridgeRecoveryEvent::Committed,
+                );
+            }
+        }
         if !self.automatic_carrier || !progress.any() {
             return (false, None);
         }
@@ -331,6 +339,7 @@ mod tests {
             CarrierClientClass::Bridge,
             None,
             true,
+            false,
             WebLimitsConfig::default(),
             WebTimeoutsConfig::default(),
         )
@@ -371,9 +380,17 @@ mod tests {
         state.carrier_health_uplink = true;
         state.carrier_health_downlink = true;
         state.carrier_health_activity_at = Some(now - Duration::from_secs(2));
-        assert!(session.carrier_health_ready_locked(&mut state, now).is_none());
+        assert!(
+            session
+                .carrier_health_ready_locked(&mut state, now)
+                .is_none()
+        );
         state.carrier_health_activity_at = Some(now);
-        assert!(session.carrier_health_ready_locked(&mut state, now).is_some());
+        assert!(
+            session
+                .carrier_health_ready_locked(&mut state, now)
+                .is_some()
+        );
     }
 
     #[test]
@@ -391,9 +408,17 @@ mod tests {
         state.websocket_commit_ack_owner = Some(7);
         state.websocket_commit_ack_written = true;
         state.carrier_health_uplink = true;
-        assert!(session.carrier_health_ready_locked(&mut state, now).is_none());
+        assert!(
+            session
+                .carrier_health_ready_locked(&mut state, now)
+                .is_none()
+        );
         state.websocket_probe_claimed = true;
-        assert!(session.carrier_health_ready_locked(&mut state, now).is_some());
+        assert!(
+            session
+                .carrier_health_ready_locked(&mut state, now)
+                .is_some()
+        );
     }
 
     #[test]
@@ -407,7 +432,11 @@ mod tests {
         state.carrier_health_downlink = true;
         state.carrier_health_activity_at = Some(now);
 
-        assert!(session.carrier_health_ready_locked(&mut state, now).is_none());
+        assert!(
+            session
+                .carrier_health_ready_locked(&mut state, now)
+                .is_none()
+        );
         assert_eq!(
             session.carrier_health_publication_state(),
             CarrierHealthPublicationState::Awaiting
@@ -421,8 +450,16 @@ mod tests {
         arm_http_health(&session, now);
         let mut state = session.state.lock();
 
-        assert!(session.carrier_health_ready_locked(&mut state, now).is_some());
-        assert!(session.carrier_health_ready_locked(&mut state, now).is_none());
+        assert!(
+            session
+                .carrier_health_ready_locked(&mut state, now)
+                .is_some()
+        );
+        assert!(
+            session
+                .carrier_health_ready_locked(&mut state, now)
+                .is_none()
+        );
         drop(state);
         assert_eq!(
             session.carrier_health_publication_state(),
@@ -469,8 +506,7 @@ mod tests {
 
             assert!(matches!(
                 session.carrier_health_publication_state(),
-                CarrierHealthPublicationState::Published
-                    | CarrierHealthPublicationState::Rejected
+                CarrierHealthPublicationState::Published | CarrierHealthPublicationState::Rejected
             ));
             assert!(!session.publish_carrier_health());
             assert_eq!(

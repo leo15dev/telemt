@@ -35,6 +35,7 @@ struct Replacement {
     learning_disposition: WebCarrierSelectionDisposition,
     ip_learning_eligible: bool,
     carrier_deadline_at: Instant,
+    recovery: bool,
 }
 
 impl WebProcessRuntime {
@@ -194,6 +195,7 @@ impl WebProcessRuntime {
                 learning_disposition: entry.carrier_learning_disposition,
                 ip_learning_eligible,
                 carrier_deadline_at: entry.carrier_deadline_at.ok_or(ManagerError::Protocol)?,
+                recovery: entry.recovery,
             };
             let _operator_admission = self.try_operator_admission()?;
             state
@@ -213,6 +215,7 @@ impl WebProcessRuntime {
         let trace_session_id = entry.trace_session_id;
         let issued_profile = Arc::clone(&entry.profile);
         let issued_timeouts = entry.timeouts.clone();
+        let recovery = entry.recovery;
         let profile = config
             .web
             .runtime
@@ -232,69 +235,68 @@ impl WebProcessRuntime {
             Duration::from_secs(config.web.timeouts.carrier_learning_secs),
             Duration::from_secs(config.web.timeouts.carrier_health_secs),
         );
-        let (candidates, scores, learning_epoch, learning_disposition) = if capability_selection
-            && profile.carrier_learning
-            && learning_policy.0
-        {
-            let learning = self.learning.lock();
-            match learning.epoch_for_policy(
+        let (candidates, scores, learning_epoch, learning_disposition) =
+            if capability_selection && profile.carrier_learning && learning_policy.0 {
+                let learning = self.learning.lock();
+                match learning.epoch_for_policy(
                     generation.id,
                     learning_policy.0,
                     learning_policy.1,
                     learning_policy.2,
                     learning_policy.3,
                 ) {
-                super::learning::CarrierLearningEpoch::Ready(epoch) => {
-                    let (candidates, scores) = learning.rank(
-                        now,
-                        &profile.carriers,
-                        carrier_request,
-                        profile_key,
-                        client_ip,
-                        ip_learning_eligible,
-                    );
-                    let disposition = if scores.iter().any(|score| *score != 0) {
-                        WebCarrierSelectionDisposition::Applied
-                    } else {
-                        WebCarrierSelectionDisposition::Cold
-                    };
-                    (candidates, scores, Some(epoch), disposition)
+                    super::learning::CarrierLearningEpoch::Ready(epoch) => {
+                        let (candidates, scores) = learning.rank(
+                            now,
+                            &profile.carriers,
+                            carrier_request,
+                            profile_key,
+                            client_ip,
+                            ip_learning_eligible,
+                        );
+                        let disposition = if scores.iter().any(|score| *score != 0) {
+                            WebCarrierSelectionDisposition::Applied
+                        } else {
+                            WebCarrierSelectionDisposition::Cold
+                        };
+                        (candidates, scores, Some(epoch), disposition)
+                    }
+                    super::learning::CarrierLearningEpoch::Pending => (
+                        supported_candidates(&profile.carriers, carrier_request),
+                        [0; 4],
+                        None,
+                        WebCarrierSelectionDisposition::PolicyPending,
+                    ),
+                    super::learning::CarrierLearningEpoch::Exhausted => (
+                        supported_candidates(&profile.carriers, carrier_request),
+                        [0; 4],
+                        None,
+                        WebCarrierSelectionDisposition::EpochExhausted,
+                    ),
                 }
-                super::learning::CarrierLearningEpoch::Pending => (
+            } else if capability_selection {
+                (
                     supported_candidates(&profile.carriers, carrier_request),
                     [0; 4],
                     None,
-                    WebCarrierSelectionDisposition::PolicyPending,
-                ),
-                super::learning::CarrierLearningEpoch::Exhausted => (
-                    supported_candidates(&profile.carriers, carrier_request),
+                    if learning_policy.0 {
+                        WebCarrierSelectionDisposition::ProfileDisabled
+                    } else {
+                        WebCarrierSelectionDisposition::PolicyDisabled
+                    },
+                )
+            } else if carrier_request.uses_capabilities()
+                && !carrier_request.supports(profile.carrier)
+            {
+                return Err(ManagerError::Protocol);
+            } else {
+                (
+                    vec![profile.carrier],
                     [0; 4],
                     None,
-                    WebCarrierSelectionDisposition::EpochExhausted,
-                ),
-            }
-        } else if capability_selection {
-            (
-                supported_candidates(&profile.carriers, carrier_request),
-                [0; 4],
-                None,
-                if learning_policy.0 {
-                    WebCarrierSelectionDisposition::ProfileDisabled
-                } else {
-                    WebCarrierSelectionDisposition::PolicyDisabled
-                },
-            )
-        } else if carrier_request.uses_capabilities() && !carrier_request.supports(profile.carrier)
-        {
-            return Err(ManagerError::Protocol);
-        } else {
-            (
-                vec![profile.carrier],
-                [0; 4],
-                None,
-                WebCarrierSelectionDisposition::ProfileDisabled,
-            )
-        };
+                    WebCarrierSelectionDisposition::ProfileDisabled,
+                )
+            };
         let Some(carrier) = candidates.first().copied() else {
             return Err(ManagerError::Protocol);
         };
@@ -333,20 +335,14 @@ impl WebProcessRuntime {
             carrier_request.class(),
             learning_context,
             carrier_request.is_automatic(),
+            recovery,
             self.limits.clone(),
             issued_timeouts.clone(),
         );
         state.sessions.insert(session_hash, Arc::clone(&session));
         *state.sessions_per_ip.entry(client_ip).or_insert(0) += 1;
         *state.sessions_per_profile.entry(profile_key).or_insert(0) += 1;
-        let (
-            issuance_ip,
-            candidate_count,
-            user_agent,
-            user_agent_id,
-            recovery,
-            predecessor_session_id,
-        ) = {
+        let (issuance_ip, candidate_count, user_agent, user_agent_id, predecessor_session_id) = {
             let entry = state
                 .bootstraps
                 .get_mut(&bootstrap_hash)
@@ -373,7 +369,6 @@ impl WebProcessRuntime {
                 u8::try_from(entry.carrier_candidates.len()).unwrap_or(4),
                 entry.user_agent.clone(),
                 entry.user_agent_id,
-                entry.recovery,
                 entry.predecessor_session_id,
             )
         };
@@ -446,10 +441,7 @@ impl WebProcessRuntime {
     }
 }
 
-fn supported_candidates(
-    configured: &[WebCarrier],
-    request: CarrierRequest,
-) -> Vec<WebCarrier> {
+fn supported_candidates(configured: &[WebCarrier], request: CarrierRequest) -> Vec<WebCarrier> {
     configured
         .iter()
         .copied()

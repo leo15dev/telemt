@@ -87,9 +87,10 @@ fn rendered_page_embeds_the_configured_bridge_timing_policy() {
     assert!(page.body.contains("websocketOpenMs=11*1000"));
     assert!(page.body.contains("reconnectGraceMs=119*1000"));
     assert!(page.body.contains("let probeCoalesceMs=4"));
-    assert!(page.body.contains(
-        "helloTimer=setTimeout(()=>fail('timeout'),bridgeRequestMs)"
-    ));
+    assert!(
+        page.body
+            .contains("helloTimer=setTimeout(()=>fail('timeout'),bridgeRequestMs)")
+    );
 }
 
 #[test]
@@ -143,10 +144,9 @@ fn retry_and_attempt_state_are_frozen_before_fetch() {
             .contains("async function send(path,frozenOptions,remainingBudget,maxAttempts)")
     );
     assert!(!page.body.contains("makeOptions"));
-    assert!(
-        page.body
-            .contains("if(settings.closed()||(external&&external.aborted))throw new Error('request aborted')")
-    );
+    assert!(page.body.contains(
+        "if(settings.closed()||(external&&external.aborted))throw new Error('request aborted')"
+    ));
     assert!(page.body.contains(
         "const frozen=options('POST',bootstrap,snapshot.hello,attemptHeaders(snapshot.attempt,snapshot.failure),controller.signal)"
     ));
@@ -169,5 +169,8 @@ fn ambiguous_commit_is_resolved_before_carrier_advance() {
     );
     assert!(page.body.contains("const token=cleanupToken||sessionToken"));
     assert!(page.body.contains("'X-Carrier-Failure':terminalFailure"));
-    assert!(page.body.contains("addEventListener('pagehide',()=>fail('navigation')"));
+    assert!(
+        page.body
+            .contains("addEventListener('pagehide',()=>fail('navigation')")
+    );
 }

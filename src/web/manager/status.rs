@@ -510,15 +510,15 @@ impl WebProcessRuntime {
                 .unwrap_or(SessionDetail::Busy);
         }
         let now = Instant::now();
-        state.closed_sessions.get(&trace_session_id).map_or(
-            SessionDetail::NotFound,
-            |closed| SessionDetail::Gone {
+        state
+            .closed_sessions
+            .get(&trace_session_id)
+            .map_or(SessionDetail::NotFound, |closed| SessionDetail::Gone {
                 attempt: closed.attempt,
                 carrier: closed.carrier,
                 reason: closed.reason.as_str(),
                 closed_age_ms: millis(now.saturating_duration_since(closed.closed_at)),
-            },
-        )
+            })
     }
 
     fn row(&self, candidate: Candidate, status: WebSessionStatus) -> SessionRow {

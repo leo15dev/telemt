@@ -83,6 +83,7 @@ impl WebProcessRuntime {
             replacement.request.class(),
             learning_context,
             true,
+            replacement.recovery,
             self.limits.clone(),
             replacement.old_session.timeouts().clone(),
         );
@@ -124,9 +125,6 @@ impl WebProcessRuntime {
             self.telemetry.record_bridge_recovery(
                 crate::web::telemetry::WebBridgeRecoveryEvent::SessionCreated,
             );
-            self.telemetry.record_bridge_recovery(
-                crate::web::telemetry::WebBridgeRecoveryEvent::ClosedBeforeCommit,
-            );
         }
         self.telemetry.record_session_closed(
             replacement.old_session.carrier(),
@@ -152,10 +150,8 @@ impl WebProcessRuntime {
         let old_identity = replacement.old_session.trace_identity();
         drop(state);
         supersede.finish();
-        self.telemetry.record_carrier_selection(
-            replacement.carrier,
-            replacement.learning_disposition,
-        );
+        self.telemetry
+            .record_carrier_selection(replacement.carrier, replacement.learning_disposition);
         if let Some(failure) = replacement.request.failure() {
             self.telemetry.record_carrier_failure(
                 replacement.old_session.carrier(),

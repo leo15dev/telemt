@@ -62,6 +62,7 @@ fn new_session_with_automatic(
         },
         None,
         automatic,
+        false,
         limits,
         WebTimeoutsConfig::default(),
     )

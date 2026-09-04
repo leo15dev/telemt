@@ -18,7 +18,8 @@ struct TestRuntime {
 
 impl TestRuntime {
     async fn shutdown(self) {
-        self.session.close(super::super::SessionCloseReason::ApiClose);
+        self.session
+            .close(super::super::SessionCloseReason::ApiClose);
         self.session.wait().await;
         self.manager.shutdown().await;
         self.generation.stop_sessions().await;
@@ -70,6 +71,7 @@ fn runtime(admission: bool) -> TestRuntime {
         None,
         crate::web::manager::CarrierClientClass::Legacy,
         None,
+        false,
         false,
         limits,
         timeouts,

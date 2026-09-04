@@ -45,6 +45,7 @@ fn session_with_automatic(automatic: bool) -> Arc<WebSession> {
         },
         None,
         automatic,
+        false,
         WebLimitsConfig::default(),
         WebTimeoutsConfig::default(),
     )

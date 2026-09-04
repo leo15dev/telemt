@@ -135,9 +135,8 @@ impl WebCarrierLearningOutcome {
 
 pub(super) const CARRIER_SELECTION_SLOTS: usize =
     WebCarrier::ALL.len() * WebCarrierSelectionDisposition::ALL.len();
-pub(super) const CARRIER_FAILURE_SLOTS: usize = WebCarrier::ALL.len()
-    * WebCarrierFailurePhase::ALL.len()
-    * CarrierFailure::ALL.len();
+pub(super) const CARRIER_FAILURE_SLOTS: usize =
+    WebCarrier::ALL.len() * WebCarrierFailurePhase::ALL.len() * CarrierFailure::ALL.len();
 pub(super) const CARRIER_LEARNING_SLOTS: usize =
     WebCarrier::ALL.len() * WebCarrierLearningOutcome::ALL.len();
 
@@ -238,16 +237,18 @@ impl WebTelemetry {
         WebCarrier::ALL
             .into_iter()
             .flat_map(|carrier| {
-                WebCarrierFailurePhase::ALL.into_iter().flat_map(move |phase| {
-                    CarrierFailure::ALL
-                        .into_iter()
-                        .map(move |reason| WebCarrierFailureCounter {
-                            carrier: carrier.as_str(),
-                            phase: phase.as_str(),
-                            reason: reason.as_str(),
-                            total: self.carrier_failure_total(carrier, phase, reason),
+                WebCarrierFailurePhase::ALL
+                    .into_iter()
+                    .flat_map(move |phase| {
+                        CarrierFailure::ALL.into_iter().map(move |reason| {
+                            WebCarrierFailureCounter {
+                                carrier: carrier.as_str(),
+                                phase: phase.as_str(),
+                                reason: reason.as_str(),
+                                total: self.carrier_failure_total(carrier, phase, reason),
+                            }
                         })
-                })
+                    })
             })
             .collect()
     }

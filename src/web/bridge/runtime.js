@@ -18,7 +18,7 @@ let initialized=false,closed=false,port=null,sessionToken='',cleanupToken='',cre
 let upSequence=1,downCursor='0',upRunning=false,upLease=null,pollController=null;
 let helloFrame=null,helloTimer=null,welcomeSent=false,carrierAttempt=1,carrierFailure='',carrierCommitted=false,terminalFailure='';
 let negotiationStartedAt=0,carrierTimer=null,probeTimer=null,attemptController=null,attemptEpoch=1,candidateRunning=false,switching=false,currentAttempt=null;
-let recoveryController=null,recoveryCommit=null,recoveryReplaced=false,lastSchedulerWall=Date.now(),lastSchedulerMonotonic=performance.now();
+let recoveryController=null,recoveryCommit=null,recoveryReplaced=false,lastSchedulerWall=Date.now(),lastSchedulerMonotonic=performance.now(),schedulerGapPending=0,schedulerTimer=null;
 const pending=[],upPending=[],recoveryPending=[],lanes=new Map(),closedLanes=new Set(),closedLaneOrder=[];
 const canonicalFailures=['timeout','network','upgrade','http','protocol'];
 const failure=(reason,message)=>Object.assign(new Error(message||reason),{telemtReason:reason});
@@ -48,7 +48,7 @@ function settleBatch(lease){if(!buffers.settleBatch(lease))return false;detachLe
 function cancelBatch(lease){if(!lease||lease.settled)return;buffers.cancelBatch(lease);detachLease(lease)}
 const attemptHeaders=(attempt,failure)=>negotiationEnabled?Object.assign({'X-Carrier-Capabilities':carrierCapabilities,'X-Carrier-Attempt':String(attempt)},failure?{'X-Carrier-Failure':failure}:{}):{};
 function finishOldRecovery(){
- recoveryReplaced=false;status('connected','committed','',0);
+ recoveryReplaced=false;resetScheduler();status('connected','committed','',0);
  while(recoveryPending.length&&!closed){const data=recoveryPending.shift();release(data.byteLength,1,null);queueCarrier(data)}
 }
 function rejectRecoveryCommit(error){
@@ -74,6 +74,7 @@ function retireCarrier(policy){
  longPollMs=policy.timeouts.long_poll_secs*1000;bridgeRequestMs=policy.timeouts.bridge_request_secs*1000;
  bridgeRetryMs=policy.timeouts.bridge_retry_secs*1000;bridgeRecoveryMs=policy.timeouts.bridge_recovery_secs*1000;
  websocketOpenMs=policy.timeouts.websocket_open_secs*1000;reconnectGraceMs=policy.timeouts.reconnect_grace_secs*1000;
+ armScheduler();
  negotiationEnabled=policy.negotiation.enabled;candidateCount=policy.negotiation.candidate_count;
  candidateDeadlines=policy.negotiation.deadlines_secs;probeCoalesceMs=policy.negotiation.carrier_probe_coalesce_ms;
  negotiatedCandidateCount=candidateCount;negotiatedFinalDeadline=candidateDeadlines[3];negotiatedFrozen=false;
@@ -100,8 +101,15 @@ function schedulerGap(){
  const gap=Math.max(0,wall-lastSchedulerWall,monotonic-lastSchedulerMonotonic);
  lastSchedulerWall=wall;lastSchedulerMonotonic=monotonic;return gap;
 }
+function resetScheduler(){schedulerGapPending=0;schedulerGap()}
+function armScheduler(){
+ if(schedulerTimer)clearTimeout(schedulerTimer);schedulerTimer=closed?null:setTimeout(sampleScheduler,Math.max(250,Math.min(30000,Math.floor(reconnectGraceMs/4))));
+}
+function sampleScheduler(){
+ schedulerTimer=null;const gap=schedulerGap();if(carrierCommitted&&!recoveryController.active())schedulerGapPending=Math.max(schedulerGapPending,gap);armScheduler();
+}
 function observeResumeTrigger(){
- const gap=schedulerGap();if(!carrierCommitted||closed)return;
+ const gap=Math.max(schedulerGapPending,schedulerGap());schedulerGapPending=0;if(!carrierCommitted||closed)return;
  if(gap>=2*longPollMs)status('reconnecting','retrying','',bridgeRecoveryMs);
  if(gap>=reconnectGraceMs&&!recoveryController.active())recoveryController.recover('timeout',null);
 }
@@ -235,6 +243,7 @@ function commitCarrier(probe,epoch){
  if(switching){fail('protocol');return}
  clearProbeTimer();try{consumeProbe(probe)}catch(error){fail('protocol');return}
  carrierCommitted=true;candidateRunning=false;if(carrierTimer)clearTimeout(carrierTimer);carrierTimer=null;
+ resetScheduler();
  attemptController=null;currentAttempt=null;
  status('connected','committed','',0);
  if(carrier==='https')poll();
@@ -475,7 +484,7 @@ function deleteSession(){
  if(token)fetch(relayOrigin+'/api/v1/session',options('DELETE',token,null,headers,undefined,true)).catch(()=>{});
 }
 function close(notifyServer){
- if(closed)return;closed=true;if(recoveryController)recoveryController.cancel();rejectRecoveryCommit(failure('network','bridge closed'));if(helloTimer)clearTimeout(helloTimer);helloTimer=null;if(carrierTimer)clearTimeout(carrierTimer);clearProbeTimer();if(attemptController)attemptController.abort();if(pollController)pollController.abort();
+ if(closed)return;closed=true;if(recoveryController)recoveryController.cancel();rejectRecoveryCommit(failure('network','bridge closed'));if(helloTimer)clearTimeout(helloTimer);helloTimer=null;if(carrierTimer)clearTimeout(carrierTimer);clearProbeTimer();if(schedulerTimer)clearTimeout(schedulerTimer);schedulerTimer=null;if(attemptController)attemptController.abort();if(pollController)pollController.abort();
  if(socket)socket.close();cancelBatch(upLease);releasePending(upPending,null);
  for(const lane of lanes.values()){
   if(lane.controller)lane.controller.abort();cancelBatch(lane.upLease);releasePending(lane.pending,lane);if(lane.socket)lane.socket.close();
@@ -505,6 +514,7 @@ recoveryController=recoverySupport.create({
  restored:finishOldRecovery,replace:replaceCarrier,replaceable:error=>failureReason(error,'network')!=='protocol',
  reason:(error,fallback)=>failureReason(error,fallback),terminal:reason=>fail(recoveryController.remaining()<=0?'timeout':reason)
 });
+armScheduler();
 addEventListener('message',event=>{
  if(event.source!==parent)return;if(initialized){if(event.ports&&event.ports.length===1)event.ports[0].close();return}
  if(event.data===null||typeof event.data!=='object')return;

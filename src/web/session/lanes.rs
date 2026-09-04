@@ -6,8 +6,8 @@ use tokio::sync::OwnedSemaphorePermit;
 
 use super::lane_downlink::take_lane_down_batch;
 use super::{
-    CarrierLaneIdentity, PendingClass, PollResult, QUEUE_ITEM_COST, QueuedFrame, SessionCloseReason,
-    SessionState, WebSession, remember_closed,
+    CarrierLaneIdentity, PendingClass, PollResult, QUEUE_ITEM_COST, QueuedFrame,
+    SessionCloseReason, SessionState, WebSession, remember_closed,
 };
 use crate::web::frame::{self, FrameType};
 use crate::web::manager::ManagerError;

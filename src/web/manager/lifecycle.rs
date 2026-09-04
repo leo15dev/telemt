@@ -46,7 +46,10 @@ impl WebProcessRuntime {
                 Duration::from_secs(config.web.timeouts.carrier_learning_secs),
                 Duration::from_secs(config.web.timeouts.carrier_health_secs),
             );
-            debug_assert!(outcome.applied, "runtime generations must increase monotonically");
+            debug_assert!(
+                outcome.applied,
+                "runtime generations must increase monotonically"
+            );
             let replaced = self.active_runtime.swap(generation);
             (replaced, outcome.detached)
         };
@@ -68,14 +71,6 @@ impl WebProcessRuntime {
         let Some(session) = state.sessions.remove(&hash) else {
             return;
         };
-        let recovery_closed_before_commit = state.bootstraps.values().any(|bootstrap| {
-            bootstrap.recovery
-                && bootstrap
-                    .session
-                    .as_ref()
-                    .is_some_and(|current| current.token_hash() == hash)
-                && !session.is_carrier_committed()
-        });
         decrement_map(&mut state.sessions_per_ip, &client_ip);
         decrement_map(&mut state.sessions_per_profile, &profile_key);
         remember_closed_token_locked(
@@ -119,11 +114,6 @@ impl WebProcessRuntime {
         }
         self.telemetry
             .record_session_closed(session.carrier(), reason);
-        if recovery_closed_before_commit {
-            self.telemetry.record_bridge_recovery(
-                crate::web::telemetry::WebBridgeRecoveryEvent::ClosedBeforeCommit,
-            );
-        }
         drop(state);
         self.notify_operator_work_changed();
     }

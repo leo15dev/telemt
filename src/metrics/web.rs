@@ -1,8 +1,7 @@
 use std::fmt::Write;
 
 use crate::config::{
-    ProxyConfig, WebCarrier, WebCarrierNegotiationAggressiveness,
-    WebHttpConnectionCapacityAction,
+    ProxyConfig, WebCarrier, WebCarrierNegotiationAggressiveness, WebHttpConnectionCapacityAction,
 };
 use crate::web::control::{WebRuntimeLifecycle, WebRuntimePublication};
 use crate::web::manager::{CarrierFailure, OperatorLifecycleState};
@@ -290,7 +289,10 @@ fn render_carrier_negotiation(
         "partial"
     } else if !policy_matches {
         "pending"
-    } else if learning.as_ref().is_some_and(|status| status.epoch.is_none()) {
+    } else if learning
+        .as_ref()
+        .is_some_and(|status| status.epoch.is_none())
+    {
         "exhausted"
     } else if learning.as_ref().is_some_and(|status| status.enabled) {
         "enabled"
@@ -317,7 +319,10 @@ fn render_carrier_negotiation(
     let _ = writeln!(out, "# TYPE telemt_web_carrier_learning_entries gauge");
     for (kind, value) in [
         ("used", learning.as_ref().map_or(0, |status| status.entries)),
-        ("limit", learning.as_ref().map_or(0, |status| status.capacity)),
+        (
+            "limit",
+            learning.as_ref().map_or(0, |status| status.capacity),
+        ),
     ] {
         let _ = writeln!(
             out,
@@ -478,7 +483,9 @@ mod tests {
         );
         assert!(output.contains("telemt_web_ingress_lifecycle_state{state=\"starting\"} 1"));
         assert_eq!(
-            output.matches("telemt_web_carrier_selections_total{").count(),
+            output
+                .matches("telemt_web_carrier_selections_total{")
+                .count(),
             crate::config::WebCarrier::ALL.len()
                 * crate::web::telemetry::WebCarrierSelectionDisposition::ALL.len()
         );
@@ -497,9 +504,7 @@ mod tests {
             crate::config::WebCarrier::ALL.len()
                 * crate::web::telemetry::WebCarrierLearningOutcome::ALL.len()
         );
-        assert!(output.contains(
-            "telemt_web_carrier_learning_state{state=\"unavailable\"} 1"
-        ));
+        assert!(output.contains("telemt_web_carrier_learning_state{state=\"unavailable\"} 1"));
         assert_eq!(
             output.matches("telemt_web_session_closures_total{").count(),
             crate::config::WebCarrier::ALL.len()
