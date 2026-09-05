@@ -266,6 +266,7 @@ const WEB_CONFIG_KEYS: &[&str] = &[
     "carriers",
     "carrier_learning",
     "carrier_negotiation_aggressiveness",
+    "decoy_fasttrack_mode",
     "http_connection_capacity_action",
     "debug",
     "limits",

@@ -171,6 +171,27 @@ fn web_allocation_limits_are_deferred_until_restart() {
 }
 
 #[test]
+fn web_decoy_fasttrack_mode_is_deferred_without_runtime_publication() {
+    let mut old = ProxyConfig::default();
+    old.rebuild_runtime_user_auth().unwrap();
+    old.rebuild_runtime_web().unwrap();
+    let mut desired = old.clone();
+    desired.web.decoy_fasttrack_mode = crate::config::WebDecoyFastTrackMode::Enforce;
+
+    let resolved = resolve_reload_config(&old, &desired).unwrap();
+
+    assert_eq!(
+        resolved.deferred_process_fields,
+        vec!["web.decoy_fasttrack_mode".to_string()]
+    );
+    assert_eq!(
+        resolved.effective.web.decoy_fasttrack_mode,
+        old.web.decoy_fasttrack_mode
+    );
+    assert!(!resolved.runtime_changed);
+}
+
+#[test]
 fn enabling_learning_is_deferred_when_retained_capacity_is_too_small() {
     let mut old = ProxyConfig::default();
     old.web.limits.max_carrier_learning_entries = 1;

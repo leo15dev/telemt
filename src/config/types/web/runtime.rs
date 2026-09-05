@@ -14,12 +14,16 @@ pub(crate) struct WebRuntimeConfig {
 pub(crate) struct WebRuntimeVhost {
     /// Canonical lowercase ACE hostname.
     pub(crate) host: String,
+    /// Restart-frozen decoy capability-scan policy.
+    pub(crate) decoy_fasttrack_mode: WebDecoyFastTrackMode,
     /// Immutable ordinary-site fallback snapshot.
     pub(crate) decoy: WebRuntimeDecoy,
     /// Upstream connect and response-head deadline.
     pub(crate) decoy_header_secs: u64,
     /// Exact capability profiles accepted by this host.
     pub(crate) profiles: Vec<Arc<WebRuntimeProfile>>,
+    /// Contiguous capability table aligned one-to-one with `profiles`.
+    pub(crate) capabilities: Box<[[u8; 32]]>,
 }
 
 /// Precomputed exact-user capability entry.

@@ -132,6 +132,24 @@ async fn patch_web_debug_is_hot_and_limits_are_process_deferred() {
 }
 
 #[tokio::test]
+async fn patch_web_decoy_fasttrack_requires_only_process_restart() {
+    let (path, _directory) = temp_config("[web]\nenabled = false\n");
+    let patch: Json = serde_json::json!({
+        "web": {"decoy_fasttrack_mode": "shadow"}
+    });
+
+    let response = apply_patch_to_path(&path, &patch, None).await.unwrap();
+
+    assert!(response.restart_required);
+    assert!(!response.runtime_reload_required);
+    assert!(response.process_restart_required);
+    assert_eq!(
+        response.deferred_process_fields,
+        vec!["web.decoy_fasttrack_mode".to_string()]
+    );
+}
+
+#[tokio::test]
 async fn invalid_web_patch_does_not_modify_the_source() {
     let (path, _directory) = temp_config("[web]\nenabled = false\n");
     let original = tokio::fs::read_to_string(&path).await.unwrap();

@@ -16,15 +16,18 @@ use ipnetwork::IpNetwork;
 use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::{WebClientIpSource, WebRuntimeVhost};
+use crate::config::{WebClientIpSource, WebDecoyFastTrackMode, WebRuntimeVhost};
 use crate::maestro::generation::RuntimeGeneration;
 use crate::web::bridge;
 use crate::web::manager::{ManagerError, WebProcessRuntime};
+use crate::web::telemetry::WebDecoyFastTrackDisposition;
 
 // Response-body activity keeps connection idle accounting lifecycle-correct.
 mod activity;
 // Body collection retains allocation permits through request processing.
 mod body;
+// Canonical capability parsing and complete scans remain isolated from HTTP routing.
+mod capability;
 // Decoy routing and upstream proxying are isolated from carrier authentication.
 mod decoy;
 // Downlink long-poll handling remains isolated from request routing.
@@ -49,11 +52,12 @@ mod trace_tests;
 use crate::web::trace::{HttpTraceExchange, TraceDirection, TraceLifecycleEvent, TraceRoute};
 use activity::{ActivityBody, ConnectionActivity, RequestActivity, RequestDeadlineHandle};
 use body::{CollectBodyError, CollectedBody, RequestBody, collect_body};
+use capability::bridge_candidate;
 use decoy::serve_decoy;
 use down::handle_down;
 use request::{
-    bearer_token_hash, binary_content_type, bridge_candidate, canonical_request_host,
-    canonical_u64_header, client_ip, compatible_cookie_header, match_profile,
+    bearer_token_hash, binary_content_type, canonical_request_host, canonical_u64_header,
+    client_ip, compatible_cookie_header, match_profile,
 };
 use response::{
     bad_gateway, carrier_empty, carrier_headers, carrier_lane, full_response, generic_not_found,
@@ -230,10 +234,48 @@ async fn handle_root(
         strip_query(&mut request);
         return serve_decoy(request, vhost, true, &runtime).await;
     }
-    let (candidate, canonical) = bridge_candidate(request.uri().query());
-    let profile = match_profile(&vhost, &candidate);
+    let candidate = bridge_candidate(request.uri().query());
+    let canonical = candidate.is_canonical();
+    let plausible_candidate = canonical && request.method() == Method::GET;
+    let fasttrack_mode = vhost.decoy_fasttrack_mode;
+    match fasttrack_mode {
+        WebDecoyFastTrackMode::Off => {}
+        WebDecoyFastTrackMode::Shadow => {
+            runtime.telemetry().record_decoy_fasttrack(if plausible_candidate {
+                WebDecoyFastTrackDisposition::ShadowCandidateFullScan
+            } else {
+                WebDecoyFastTrackDisposition::ShadowWouldFastTrack
+            });
+        }
+        WebDecoyFastTrackMode::Enforce if !plausible_candidate => {
+            runtime
+                .telemetry()
+                .record_decoy_fasttrack(WebDecoyFastTrackDisposition::EnforceFastTrack);
+            let recovery_requested =
+                matches!(representation, recovery::RootRepresentation::Recovery(_));
+            if recovery_requested {
+                strip_query(&mut request);
+            }
+            return serve_decoy(request, vhost, recovery_requested, &runtime).await;
+        }
+        WebDecoyFastTrackMode::Enforce => {
+            runtime.telemetry().record_decoy_fasttrack(
+                WebDecoyFastTrackDisposition::EnforceCandidateFullScan,
+            );
+        }
+    }
+    let matched_profile = match_profile(&vhost, candidate.scan_bytes());
     let recovery_requested = matches!(representation, recovery::RootRepresentation::Recovery(_));
-    let Some(profile) = profile.filter(|_| canonical && request.method() == Method::GET) else {
+    let profile = matched_profile.filter(|_| canonical && request.method() == Method::GET);
+    if fasttrack_mode == WebDecoyFastTrackMode::Shadow
+        && !plausible_candidate
+        && profile.is_some()
+    {
+        runtime
+            .telemetry()
+            .record_decoy_fasttrack_shadow_mismatch();
+    }
+    let Some(profile) = profile else {
         if recovery_requested {
             strip_query(&mut request);
         }

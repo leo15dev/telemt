@@ -18,6 +18,7 @@ fn fixed_counter_sets_and_acceptor_guard_are_exact() {
         CarrierFailure::Network,
     );
     telemetry.record_carrier_learning(WebCarrier::Https, WebCarrierLearningOutcome::Recorded);
+    telemetry.record_decoy_fasttrack(WebDecoyFastTrackDisposition::ShadowWouldFastTrack);
     telemetry.record_session_closed(WebCarrier::Https, SessionCloseReason::ApiClose);
     telemetry.record_session_observation(
         WebCarrier::Https,
@@ -48,6 +49,15 @@ fn fixed_counter_sets_and_acceptor_guard_are_exact() {
         telemetry.carrier_learning_counters().len(),
         WebCarrier::ALL.len() * WebCarrierLearningOutcome::ALL.len()
     );
+    assert_eq!(
+        telemetry.decoy_fasttrack_counters().len(),
+        WebDecoyFastTrackDisposition::ALL.len()
+    );
+    assert_eq!(
+        telemetry.decoy_fasttrack_total(WebDecoyFastTrackDisposition::ShadowWouldFastTrack),
+        1
+    );
+    assert_eq!(telemetry.decoy_fasttrack_shadow_mismatches(), 0);
     assert_eq!(
         telemetry.session_close_counters().len(),
         WebCarrier::ALL.len() * SessionCloseReason::ALL.len()

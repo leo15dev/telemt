@@ -36,6 +36,7 @@ pub(super) fn rebuild(config: &mut ProxyConfig) -> Result<()> {
             &mut static_bytes,
         )?;
         let mut profiles = Vec::with_capacity(vhost.profiles.len());
+        let mut capability_table = Vec::with_capacity(vhost.profiles.len());
         let mut capabilities = HashSet::with_capacity(vhost.profiles.len());
         for profile in &vhost.profiles {
             let user_id = auth.user_id_by_name(&profile.user).ok_or_else(|| {
@@ -84,6 +85,7 @@ pub(super) fn rebuild(config: &mut ProxyConfig) -> Result<()> {
                     .max_streams_per_session
                     .unwrap_or(config.web.limits.max_streams_per_session),
             });
+            capability_table.push(capability);
             profiles.push(Arc::clone(&runtime_profile));
             runtime_profiles.push(runtime_profile);
         }
@@ -91,9 +93,11 @@ pub(super) fn rebuild(config: &mut ProxyConfig) -> Result<()> {
             vhost.host.clone(),
             Arc::new(WebRuntimeVhost {
                 host: vhost.host.clone(),
+                decoy_fasttrack_mode: config.web.decoy_fasttrack_mode,
                 decoy,
                 decoy_header_secs: config.web.timeouts.decoy_header_secs,
                 profiles,
+                capabilities: capability_table.into_boxed_slice(),
             }),
         );
     }

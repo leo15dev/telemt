@@ -10,6 +10,8 @@ use crate::web::telemetry::{
     WebDecoyUpstreamOutcome, WebHttpConnectionOverloadOutcome, WebRejectionReason,
 };
 
+// Decoy fast-track metrics stay isolated from the main WEB renderer.
+mod fasttrack;
 // Session lifecycle and aggregate families stay isolated from capacity rendering.
 mod lifecycle;
 
@@ -198,6 +200,7 @@ pub(super) fn render(out: &mut String, publication: &WebRuntimePublication, conf
         );
     }
 
+    fasttrack::render(out, publication, config);
     render_carrier_negotiation(out, publication, runtime.as_deref(), config);
     lifecycle::render(out, publication, config);
 }

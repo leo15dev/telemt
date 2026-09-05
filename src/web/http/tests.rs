@@ -11,7 +11,8 @@ use tokio_util::sync::CancellationToken;
 use super::serve_connection;
 use crate::config::{
     ProxyConfig, WebCarrier, WebCarriers, WebClientIpSource, WebRuntimeConfig, WebRuntimeDecoy,
-    WebRuntimeProfile, WebRuntimeVhost, WebSecretMode, WebStaticAsset, WebStaticSite,
+    WebDecoyFastTrackMode, WebRuntimeProfile, WebRuntimeVhost, WebSecretMode, WebStaticAsset,
+    WebStaticSite,
 };
 use crate::maestro::generation::test_runtime_generation;
 use crate::web::frame::{self, FrameType};
@@ -39,11 +40,29 @@ mod operator_lifecycle_tests;
 // Positive-only recovery representation coverage remains isolated from ordinary root routing.
 #[path = "recovery_tests.rs"]
 mod recovery_tests;
+// Decoy fast-track routing and telemetry remain isolated from carrier protocol scenarios.
+#[path = "decoy_fasttrack_tests.rs"]
+mod decoy_fasttrack_tests;
 
 const TEST_CARRIER_DEADLINES_SECS: [u64; 4] = [3, 5, 8, 12];
 
 pub(super) fn runtime_config(capability: [u8; 32], carrier: WebCarrier) -> ProxyConfig {
     runtime_config_with_carriers(capability, carrier, false, true, Arc::from([carrier]))
+}
+
+/// Builds a static-decoy runtime with one restart-frozen fast-track mode.
+pub(super) fn runtime_config_with_fasttrack(
+    capability: [u8; 32],
+    carrier: WebCarrier,
+    mode: WebDecoyFastTrackMode,
+) -> ProxyConfig {
+    let mut config = runtime_config(capability, carrier);
+    config.web.decoy_fasttrack_mode = mode;
+    let runtime = Arc::get_mut(config.web.runtime.as_mut().unwrap()).unwrap();
+    for vhost in runtime.vhosts.values_mut() {
+        Arc::get_mut(vhost).unwrap().decoy_fasttrack_mode = mode;
+    }
+    config
 }
 
 pub(super) fn negotiation_runtime_config(
@@ -128,9 +147,11 @@ fn runtime_config_with_carriers_and_deadlines(
     });
     let vhost = Arc::new(WebRuntimeVhost {
         host: "proxy.example.com".to_string(),
+        decoy_fasttrack_mode: WebDecoyFastTrackMode::Off,
         decoy: WebRuntimeDecoy::StaticDirectory(Arc::clone(&site)),
         decoy_header_secs: 1,
         profiles: vec![Arc::clone(&profile)],
+        capabilities: vec![capability].into_boxed_slice(),
     });
     let mut vhosts = BTreeMap::new();
     vhosts.insert("proxy.example.com".to_string(), vhost);
@@ -138,9 +159,11 @@ fn runtime_config_with_carriers_and_deadlines(
         "other.example.com".to_string(),
         Arc::new(WebRuntimeVhost {
             host: "other.example.com".to_string(),
+            decoy_fasttrack_mode: WebDecoyFastTrackMode::Off,
             decoy: WebRuntimeDecoy::StaticDirectory(site),
             decoy_header_secs: 1,
             profiles: Vec::new(),
+            capabilities: Vec::new().into_boxed_slice(),
         }),
     );
     let mut config = ProxyConfig::default();

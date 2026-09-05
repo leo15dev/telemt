@@ -53,7 +53,7 @@ pub use server::{
 };
 #[allow(unused_imports)]
 pub use web::{
-    WebCarrierNegotiationAggressiveness, WebConfig, WebDecoyConfig,
+    WebCarrierNegotiationAggressiveness, WebConfig, WebDecoyConfig, WebDecoyFastTrackMode,
     WebHttpConnectionCapacityAction, WebLimitsConfig, WebProfileConfig, WebSecretMode,
     WebTimeoutsConfig, WebVhostConfig,
 };

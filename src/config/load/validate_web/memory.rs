@@ -6,6 +6,7 @@ const WEB_DEBUG_GROUP_SCRATCH_BYTES: usize = 4 * 1024 * 1024;
 const WEB_CARRIER_LEARNING_ENTRY_BYTES: usize = 512;
 const WEB_LANE_STATE_BYTES: usize = 512;
 const WEB_OVERLOAD_CONNECTION_BYTES: usize = 4 * 1024;
+const WEB_CAPABILITY_INDEX_ENTRY_BYTES: usize = 32;
 
 /// Validates process-wide body, header, queue, static, and debug reservations.
 pub(super) fn validate(limits: &WebLimitsConfig) -> Result<()> {
@@ -65,6 +66,12 @@ pub(super) fn validate(limits: &WebLimitsConfig) -> Result<()> {
         .ok_or_else(|| {
             ProxyError::Config("web.carrier learning reservation overflowed usize".to_string())
         })?;
+    let capability_index_reservation = limits
+        .max_profiles
+        .checked_mul(WEB_CAPABILITY_INDEX_ENTRY_BYTES)
+        .ok_or_else(|| {
+            ProxyError::Config("web capability index reservation overflowed usize".to_string())
+        })?;
     let lane_state_reservation = limits
         .max_streams_per_session
         .checked_add(limits.max_tombstones_per_session)
@@ -82,6 +89,7 @@ pub(super) fn validate(limits: &WebLimitsConfig) -> Result<()> {
         .and_then(|value| value.checked_add(status_pages))
         .and_then(|value| value.checked_add(debug_reservation))
         .and_then(|value| value.checked_add(carrier_learning_reservation))
+        .and_then(|value| value.checked_add(capability_index_reservation))
         .and_then(|value| value.checked_add(lane_state_reservation))
         .and_then(|value| value.checked_add(http_header_reservation))
         .and_then(|value| value.checked_add(overload_connection_reservation))
@@ -110,5 +118,15 @@ mod tests {
             ..limits
         };
         assert!(validate(&previous_envelope).is_err());
+    }
+
+    #[test]
+    fn capability_index_reservation_rejects_size_overflow() {
+        let limits = WebLimitsConfig {
+            max_profiles: usize::MAX,
+            ..WebLimitsConfig::default()
+        };
+        let error = validate(&limits).unwrap_err().to_string();
+        assert!(error.contains("web capability index reservation overflowed usize"));
     }
 }

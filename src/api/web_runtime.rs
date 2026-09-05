@@ -20,8 +20,8 @@ mod request;
 // Ingress, capacity, and decoy telemetry remain separate availability planes.
 mod observability;
 use observability::{
-    WebCapacityStatus, WebCarrierNegotiationStatus, WebDecoyUpstreamStatus, WebIngressStatus,
-    WebLifecycleCountersStatus,
+    WebCapacityStatus, WebCarrierNegotiationStatus, WebDecoyFastTrackStatus,
+    WebDecoyUpstreamStatus, WebIngressStatus, WebLifecycleCountersStatus,
 };
 use request::{
     CloseRequest, DrainRequest, RuntimeInstanceRequest, parse_session_query, parse_session_ref,
@@ -280,6 +280,7 @@ struct WebStatusData {
     ingress: WebIngressStatus,
     capacity: WebCapacityStatus,
     decoy_upstream: WebDecoyUpstreamStatus,
+    decoy_fasttrack: WebDecoyFastTrackStatus,
     carrier_negotiation: WebCarrierNegotiationStatus,
     lifecycle_counters: WebLifecycleCountersStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -315,6 +316,7 @@ impl WebStatusData {
         let ingress = WebIngressStatus::new(&publication, runtime.is_some());
         let capacity = WebCapacityStatus::new(&publication, runtime, config);
         let decoy_upstream = WebDecoyUpstreamStatus::new(&publication);
+        let decoy_fasttrack = WebDecoyFastTrackStatus::new(&publication, config);
         let carrier_negotiation = WebCarrierNegotiationStatus::new(&publication);
         let lifecycle_counters = WebLifecycleCountersStatus::new(&publication, config);
         Self {
@@ -332,6 +334,7 @@ impl WebStatusData {
             ingress,
             capacity,
             decoy_upstream,
+            decoy_fasttrack,
             carrier_negotiation,
             lifecycle_counters,
             operator_lifecycle,

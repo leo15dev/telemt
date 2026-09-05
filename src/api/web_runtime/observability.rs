@@ -1,11 +1,12 @@
 use serde::Serialize;
 
-use crate::config::{ProxyConfig, WebHttpConnectionCapacityAction};
+use crate::config::{ProxyConfig, WebDecoyFastTrackMode, WebHttpConnectionCapacityAction};
 use crate::web::control::{WebRuntimeLifecycle, WebRuntimePublication};
 use crate::web::manager::{WebCapacityResourceStatus, WebCapacitySnapshot, WebProcessRuntime};
 use crate::web::telemetry::{
     WebBridgeRecoveryCounter, WebCarrierFailureCounter, WebCarrierLearningCounter,
-    WebCarrierSelectionCounter, WebSessionCloseCounter, WebSessionLifecycleObservationCounter,
+    WebCarrierSelectionCounter, WebDecoyFastTrackCounter, WebSessionCloseCounter,
+    WebSessionLifecycleObservationCounter,
 };
 use crate::web::telemetry::{WebOutcomeCounter, WebRejectionCounter};
 
@@ -121,6 +122,27 @@ impl WebDecoyUpstreamStatus {
     }
 }
 
+/// Fixed-cardinality process-lifetime decoy capability-routing counters.
+#[derive(Serialize)]
+pub(super) struct WebDecoyFastTrackStatus {
+    mode: WebDecoyFastTrackMode,
+    requests: Vec<WebDecoyFastTrackCounter>,
+    shadow_mismatches_total: u64,
+}
+
+impl WebDecoyFastTrackStatus {
+    /// Builds effective policy and counters without requiring the runtime manager.
+    pub(super) fn new(publication: &WebRuntimePublication, config: &ProxyConfig) -> Self {
+        Self {
+            mode: config.web.decoy_fasttrack_mode,
+            requests: publication.telemetry.decoy_fasttrack_counters(),
+            shadow_mismatches_total: publication
+                .telemetry
+                .decoy_fasttrack_shadow_mismatches(),
+        }
+    }
+}
+
 /// Fixed-cardinality process-lifetime carrier negotiation counters.
 #[derive(Serialize)]
 pub(super) struct WebCarrierNegotiationStatus {
@@ -187,6 +209,11 @@ mod tests {
             serde_json::to_value(super::WebCapacityStatus::new(&publication, None, &config))
                 .unwrap();
         let decoy = serde_json::to_value(super::WebDecoyUpstreamStatus::new(&publication)).unwrap();
+        let fasttrack = serde_json::to_value(super::WebDecoyFastTrackStatus::new(
+            &publication,
+            &config,
+        ))
+        .unwrap();
         let carrier =
             serde_json::to_value(super::WebCarrierNegotiationStatus::new(&publication)).unwrap();
         let lifecycle = serde_json::to_value(super::WebLifecycleCountersStatus::new(
@@ -210,6 +237,12 @@ mod tests {
             decoy["outcomes"].as_array().unwrap().len(),
             crate::web::telemetry::WebDecoyUpstreamOutcome::ALL.len()
         );
+        assert_eq!(fasttrack["mode"], "off");
+        assert_eq!(
+            fasttrack["requests"].as_array().unwrap().len(),
+            crate::web::telemetry::WebDecoyFastTrackDisposition::ALL.len()
+        );
+        assert_eq!(fasttrack["shadow_mismatches_total"], 0);
         assert_eq!(capacity["partial"][0], "runtime");
         assert_eq!(
             carrier["selections"].as_array().unwrap().len(),

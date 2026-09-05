@@ -1,14 +1,45 @@
 use super::*;
 use ipnetwork::IpNetwork;
+use proptest::prelude::*;
 
 use crate::config::{WebCarrier, WebClientIpSource};
+use crate::web::http::capability::{bridge_candidate, scan_capabilities};
 
 #[test]
 fn canonical_bridge_query_rejects_aliases() {
     let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7u8; 32]);
-    assert!(bridge_candidate(Some(&format!("bridge={token}"))).1);
-    assert!(!bridge_candidate(Some(&format!("x=1&bridge={token}"))).1);
-    assert!(!bridge_candidate(Some(&format!("bridge={token}="))).1);
+    assert!(bridge_candidate(Some(&format!("bridge={token}"))).is_canonical());
+    assert!(!bridge_candidate(Some(&format!("x=1&bridge={token}"))).is_canonical());
+    assert!(!bridge_candidate(Some(&format!("bridge={token}="))).is_canonical());
+}
+
+#[test]
+fn capability_scan_checks_every_entry_independent_of_match_position() {
+    let capabilities = [[1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32]];
+    for (expected_index, candidate) in capabilities.iter().enumerate() {
+        let scan = scan_capabilities(&capabilities, candidate);
+        assert!(bool::from(scan.matched));
+        assert_eq!(scan.matched_index as usize, expected_index);
+        assert_eq!(scan.comparisons, capabilities.len());
+    }
+
+    let miss = scan_capabilities(&capabilities, &[99u8; 32]);
+    assert!(!bool::from(miss.matched));
+    assert_eq!(miss.comparisons, capabilities.len());
+
+    let empty = scan_capabilities(&[], &[99u8; 32]);
+    assert!(!bool::from(empty.matched));
+    assert_eq!(empty.comparisons, 0);
+}
+
+proptest! {
+    #[test]
+    fn every_capability_has_one_canonical_bridge_query(capability in any::<[u8; 32]>()) {
+        let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(capability);
+        let candidate = bridge_candidate(Some(&format!("bridge={token}")));
+        prop_assert!(candidate.is_canonical());
+        prop_assert_eq!(candidate.scan_bytes(), &capability);
+    }
 }
 
 #[test]

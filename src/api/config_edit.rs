@@ -15,7 +15,7 @@ use super::model::ApiFailure;
 use crate::config::ProxyConfig;
 use crate::config::hot_reload::classify_config_changes;
 use crate::maestro::reload::{ReloadAccepted, ReloadRequest, ReloadSubmitError};
-use crate::maestro::runtime_build::{deferred_process_fields, resolve_reload_config};
+use crate::maestro::runtime_build::resolve_reload_config;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -206,8 +206,7 @@ async fn prepare_patch_to_path(
     let revision = compute_snapshot_revision(&candidate);
     let new_cfg = candidate.config;
     let class = classify_config_changes(&old_cfg, &new_cfg);
-    let deferred_process_fields =
-        deferred_process_fields(&old_cfg, &new_cfg).map_err(ApiFailure::bad_request)?;
+    let resolved = resolve_reload_config(&old_cfg, &new_cfg).map_err(ApiFailure::bad_request)?;
 
     Ok(PreparedConfigPatch {
         owner_path,
@@ -216,9 +215,9 @@ async fn prepare_patch_to_path(
         response: PatchConfigResponse {
             revision,
             restart_required: class.restart_required,
-            runtime_reload_required: class.restart_required,
-            process_restart_required: !deferred_process_fields.is_empty(),
-            deferred_process_fields,
+            runtime_reload_required: resolved.runtime_changed,
+            process_restart_required: !resolved.deferred_process_fields.is_empty(),
+            deferred_process_fields: resolved.deferred_process_fields,
             changed: class.changed,
             reload: None,
         },

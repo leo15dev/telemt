@@ -85,6 +85,10 @@ pub(super) fn warn_non_hot_changes(old: &ProxyConfig, new: &ProxyConfig, non_hot
         warned = true;
         warn!("config reload: server listener settings changed; restart required");
     }
+    if old.web.decoy_fasttrack_mode != new.web.decoy_fasttrack_mode {
+        warned = true;
+        warn!("config reload: web.decoy_fasttrack_mode changed; restart required");
+    }
     if old.censorship.tls_domain != new.censorship.tls_domain
         || old.censorship.tls_domains != new.censorship.tls_domains
         || old.censorship.tls_fetch_scope != new.censorship.tls_fetch_scope

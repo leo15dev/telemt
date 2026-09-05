@@ -124,6 +124,21 @@ fn web_debug_policy_is_hot_while_debug_capacity_is_process_owned() {
 }
 
 #[test]
+fn decoy_fasttrack_mode_is_deferred_until_restart() {
+    let old = sample_config();
+    let mut new = old.clone();
+    new.web.decoy_fasttrack_mode = crate::config::WebDecoyFastTrackMode::Enforce;
+
+    let applied = overlay_hot_fields(&old, &new);
+
+    assert_eq!(
+        applied.web.decoy_fasttrack_mode,
+        old.web.decoy_fasttrack_mode
+    );
+    assert_eq!(HotFields::from_config(&old), HotFields::from_config(&applied));
+}
+
+#[test]
 fn hot_overlay_defers_learning_that_requires_new_process_capacity() {
     let mut old = sample_config();
     old.web.limits.max_carrier_learning_entries = 1;

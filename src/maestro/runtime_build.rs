@@ -427,6 +427,10 @@ pub(crate) fn resolve_reload_config(
         fields.push("web.limits".to_string());
         effective.web.limits = old.web.limits.clone();
     }
+    if old.web.decoy_fasttrack_mode != desired.web.decoy_fasttrack_mode {
+        fields.push("web.decoy_fasttrack_mode".to_string());
+        effective.web.decoy_fasttrack_mode = old.web.decoy_fasttrack_mode;
+    }
     if effective.web.carrier_negotiation_enabled()
         && effective.web.carrier_learning
         && effective.web.limits.max_carrier_learning_entries < WEB_CARRIER_LEARNING_MIN_ENTRIES

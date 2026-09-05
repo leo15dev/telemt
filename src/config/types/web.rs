@@ -12,6 +12,9 @@ use super::web_debug::WebDebugConfig;
 // Serialized WEB defaults remain separate from the runtime data model.
 mod defaults;
 use defaults::*;
+// Decoy fast-track policy remains isolated from the bulky WEB data model.
+mod fasttrack;
+pub use fasttrack::WebDecoyFastTrackMode;
 // Accepted-socket overload policy remains separate from the bulky WEB data model.
 mod overload;
 pub use overload::WebHttpConnectionCapacityAction;
@@ -416,6 +419,9 @@ pub struct WebConfig {
     /// Controls the evidence thresholds used by automatic carrier ranking.
     #[serde(default)]
     pub carrier_negotiation_aggressiveness: WebCarrierNegotiationAggressiveness,
+    /// Restart-only capability-scan policy for structurally impossible bridge requests.
+    #[serde(default)]
+    pub decoy_fasttrack_mode: WebDecoyFastTrackMode,
     /// Action applied when accepted HTTP connection capacity is exhausted.
     #[serde(default)]
     pub http_connection_capacity_action: WebHttpConnectionCapacityAction,
@@ -465,6 +471,7 @@ impl Default for WebConfig {
             carriers: WebCarriers::default(),
             carrier_learning: default_web_carrier_learning(),
             carrier_negotiation_aggressiveness: WebCarrierNegotiationAggressiveness::default(),
+            decoy_fasttrack_mode: WebDecoyFastTrackMode::default(),
             http_connection_capacity_action: WebHttpConnectionCapacityAction::default(),
             limits: WebLimitsConfig::default(),
             debug: WebDebugConfig::default(),

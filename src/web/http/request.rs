@@ -13,53 +13,27 @@ use crate::web::manager::{
 
 const USER_AGENT_CONTEXT: &[u8] = b"telemt-web-carrier-user-agent-v1\0";
 
+use super::capability::scan_capabilities;
+
 // Canonical host and forwarded-address provenance remain isolated from credentials.
 mod identity;
 pub(super) use identity::{canonical_request_host, carrier_ip_learning_eligible, client_ip};
 
-/// Decodes an exact canonical bridge query without allocating credential strings.
-pub(super) fn bridge_candidate(query: Option<&str>) -> ([u8; 32], bool) {
-    let mut candidate = [0u8; 32];
-    let Some(value) = query.and_then(|query| query.strip_prefix("bridge=")) else {
-        return (candidate, false);
-    };
-    if value.len() != 43 {
-        return (candidate, false);
-    }
-    let mut decoded = [0u8; 32];
-    let Ok(decoded_len) =
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.decode_slice(value, &mut decoded)
-    else {
-        return (candidate, false);
-    };
-    let mut canonical = [0u8; 43];
-    let Ok(encoded_len) =
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode_slice(decoded, &mut canonical)
-    else {
-        return (candidate, false);
-    };
-    if decoded_len != decoded.len()
-        || encoded_len != canonical.len()
-        || !bool::from(canonical.ct_eq(value.as_bytes()))
-    {
-        return (candidate, false);
-    }
-    candidate = decoded;
-    (candidate, true)
-}
-
-/// Matches a capability in constant time across every profile of one virtual host.
+/// Matches one capability after a complete branchless scan of the virtual host table.
 pub(super) fn match_profile(
     vhost: &WebRuntimeVhost,
     candidate: &[u8; 32],
 ) -> Option<Arc<WebRuntimeProfile>> {
-    let mut matched = None;
-    for profile in &vhost.profiles {
-        if bool::from(profile.capability.ct_eq(candidate)) {
-            matched = Some(Arc::clone(profile));
-        }
+    debug_assert_eq!(vhost.capabilities.len(), vhost.profiles.len());
+    let scan = scan_capabilities(&vhost.capabilities, candidate);
+    if bool::from(scan.matched) {
+        usize::try_from(scan.matched_index)
+            .ok()
+            .and_then(|index| vhost.profiles.get(index))
+            .map(Arc::clone)
+    } else {
+        None
     }
-    matched
 }
 
 /// Validates and hashes one canonical bearer credential for map lookup.
