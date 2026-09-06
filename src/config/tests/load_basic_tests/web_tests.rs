@@ -43,10 +43,7 @@ fn web_config_builds_canonical_runtime_snapshot() {
     assert_eq!(vhost.profiles.len(), 1);
     assert_eq!(vhost.capabilities.len(), vhost.profiles.len());
     assert_eq!(vhost.capabilities[0], vhost.profiles[0].capability);
-    assert_eq!(
-        vhost.decoy_fasttrack_mode,
-        WebDecoyFastTrackMode::Off
-    );
+    assert_eq!(vhost.decoy_fasttrack_mode, WebDecoyFastTrackMode::Off);
     assert_eq!(vhost.profiles[0].user, "alice");
     assert_eq!(vhost.profiles[0].secret_mode, WebSecretMode::Dd);
     assert_eq!(vhost.profiles[0].carrier, WebCarrier::HttpsLanes);
@@ -76,20 +73,12 @@ fn web_decoy_fasttrack_mode_is_typed_and_defaults_off() {
     ] {
         let configured = WEB_CONFIG.replace(
             "carrier = \"https-lanes\"",
-            &format!(
-                "carrier = \"https-lanes\"\ndecoy_fasttrack_mode = \"{token}\""
-            ),
+            &format!("carrier = \"https-lanes\"\ndecoy_fasttrack_mode = \"{token}\""),
         );
         let config = load_config_from_temp_toml(&configured);
         assert_eq!(config.web.decoy_fasttrack_mode, expected);
         assert_eq!(
-            config
-                .web
-                .runtime
-                .as_ref()
-                .unwrap()
-                .vhosts["proxy.example.com"]
-                .decoy_fasttrack_mode,
+            config.web.runtime.as_ref().unwrap().vhosts["proxy.example.com"].decoy_fasttrack_mode,
             expected
         );
     }

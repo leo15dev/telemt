@@ -38,6 +38,7 @@ impl WebDecoyFastTrackDisposition {
     }
 }
 
+/// Fixed storage width for process-owned decoy fast-track counters.
 pub(super) const DECOY_FASTTRACK_SLOTS: usize = WebDecoyFastTrackDisposition::ALL.len();
 
 /// API-safe fixed decoy fast-track counter.
@@ -69,17 +70,5 @@ impl WebTelemetry {
                 total: self.decoy_fasttrack_total(disposition),
             })
             .collect()
-    }
-
-    /// Records a shadow decision that disagreed with legacy bridge eligibility.
-    pub(crate) fn record_decoy_fasttrack_shadow_mismatch(&self) {
-        self.decoy_fasttrack_shadow_mismatches
-            .fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Returns shadow decisions that disagreed with legacy bridge eligibility.
-    pub(crate) fn decoy_fasttrack_shadow_mismatches(&self) -> u64 {
-        self.decoy_fasttrack_shadow_mismatches
-            .load(Ordering::Relaxed)
     }
 }

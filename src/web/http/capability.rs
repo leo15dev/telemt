@@ -68,10 +68,7 @@ pub(super) struct CapabilityScan {
 }
 
 /// Scans every configured capability without candidate-dependent control flow.
-pub(super) fn scan_capabilities(
-    capabilities: &[[u8; 32]],
-    candidate: &[u8; 32],
-) -> CapabilityScan {
+pub(super) fn scan_capabilities(capabilities: &[[u8; 32]], candidate: &[u8; 32]) -> CapabilityScan {
     let mut matched = Choice::from(0);
     let mut matched_index = 0u64;
     #[cfg(test)]

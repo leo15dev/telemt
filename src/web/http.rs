@@ -241,11 +241,13 @@ async fn handle_root(
     match fasttrack_mode {
         WebDecoyFastTrackMode::Off => {}
         WebDecoyFastTrackMode::Shadow => {
-            runtime.telemetry().record_decoy_fasttrack(if plausible_candidate {
-                WebDecoyFastTrackDisposition::ShadowCandidateFullScan
-            } else {
-                WebDecoyFastTrackDisposition::ShadowWouldFastTrack
-            });
+            runtime
+                .telemetry()
+                .record_decoy_fasttrack(if plausible_candidate {
+                    WebDecoyFastTrackDisposition::ShadowCandidateFullScan
+                } else {
+                    WebDecoyFastTrackDisposition::ShadowWouldFastTrack
+                });
         }
         WebDecoyFastTrackMode::Enforce if !plausible_candidate => {
             runtime
@@ -259,22 +261,14 @@ async fn handle_root(
             return serve_decoy(request, vhost, recovery_requested, &runtime).await;
         }
         WebDecoyFastTrackMode::Enforce => {
-            runtime.telemetry().record_decoy_fasttrack(
-                WebDecoyFastTrackDisposition::EnforceCandidateFullScan,
-            );
+            runtime
+                .telemetry()
+                .record_decoy_fasttrack(WebDecoyFastTrackDisposition::EnforceCandidateFullScan);
         }
     }
     let matched_profile = match_profile(&vhost, candidate.scan_bytes());
     let recovery_requested = matches!(representation, recovery::RootRepresentation::Recovery(_));
     let profile = matched_profile.filter(|_| canonical && request.method() == Method::GET);
-    if fasttrack_mode == WebDecoyFastTrackMode::Shadow
-        && !plausible_candidate
-        && profile.is_some()
-    {
-        runtime
-            .telemetry()
-            .record_decoy_fasttrack_shadow_mismatch();
-    }
     let Some(profile) = profile else {
         if recovery_requested {
             strip_query(&mut request);

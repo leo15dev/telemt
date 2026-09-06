@@ -127,7 +127,6 @@ impl WebDecoyUpstreamStatus {
 pub(super) struct WebDecoyFastTrackStatus {
     mode: WebDecoyFastTrackMode,
     requests: Vec<WebDecoyFastTrackCounter>,
-    shadow_mismatches_total: u64,
 }
 
 impl WebDecoyFastTrackStatus {
@@ -136,9 +135,6 @@ impl WebDecoyFastTrackStatus {
         Self {
             mode: config.web.decoy_fasttrack_mode,
             requests: publication.telemetry.decoy_fasttrack_counters(),
-            shadow_mismatches_total: publication
-                .telemetry
-                .decoy_fasttrack_shadow_mismatches(),
         }
     }
 }
@@ -209,11 +205,9 @@ mod tests {
             serde_json::to_value(super::WebCapacityStatus::new(&publication, None, &config))
                 .unwrap();
         let decoy = serde_json::to_value(super::WebDecoyUpstreamStatus::new(&publication)).unwrap();
-        let fasttrack = serde_json::to_value(super::WebDecoyFastTrackStatus::new(
-            &publication,
-            &config,
-        ))
-        .unwrap();
+        let fasttrack =
+            serde_json::to_value(super::WebDecoyFastTrackStatus::new(&publication, &config))
+                .unwrap();
         let carrier =
             serde_json::to_value(super::WebCarrierNegotiationStatus::new(&publication)).unwrap();
         let lifecycle = serde_json::to_value(super::WebLifecycleCountersStatus::new(
@@ -242,7 +236,6 @@ mod tests {
             fasttrack["requests"].as_array().unwrap().len(),
             crate::web::telemetry::WebDecoyFastTrackDisposition::ALL.len()
         );
-        assert_eq!(fasttrack["shadow_mismatches_total"], 0);
         assert_eq!(capacity["partial"][0], "runtime");
         assert_eq!(
             carrier["selections"].as_array().unwrap().len(),

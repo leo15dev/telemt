@@ -47,6 +47,43 @@ fn write_web_reload_config(path: &Path, carriers: &str, carrier_learning: bool) 
     std::fs::write(path, config).unwrap();
 }
 
+fn write_web_fasttrack_reload_config(path: &Path, mode: &str, ad_tag: &str) {
+    let config = format!(
+        r#"
+                [general]
+                ad_tag = "{ad_tag}"
+
+                [access.users]
+                alice = "000102030405060708090a0b0c0d0e0f"
+
+                [[server.listeners]]
+                ip = "127.0.0.1"
+                port = 18080
+                transport = "web"
+                proxy_protocol = false
+                web_client_ip_source = "x_forwarded_for"
+                web_trusted_proxy_cidrs = ["127.0.0.1/32"]
+
+                [web]
+                enabled = true
+                decoy_fasttrack_mode = "{mode}"
+
+                [[web.vhosts]]
+                host = "proxy.example.com"
+                public_addr = "203.0.113.10:443"
+
+                [web.vhosts.decoy]
+                mode = "http_upstream"
+                upstream = "http://127.0.0.1:18081"
+
+                [[web.vhosts.profiles]]
+                user = "alice"
+                secret_mode = "plain"
+            "#,
+    );
+    std::fs::write(path, config).unwrap();
+}
+
 fn temp_config_path(prefix: &str) -> PathBuf {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -135,7 +172,10 @@ fn decoy_fasttrack_mode_is_deferred_until_restart() {
         applied.web.decoy_fasttrack_mode,
         old.web.decoy_fasttrack_mode
     );
-    assert_eq!(HotFields::from_config(&old), HotFields::from_config(&applied));
+    assert_eq!(
+        HotFields::from_config(&old),
+        HotFields::from_config(&applied)
+    );
 }
 
 #[test]
@@ -374,6 +414,39 @@ fn reload_keeps_hot_apply_when_non_hot_fields_change() {
     let applied = config_tx.borrow().clone();
     assert_eq!(applied.general.ad_tag.as_deref(), Some(final_tag));
     assert_eq!(applied.server.port, initial_cfg.server.port);
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn reload_rebuilds_vhosts_with_the_effective_fasttrack_mode() {
+    let initial_tag = "abababababababababababababababab";
+    let final_tag = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+    let path = temp_config_path("telemt_web_fasttrack_reload");
+
+    write_web_fasttrack_reload_config(&path, "off", initial_tag);
+    let initial_cfg = Arc::new(ProxyConfig::load(&path).unwrap());
+    let initial_hash = ProxyConfig::load_with_metadata(&path)
+        .unwrap()
+        .rendered_hash;
+    let (config_tx, _config_rx) = watch::channel(Arc::clone(&initial_cfg));
+    let (log_tx, _log_rx) = watch::channel(initial_cfg.general.log_level.clone());
+    let mut reload_state = ReloadState::new(Some(initial_hash));
+
+    write_web_fasttrack_reload_config(&path, "enforce", final_tag);
+    reload_config(&path, &config_tx, &log_tx, None, None, &mut reload_state).unwrap();
+
+    let applied = config_tx.borrow().clone();
+    assert_eq!(applied.general.ad_tag.as_deref(), Some(final_tag));
+    assert_eq!(
+        applied.web.decoy_fasttrack_mode,
+        crate::config::WebDecoyFastTrackMode::Off
+    );
+    let runtime = applied.web.runtime.as_ref().unwrap();
+    assert_eq!(
+        runtime.vhosts["proxy.example.com"].decoy_fasttrack_mode,
+        crate::config::WebDecoyFastTrackMode::Off
+    );
 
     let _ = std::fs::remove_file(path);
 }

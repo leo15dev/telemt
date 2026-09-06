@@ -10,9 +10,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::serve_connection;
 use crate::config::{
-    ProxyConfig, WebCarrier, WebCarriers, WebClientIpSource, WebRuntimeConfig, WebRuntimeDecoy,
-    WebDecoyFastTrackMode, WebRuntimeProfile, WebRuntimeVhost, WebSecretMode, WebStaticAsset,
-    WebStaticSite,
+    ProxyConfig, WebCarrier, WebCarriers, WebClientIpSource, WebDecoyFastTrackMode,
+    WebRuntimeConfig, WebRuntimeDecoy, WebRuntimeProfile, WebRuntimeVhost, WebSecretMode,
+    WebStaticAsset, WebStaticSite,
 };
 use crate::maestro::generation::test_runtime_generation;
 use crate::web::frame::{self, FrameType};
@@ -43,28 +43,20 @@ mod recovery_tests;
 // Decoy fast-track routing and telemetry remain isolated from carrier protocol scenarios.
 #[path = "decoy_fasttrack_tests.rs"]
 mod decoy_fasttrack_tests;
+// Raw response parsing helpers are shared by the HTTP integration test modules.
+#[path = "response_test_support.rs"]
+mod response_test_support;
+
+pub(super) use response_test_support::{response_header, split_response};
 
 const TEST_CARRIER_DEADLINES_SECS: [u64; 4] = [3, 5, 8, 12];
 
+/// Builds the default static-decoy runtime used by WEB HTTP tests.
 pub(super) fn runtime_config(capability: [u8; 32], carrier: WebCarrier) -> ProxyConfig {
     runtime_config_with_carriers(capability, carrier, false, true, Arc::from([carrier]))
 }
 
-/// Builds a static-decoy runtime with one restart-frozen fast-track mode.
-pub(super) fn runtime_config_with_fasttrack(
-    capability: [u8; 32],
-    carrier: WebCarrier,
-    mode: WebDecoyFastTrackMode,
-) -> ProxyConfig {
-    let mut config = runtime_config(capability, carrier);
-    config.web.decoy_fasttrack_mode = mode;
-    let runtime = Arc::get_mut(config.web.runtime.as_mut().unwrap()).unwrap();
-    for vhost in runtime.vhosts.values_mut() {
-        Arc::get_mut(vhost).unwrap().decoy_fasttrack_mode = mode;
-    }
-    config
-}
-
+/// Builds a negotiation-enabled static-decoy runtime for carrier tests.
 pub(super) fn negotiation_runtime_config(
     capability: [u8; 32],
     carrier: WebCarrier,
@@ -91,6 +83,7 @@ fn runtime_config_with_carriers(
     )
 }
 
+/// Builds a negotiation runtime with explicit cumulative carrier deadlines.
 pub(super) fn negotiation_runtime_config_with_deadlines(
     capability: [u8; 32],
     carrier: WebCarrier,
@@ -185,6 +178,7 @@ fn runtime_config_with_carriers_and_deadlines(
     config
 }
 
+/// Serves one raw HTTP request through the private WEB listener test harness.
 pub(super) async fn request(
     listener: &TcpListener,
     runtime: &Arc<WebProcessRuntime>,
@@ -209,23 +203,6 @@ pub(super) async fn request(
     client.read_to_end(&mut response).await.unwrap();
     task.await.unwrap();
     response
-}
-
-pub(super) fn split_response(response: &[u8]) -> (&[u8], &[u8]) {
-    let separator = response
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .unwrap();
-    (&response[..separator], &response[separator + 4..])
-}
-
-pub(super) fn response_header<'a>(headers: &'a [u8], name: &str) -> &'a str {
-    std::str::from_utf8(headers)
-        .unwrap()
-        .lines()
-        .filter_map(|line| line.split_once(':'))
-        .find_map(|(header, value)| header.eq_ignore_ascii_case(name).then_some(value.trim()))
-        .unwrap()
 }
 
 #[tokio::test]

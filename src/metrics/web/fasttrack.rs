@@ -5,11 +5,7 @@ use crate::web::control::WebRuntimePublication;
 use crate::web::telemetry::WebDecoyFastTrackDisposition;
 
 /// Renders fixed-cardinality decoy capability-routing metrics.
-pub(super) fn render(
-    out: &mut String,
-    publication: &WebRuntimePublication,
-    config: &ProxyConfig,
-) {
+pub(super) fn render(out: &mut String, publication: &WebRuntimePublication, config: &ProxyConfig) {
     let _ = writeln!(
         out,
         "# HELP telemt_web_decoy_fasttrack_mode Effective restart-frozen decoy fast-track mode"
@@ -40,20 +36,6 @@ pub(super) fn render(
             publication.telemetry.decoy_fasttrack_total(disposition)
         );
     }
-
-    let _ = writeln!(
-        out,
-        "# HELP telemt_web_decoy_fasttrack_shadow_mismatches_total Shadow decisions that disagreed with legacy bridge eligibility"
-    );
-    let _ = writeln!(
-        out,
-        "# TYPE telemt_web_decoy_fasttrack_shadow_mismatches_total counter"
-    );
-    let _ = writeln!(
-        out,
-        "telemt_web_decoy_fasttrack_shadow_mismatches_total {}",
-        publication.telemetry.decoy_fasttrack_shadow_mismatches()
-    );
 }
 
 #[cfg(test)]
@@ -67,9 +49,6 @@ mod tests {
         control
             .telemetry()
             .record_decoy_fasttrack(WebDecoyFastTrackDisposition::EnforceFastTrack);
-        control
-            .telemetry()
-            .record_decoy_fasttrack_shadow_mismatch();
         let publication = control.subscribe().borrow().clone();
         let mut config = ProxyConfig::default();
         config.web.decoy_fasttrack_mode = WebDecoyFastTrackMode::Enforce;
@@ -88,6 +67,5 @@ mod tests {
         assert!(output.contains(
             "telemt_web_decoy_fasttrack_requests_total{disposition=\"enforce_fasttrack\"} 1"
         ));
-        assert!(output.contains("telemt_web_decoy_fasttrack_shadow_mismatches_total 1"));
     }
 }

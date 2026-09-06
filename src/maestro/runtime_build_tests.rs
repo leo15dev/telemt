@@ -24,6 +24,43 @@ fn test_listener(port: u16) -> crate::config::ListenerConfig {
     }
 }
 
+fn web_config_with_fasttrack(mode: &str) -> ProxyConfig {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.toml");
+    let config = format!(
+        r#"
+[access.users]
+alice = "000102030405060708090a0b0c0d0e0f"
+
+[[server.listeners]]
+ip = "127.0.0.1"
+port = 18080
+transport = "web"
+proxy_protocol = false
+web_client_ip_source = "x_forwarded_for"
+web_trusted_proxy_cidrs = ["127.0.0.1/32"]
+
+[web]
+enabled = true
+decoy_fasttrack_mode = "{mode}"
+
+[[web.vhosts]]
+host = "proxy.example.com"
+public_addr = "203.0.113.10:443"
+
+[web.vhosts.decoy]
+mode = "http_upstream"
+upstream = "http://127.0.0.1:18081"
+
+[[web.vhosts.profiles]]
+user = "alice"
+secret_mode = "plain"
+"#,
+    );
+    std::fs::write(&path, config).unwrap();
+    ProxyConfig::load(path).unwrap()
+}
+
 #[test]
 fn process_socket_and_logging_changes_are_deferred() {
     let old = ProxyConfig::default();
@@ -172,11 +209,8 @@ fn web_allocation_limits_are_deferred_until_restart() {
 
 #[test]
 fn web_decoy_fasttrack_mode_is_deferred_without_runtime_publication() {
-    let mut old = ProxyConfig::default();
-    old.rebuild_runtime_user_auth().unwrap();
-    old.rebuild_runtime_web().unwrap();
-    let mut desired = old.clone();
-    desired.web.decoy_fasttrack_mode = crate::config::WebDecoyFastTrackMode::Enforce;
+    let old = web_config_with_fasttrack("off");
+    let desired = web_config_with_fasttrack("enforce");
 
     let resolved = resolve_reload_config(&old, &desired).unwrap();
 
@@ -186,6 +220,12 @@ fn web_decoy_fasttrack_mode_is_deferred_without_runtime_publication() {
     );
     assert_eq!(
         resolved.effective.web.decoy_fasttrack_mode,
+        old.web.decoy_fasttrack_mode
+    );
+    let effective_runtime = resolved.effective.web.runtime.as_ref().unwrap();
+    let effective_vhost = &effective_runtime.vhosts["proxy.example.com"];
+    assert_eq!(
+        effective_vhost.decoy_fasttrack_mode,
         old.web.decoy_fasttrack_mode
     );
     assert!(!resolved.runtime_changed);

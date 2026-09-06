@@ -203,7 +203,7 @@ pub struct WebLimitsConfig {
     /// Process-wide retained and in-flight WEB debug byte ceiling.
     #[serde(default = "default_web_debug_bytes_global")]
     pub debug_bytes_global: usize,
-    /// Declared process envelope for HTTP, queues, lane state, learning, and static snapshots.
+    /// Declared process envelope for HTTP, queues, capabilities, learning, and static snapshots.
     #[serde(default = "default_web_memory_envelope_bytes")]
     pub memory_envelope_bytes: usize,
     /// Sustained process-wide bootstrap issuance rate.

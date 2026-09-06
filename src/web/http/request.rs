@@ -24,12 +24,17 @@ pub(super) fn match_profile(
     vhost: &WebRuntimeVhost,
     candidate: &[u8; 32],
 ) -> Option<Arc<WebRuntimeProfile>> {
-    debug_assert_eq!(vhost.capabilities.len(), vhost.profiles.len());
+    // Runtime construction owns alignment; any future constructor drift must fail closed.
+    if vhost.capabilities.len() != vhost.profiles.len() {
+        return None;
+    }
     let scan = scan_capabilities(&vhost.capabilities, candidate);
     if bool::from(scan.matched) {
         usize::try_from(scan.matched_index)
             .ok()
             .and_then(|index| vhost.profiles.get(index))
+            // Revalidate the selected identity after the index-only complete scan.
+            .filter(|profile| bool::from(profile.capability.ct_eq(candidate)))
             .map(Arc::clone)
     } else {
         None

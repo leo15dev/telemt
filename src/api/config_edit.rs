@@ -15,20 +15,30 @@ use super::model::ApiFailure;
 use crate::config::ProxyConfig;
 use crate::config::hot_reload::classify_config_changes;
 use crate::maestro::reload::{ReloadAccepted, ReloadRequest, ReloadSubmitError};
-use crate::maestro::runtime_build::resolve_reload_config;
+use crate::maestro::runtime_build::{
+    ResolvedReloadConfig, deferred_process_fields, resolve_reload_config,
+};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Result of one validated managed-config mutation.
 #[derive(Debug, Serialize)]
 pub(super) struct PatchConfigResponse {
+    /// Revision of the persisted desired configuration.
     pub revision: String,
+    /// Whether any changed field is not hot-reloadable.
     pub restart_required: bool,
+    /// Whether the effective runtime snapshot must be reloaded.
     pub runtime_reload_required: bool,
+    /// Whether any desired field remains deferred until process restart.
     pub process_restart_required: bool,
+    /// Stable paths of desired fields retained from the active process.
     pub deferred_process_fields: Vec<String>,
+    /// Top-level managed sections changed by the mutation.
     pub changed: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Accepted runtime reload when one was requested and required.
     pub reload: Option<ReloadAccepted>,
 }
 
@@ -51,11 +61,11 @@ pub(super) async fn patch_config(
     let active_config = shared.active_runtime.load_full().config();
     let mut prepared =
         prepare_patch_to_path(&shared.config_path, &patch_json, expected_revision).await?;
-    let resolved = resolve_reload_config(&active_config, &prepared.desired_config)
-        .map_err(ApiFailure::bad_request)?;
-    prepared.response.runtime_reload_required = resolved.runtime_changed;
-    prepared.response.process_restart_required = !resolved.deferred_process_fields.is_empty();
-    prepared.response.deferred_process_fields = resolved.deferred_process_fields;
+    let resolved = reconcile_runtime_effect(
+        &mut prepared.response,
+        &active_config,
+        &prepared.desired_config,
+    )?;
     let reservation = if let Some(request) = reload_request.filter(|_| resolved.runtime_changed) {
         Some(
             shared
@@ -77,6 +87,19 @@ pub(super) async fn patch_config(
         .runtime_events
         .record("api.config.patch.ok", format!("changed={:?}", resp.changed));
     Ok(resp)
+}
+
+fn reconcile_runtime_effect(
+    response: &mut PatchConfigResponse,
+    active_config: &ProxyConfig,
+    desired_config: &ProxyConfig,
+) -> Result<ResolvedReloadConfig, ApiFailure> {
+    let resolved =
+        resolve_reload_config(active_config, desired_config).map_err(ApiFailure::bad_request)?;
+    response.runtime_reload_required = resolved.runtime_changed;
+    response.process_restart_required = !resolved.deferred_process_fields.is_empty();
+    response.deferred_process_fields = resolved.deferred_process_fields.clone();
+    Ok(resolved)
 }
 
 /// Core patch logic, decoupled from hyper/shared-state so it is unit-testable
@@ -206,7 +229,8 @@ async fn prepare_patch_to_path(
     let revision = compute_snapshot_revision(&candidate);
     let new_cfg = candidate.config;
     let class = classify_config_changes(&old_cfg, &new_cfg);
-    let resolved = resolve_reload_config(&old_cfg, &new_cfg).map_err(ApiFailure::bad_request)?;
+    let deferred_process_fields =
+        deferred_process_fields(&old_cfg, &new_cfg).map_err(ApiFailure::bad_request)?;
 
     Ok(PreparedConfigPatch {
         owner_path,
@@ -215,9 +239,9 @@ async fn prepare_patch_to_path(
         response: PatchConfigResponse {
             revision,
             restart_required: class.restart_required,
-            runtime_reload_required: resolved.runtime_changed,
-            process_restart_required: !resolved.deferred_process_fields.is_empty(),
-            deferred_process_fields: resolved.deferred_process_fields,
+            runtime_reload_required: class.restart_required,
+            process_restart_required: !deferred_process_fields.is_empty(),
+            deferred_process_fields,
             changed: class.changed,
             reload: None,
         },
@@ -239,7 +263,7 @@ fn reload_submit_failure(error: ReloadSubmitError) -> ApiFailure {
     }
 }
 
-/// Return only the editable config sections + current revision.
+/// Returns only the editable config sections and current revision.
 pub(super) async fn read_managed_config(config_path: &Path) -> Result<(Toml, String), ApiFailure> {
     let loaded = load_config_snapshot(config_path, false).await?;
     let revision = compute_snapshot_revision(&loaded);

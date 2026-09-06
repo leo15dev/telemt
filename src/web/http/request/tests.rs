@@ -32,6 +32,20 @@ fn capability_scan_checks_every_entry_independent_of_match_position() {
     assert_eq!(empty.comparisons, 0);
 }
 
+#[test]
+fn capability_profile_table_drift_fails_closed() {
+    let capability = [5u8; 32];
+    let mut config = crate::web::http::tests::runtime_config(capability, WebCarrier::Https);
+    let runtime = Arc::get_mut(config.web.runtime.as_mut().unwrap()).unwrap();
+    let vhost = Arc::get_mut(runtime.vhosts.get_mut("proxy.example.com").unwrap()).unwrap();
+
+    assert!(match_profile(vhost, &capability).is_some());
+    vhost.capabilities[0] = [6u8; 32];
+    assert!(match_profile(vhost, &[6u8; 32]).is_none());
+    vhost.capabilities = Vec::new().into_boxed_slice();
+    assert!(match_profile(vhost, &capability).is_none());
+}
+
 proptest! {
     #[test]
     fn every_capability_has_one_canonical_bridge_query(capability in any::<[u8; 32]>()) {

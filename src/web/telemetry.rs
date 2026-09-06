@@ -10,6 +10,7 @@ pub(crate) use carrier::{
     WebCarrierFailureCounter, WebCarrierFailurePhase, WebCarrierLearningCounter,
     WebCarrierLearningOutcome, WebCarrierSelectionCounter, WebCarrierSelectionDisposition,
 };
+// Decoy fast-track counters retain a fixed process-owned disposition set.
 mod fasttrack;
 use fasttrack::DECOY_FASTTRACK_SLOTS;
 pub(crate) use fasttrack::{WebDecoyFastTrackCounter, WebDecoyFastTrackDisposition};
@@ -320,7 +321,6 @@ pub(crate) struct WebTelemetry {
     carrier_failures: [AtomicU64; CARRIER_FAILURE_SLOTS],
     carrier_learning_outcomes: [AtomicU64; CARRIER_LEARNING_SLOTS],
     decoy_fasttrack_requests: [AtomicU64; DECOY_FASTTRACK_SLOTS],
-    decoy_fasttrack_shadow_mismatches: AtomicU64,
     session_closures: [AtomicU64; SESSION_CLOSE_SLOTS],
     session_observations: [AtomicU64; SESSION_OBSERVATION_SLOTS],
     bridge_recovery_events: [AtomicU64; WebBridgeRecoveryEvent::ALL.len()],
@@ -349,7 +349,6 @@ impl WebTelemetry {
             carrier_failures: std::array::from_fn(|_| AtomicU64::new(0)),
             carrier_learning_outcomes: std::array::from_fn(|_| AtomicU64::new(0)),
             decoy_fasttrack_requests: std::array::from_fn(|_| AtomicU64::new(0)),
-            decoy_fasttrack_shadow_mismatches: AtomicU64::new(0),
             session_closures: std::array::from_fn(|_| AtomicU64::new(0)),
             session_observations: std::array::from_fn(|_| AtomicU64::new(0)),
             bridge_recovery_events: std::array::from_fn(|_| AtomicU64::new(0)),

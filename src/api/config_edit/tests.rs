@@ -134,11 +134,14 @@ async fn patch_web_debug_is_hot_and_limits_are_process_deferred() {
 #[tokio::test]
 async fn patch_web_decoy_fasttrack_requires_only_process_restart() {
     let (path, _directory) = temp_config("[web]\nenabled = false\n");
+    let active = ProxyConfig::load(&path).unwrap();
     let patch: Json = serde_json::json!({
         "web": {"decoy_fasttrack_mode": "shadow"}
     });
 
-    let response = apply_patch_to_path(&path, &patch, None).await.unwrap();
+    let mut prepared = prepare_patch_to_path(&path, &patch, None).await.unwrap();
+    reconcile_runtime_effect(&mut prepared.response, &active, &prepared.desired_config).unwrap();
+    let response = prepared.response;
 
     assert!(response.restart_required);
     assert!(!response.runtime_reload_required);

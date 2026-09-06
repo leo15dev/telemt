@@ -57,7 +57,6 @@ fn fixed_counter_sets_and_acceptor_guard_are_exact() {
         telemetry.decoy_fasttrack_total(WebDecoyFastTrackDisposition::ShadowWouldFastTrack),
         1
     );
-    assert_eq!(telemetry.decoy_fasttrack_shadow_mismatches(), 0);
     assert_eq!(
         telemetry.session_close_counters().len(),
         WebCarrier::ALL.len() * SessionCloseReason::ALL.len()
