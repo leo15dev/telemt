@@ -91,6 +91,9 @@ fn rendered_page_embeds_the_configured_bridge_timing_policy() {
         page.body
             .contains("helloTimer=setTimeout(()=>fail('timeout'),bridgeRequestMs)")
     );
+    assert!(page.body.contains(
+        "if(!createStarted){createStarted=true;if(helloTimer)clearTimeout(helloTimer);helloTimer=null;helloFrame=message.data"
+    ));
 }
 
 #[test]
