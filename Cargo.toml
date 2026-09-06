@@ -1,6 +1,6 @@
 [package]
 name = "telemt"
-version = "3.5.5"
+version = "3.5.6"
 edition = "2024"
 
 [features]
@@ -97,6 +97,10 @@ tempfile = "3.27.0"
 
 [[bench]]
 name = "crypto_bench"
+harness = false
+
+[[bench]]
+name = "web_decoy_fasttrack"
 harness = false
 
 [profile.release]
