@@ -177,3 +177,26 @@ fn ambiguous_commit_is_resolved_before_carrier_advance() {
             .contains("addEventListener('pagehide',()=>fail('navigation')")
     );
 }
+
+#[test]
+fn committed_websocket_lane_escalates_only_pre_upgrade_failure() {
+    let page = render_page("HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH", 4);
+
+    assert!(page.body.contains("let upgraded=false,settled=false"));
+    assert!(page.body.contains(
+        "if(settled||closed||lanes.get(lane.id)!==lane||lane.socket!==opened)return"
+    ));
+    assert!(page.body.contains(
+        "if(!upgraded){lane.socket=null;opened.close();recoveryController.recover(reason,null);return}"
+    ));
+    assert!(page
+        .body
+        .contains("recoveryController.recover(reason,null);return}finishLane(lane,true)"));
+    assert!(page
+        .body
+        .contains("openTimer=setTimeout(()=>finishSocket('timeout'),websocketOpenMs)"));
+    assert!(page.body.contains("upgraded=true;lane.ready=true"));
+    assert!(page
+        .body
+        .contains("lane.socket.onclose=()=>finishSocket(upgraded?'network':'upgrade')"));
+}
