@@ -188,7 +188,5 @@ fn rendered_page_preserves_exact_v1_status_control_envelope() {
             .count(),
         1
     );
-    assert!(!page
-        .body
-        .contains("port.postMessage({t:'status',state,"));
+    assert!(!page.body.contains("port.postMessage({t:'status',state,"));
 }
