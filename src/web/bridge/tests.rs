@@ -177,3 +177,16 @@ fn ambiguous_commit_is_resolved_before_carrier_advance() {
             .contains("addEventListener('pagehide',()=>fail('navigation')")
     );
 }
+
+#[test]
+fn rendered_page_preserves_exact_v1_status_control_envelope() {
+    let page = render_page("HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH", 4);
+
+    assert_eq!(
+        page.body
+            .matches("port.postMessage({t:'status',state})")
+            .count(),
+        1
+    );
+    assert!(!page.body.contains("port.postMessage({t:'status',state,"));
+}

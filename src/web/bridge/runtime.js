@@ -23,13 +23,7 @@ const pending=[],upPending=[],recoveryPending=[],lanes=new Map(),closedLanes=new
 const canonicalFailures=['timeout','network','upgrade','http','protocol'];
 const failure=(reason,message)=>Object.assign(new Error(message||reason),{telemtReason:reason});
 const failureReason=(error,fallback)=>error&&canonicalFailures.includes(error.telemtReason)?error.telemtReason:fallback;
-const status=(state,phase,reason,deadlineMs)=>{
- if(!port||closed)return;
- const currentPhase=phase||(state==='connected'?'committed':state==='reconnecting'?'retrying':state==='failed'?'terminal':createStarted?'negotiating':'starting');
- let currentDeadline=deadlineMs;
- if(currentDeadline===undefined)currentDeadline=negotiationStartedAt?Math.max(0,negotiationStartedAt+negotiatedFinalDeadline*1000-Date.now()):0;
- port.postMessage({t:'status',state,phase:currentPhase,reason:reason||'',deadline_ms:Math.max(0,Math.ceil(currentDeadline))});
-};
+const status=state=>{if(port&&!closed)port.postMessage({t:'status',state})};
 const socketURL=()=>relayOrigin.replace(/^https:/,'wss:')+'/api/v1/ws';
 const requestClient=requestSupport.create({
  origin:()=>relayOrigin,closed:()=>closed,retryMs:()=>bridgeRetryMs,longPollMs:()=>longPollMs,requestMs:()=>bridgeRequestMs,
@@ -48,7 +42,7 @@ function settleBatch(lease){if(!buffers.settleBatch(lease))return false;detachLe
 function cancelBatch(lease){if(!lease||lease.settled)return;buffers.cancelBatch(lease);detachLease(lease)}
 const attemptHeaders=(attempt,failure)=>negotiationEnabled?Object.assign({'X-Carrier-Capabilities':carrierCapabilities,'X-Carrier-Attempt':String(attempt)},failure?{'X-Carrier-Failure':failure}:{}):{};
 function finishOldRecovery(){
- recoveryReplaced=false;resetScheduler();status('connected','committed','',0);
+ recoveryReplaced=false;resetScheduler();status('connected');
  while(recoveryPending.length&&!closed){const data=recoveryPending.shift();release(data.byteLength,1,null);queueCarrier(data)}
 }
 function rejectRecoveryCommit(error){
@@ -110,13 +104,13 @@ function sampleScheduler(){
 }
 function observeResumeTrigger(){
  const gap=Math.max(schedulerGapPending,schedulerGap());schedulerGapPending=0;if(!carrierCommitted||closed)return;
- if(gap>=2*longPollMs)status('reconnecting','retrying','',bridgeRecoveryMs);
+ if(gap>=2*longPollMs)status('reconnecting');
  if(gap>=reconnectGraceMs&&!recoveryController.active())recoveryController.recover('timeout',null);
 }
 function fail(reason){
  if(closed)return;reason=reason||'protocol';if(canonicalFailures.includes(reason))terminalFailure=reason;
  rejectRecoveryCommit(failure(reason));
- status('failed','terminal',reason,0);if(port)port.postMessage({t:'close'});close(true);
+ status('failed');if(port)port.postMessage({t:'close'});close(true);
 }
 function knownCarrier(value){return value==='https'||value==='https-lanes'||value==='websocket'||value==='websocket-lanes'}
 function sessionEcho(response,expectedAttempt,states,exactAttempt){
@@ -184,7 +178,7 @@ async function resolveAttempt(reason,epoch,snapshot){
   if(!token||cursor!=='0'||(snapshot.selected&&echo.selected!==snapshot.selected))throw new Error('changed carrier replay');
   const welcome=response.body;if(closed||epoch!==attemptEpoch)return;
   cleanupToken=token;
-  if(!welcomeSent){welcomeSent=true;port.postMessage(welcome,[welcome]);status('connecting','provisional','',Math.max(0,negotiationStartedAt+negotiatedFinalDeadline*1000-Date.now()))}
+  if(!welcomeSent){welcomeSent=true;port.postMessage(welcome,[welcome]);status('connecting')}
   if(echo.state!=='provisional'){switching=false;fail('protocol');return}
   advanceConfirmed(reason,epoch);
  }catch(error){if(!closed&&epoch===attemptEpoch){switching=false;fail(failureReason(error,'protocol'))}}
@@ -222,7 +216,7 @@ async function createSession(epoch){
   if(!token||cursor!=='0'){advanceCarrier('protocol',epoch);return}
   const welcome=response.body;if(closed||epoch!==attemptEpoch)return;
   carrier=selected;sessionToken=token;cleanupToken=token;downCursor=cursor;
-  if(!welcomeSent){welcomeSent=true;port.postMessage(welcome,[welcome]);status('connecting','provisional','',Math.max(0,negotiationStartedAt+negotiatedFinalDeadline*1000-Date.now()))}
+  if(!welcomeSent){welcomeSent=true;port.postMessage(welcome,[welcome]);status('connecting')}
   if(carrier==='websocket')openCandidateSocket(null,null,epoch);
   maybeStartCandidate();
  }catch(error){if(closed||epoch!==attemptEpoch)return;advanceCarrier(failureReason(error,'network'),epoch)}
@@ -245,7 +239,7 @@ function commitCarrier(probe,epoch){
  carrierCommitted=true;candidateRunning=false;if(carrierTimer)clearTimeout(carrierTimer);carrierTimer=null;
  resetScheduler();
  attemptController=null;currentAttempt=null;
- status('connected','committed','',0);
+ status('connected');
  if(carrier==='https')poll();
  else if(carrier==='https-lanes'){const lane=lanes.get(probe.id);if(lane&&!lane.polling)pollLane(lane)}
  while(pending.length&&!closed){const data=pending.shift();release(data.byteLength,1,null);queueCarrier(data)}
@@ -504,13 +498,13 @@ function activatePort(nextPort){
     else if(!carrierCommitted){if(!reserve(data,null)){fail('capacity');return}pending.push(data);maybeStartCandidate()}
     else queueCarrier(data);
    }
-  }else if(message.data&&message.data.t==='close'){status('failed','terminal','closed',0);close(true)}
+  }else if(message.data&&message.data.t==='close'){status('failed');close(true)}
  };
- port.start();status('connecting','starting','',bridgeRequestMs);helloTimer=setTimeout(()=>fail('timeout'),bridgeRequestMs);
+ port.start();status('connecting');helloTimer=setTimeout(()=>fail('timeout'),bridgeRequestMs);
 }
 recoveryController=recoverySupport.create({
  budgetMs:()=>bridgeRecoveryMs,requestMs:()=>bridgeRequestMs,url:()=>relayOrigin+recoveryPath,token:()=>cleanupToken||sessionToken,
- read:(response,limit,exact,signal)=>responseBody.read(response,limit,exact,signal),cancel:responseBody.cancel,status:remaining=>status('reconnecting','retrying','',remaining),
+ read:(response,limit,exact,signal)=>responseBody.read(response,limit,exact,signal),cancel:responseBody.cancel,status:()=>status('reconnecting'),
  restored:finishOldRecovery,replace:replaceCarrier,replaceable:error=>failureReason(error,'network')!=='protocol',
  reason:(error,fallback)=>failureReason(error,fallback),terminal:reason=>fail(recoveryController.remaining()<=0?'timeout':reason)
 });
